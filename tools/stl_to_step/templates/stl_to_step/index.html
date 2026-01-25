@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>STL 转 STEP 转换工具</title>
     <link rel="stylesheet" href="{{ url_for('stl_to_step_page.static', filename='style.css') }}">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Three.js 延迟加载：只在需要预览时才加载，不影响页面首次加载速度 -->
 </head>
 <body>
     {% set page_title = 'STL 转 STEP 转换工具' %}

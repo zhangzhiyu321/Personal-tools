@@ -326,16 +326,54 @@ function parseASCIISTL(buffer) {
     return { vertices };
 }
 
-// 预览文件
-function previewFile(index) {
-    const file = selectedFiles[index];
-    if (!file) return;
+// 动态加载 Three.js（延迟加载，只在需要预览时才加载）
+let threeJsLoading = false;
+let threeJsLoaded = false;
 
-    if (typeof THREE === 'undefined') {
-        alert('Three.js 未加载，无法预览');
-        return;
-    }
+function loadThreeJS() {
+    return new Promise((resolve, reject) => {
+        // 如果已经加载，直接返回
+        if (typeof THREE !== 'undefined' && THREE.Scene) {
+            threeJsLoaded = true;
+            resolve();
+            return;
+        }
 
+        // 如果正在加载，等待加载完成
+        if (threeJsLoading) {
+            const checkInterval = setInterval(() => {
+                if (typeof THREE !== 'undefined' && THREE.Scene) {
+                    clearInterval(checkInterval);
+                    threeJsLoaded = true;
+                    resolve();
+                }
+            }, 100);
+            return;
+        }
+
+        // 开始加载
+        threeJsLoading = true;
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+        script.async = true;
+
+        script.onload = () => {
+            threeJsLoaded = true;
+            threeJsLoading = false;
+            resolve();
+        };
+
+        script.onerror = () => {
+            threeJsLoading = false;
+            reject(new Error('Three.js 加载失败，请检查网络连接'));
+        };
+
+        document.head.appendChild(script);
+    });
+}
+
+// 实际的预览逻辑（提取为独立函数）
+function doPreview(file) {
     // 先关闭之前的预览
     closePreviewModal();
 
@@ -509,6 +547,47 @@ function previewFile(index) {
     };
 
     reader.readAsArrayBuffer(file);
+}
+
+// 预览文件（入口函数，负责加载 Three.js）
+function previewFile(index) {
+    const file = selectedFiles[index];
+    if (!file) return;
+
+    const container = document.getElementById('previewContainer');
+    
+    // 如果 Three.js 未加载，先加载它
+    if (typeof THREE === 'undefined' || !THREE.Scene) {
+        // 显示加载提示
+        closePreviewModal();
+        previewModal.style.display = 'block';
+        document.getElementById('previewTitle').textContent = `预览: ${file.name}`;
+        if (container) {
+            container.innerHTML = '<p style="padding: 20px; text-align: center; color: #7f8c8d;">正在加载预览组件...</p>';
+        }
+
+        loadThreeJS()
+            .then(() => {
+                // Three.js 加载完成，执行预览
+                doPreview(file);
+            })
+            .catch((error) => {
+                // 加载失败，显示错误
+                if (container) {
+                    container.innerHTML = `
+                        <div style="padding: 40px; text-align: center;">
+                            <p style="color: #e74c3c; font-size: 1.1em; margin-bottom: 10px;">无法加载预览组件</p>
+                            <p style="color: #7f8c8d; font-size: 0.9em;">错误: ${error.message}</p>
+                            <p style="color: #7f8c8d; font-size: 0.85em; margin-top: 10px;">请检查网络连接后重试</p>
+                        </div>
+                    `;
+                }
+            });
+        return;
+    }
+
+    // Three.js 已加载，直接预览
+    doPreview(file);
 }
 
 // 处理拖拽
