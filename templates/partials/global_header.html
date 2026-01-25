@@ -1,0 +1,48 @@
+{# 
+  全局页头组件
+  使用方式（示例）：
+  
+  {% set page_title = 'STL 转 STEP 转换工具' %}
+  {% set page_subtitle = '高精度文件格式转换' %}
+  {% set show_back = true %}
+  {% include 'partials/global_header.html' %}
+
+  可选变量：
+  - page_title: 主标题
+  - page_subtitle: 副标题
+  - show_back: 是否显示「返回小工具主页」按钮（默认 false）
+  - back_href: 返回按钮链接（默认 '/'）
+  - header_image: 头部背景图片或 Logo（默认使用 static/images/tools-header.png，如果存在）
+#}
+
+{% set _back = back_href or '/' %}
+
+<div class="header global-header">
+    <div class="header-inner">
+        <div class="header-left">
+            {# 如果提供了 header_image，则用图片做主视觉，否则用文字标题 #}
+            {% if header_image or false %}
+                <img
+                    src="{{ header_image }}"
+                    alt="{{ page_title or '个人小工具集合' }}"
+                    class="header-logo"
+                >
+            {% else %}
+                <h1>{{ page_title or '个人小工具集合' }}</h1>
+            {% endif %}
+            {% if page_subtitle %}
+                <div class="subtitle">{{ page_subtitle }}</div>
+            {% endif %}
+        </div>
+
+        <div class="header-right">
+            {% if show_back %}
+                <a href="{{ _back }}" class="header-back-link">← 返回小工具主页</a>
+            {% else %}
+                <div>后端：Flask · 本地运行</div>
+                <div style="margin-top: 2px;">以后要加新工具，只要在后端注册就行</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+

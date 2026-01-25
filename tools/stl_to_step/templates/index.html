@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STL 转 STEP 转换工具</title>
+    <link rel="stylesheet" href="{{ url_for('stl_to_step_page.static', filename='style.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>STL 转 STEP 转换工具</h1>
+            <p class="subtitle">高精度文件格式转换 · <a href="/" style="color:#ecf0f1;text-decoration:underline;">返回小工具主页</a></p>
+        </header>
+
+        <main>
+            <!-- 文件上传区域 -->
+            <div class="upload-section">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-content" id="uploadContent">
+                        <h2>选择 STL 文件</h2>
+                        <p>拖拽文件到此处，或点击下方按钮选择</p>
+                        <input type="file" id="fileInput" accept=".stl,.STL" multiple hidden>
+                        <button class="btn-select" id="selectFileBtn">
+                            选择文件
+                        </button>
+                    </div>
+                    <!-- 文件列表显示在上传区域内 -->
+                    <div class="file-list-inline" id="fileList" style="display: none;"></div>
+                </div>
+            </div>
+
+            <!-- 统一的功能卡片区域 -->
+            <div class="main-card">
+                <!-- 左侧：设置和信息 -->
+                <div class="card-left">
+                    <!-- 精度设置区域 -->
+                    <div class="settings-section">
+                        <h3>精度设置</h3>
+                        <div class="precision-control">
+                            <label for="tolerance">容差 (Tolerance):</label>
+                            <div class="tolerance-input-group">
+                                <input type="range" id="tolerance" min="1" max="9" value="6" step="1">
+                                <div class="tolerance-display">
+                                    <span id="toleranceValue">1e-6</span>
+                                    <span class="tolerance-label" id="toleranceLabel">高精度</span>
+                                </div>
+                            </div>
+                            <div class="tolerance-presets">
+                                <button class="preset-btn" data-value="1">1e-1</button>
+                                <button class="preset-btn" data-value="5">1e-5</button>
+                                <button class="preset-btn" data-value="9">1e-9</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 转换信息显示区域 -->
+                    <div class="info-section" id="infoSection">
+                        <h3>转换信息</h3>
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <span class="info-label">文件数量:</span>
+                                <span class="info-value" id="fileCount">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">文件总大小:</span>
+                                <span class="info-value" id="fileSize">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">三角形数量:</span>
+                                <span class="info-value" id="triangleCount">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">合并边数:</span>
+                                <span class="info-value" id="edgeCount">-</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">状态:</span>
+                                <span class="info-value status" id="status">等待中</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 右侧：进度和操作 -->
+                <div class="card-right">
+                    <!-- 进度条区域 -->
+                    <div class="progress-section" id="progressSection" style="display: none;">
+                        <h3>转换进度</h3>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="progressBar">
+                                <div class="progress-fill" id="progressFill"></div>
+                            </div>
+                            <div class="progress-text">
+                                <span id="progressPercent">0%</span>
+                                <span id="progressTime">预计剩余时间: 计算中...</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 操作按钮 -->
+                    <div class="action-section">
+                        <button class="btn-convert" id="convertBtn" disabled>
+                            开始转换
+                        </button>
+                        <button class="btn-download" id="downloadBtn" style="display: none;">
+                            下载 STEP 文件
+                        </button>
+                        <button class="btn-download-all" id="downloadAllBtn" style="display: none;">
+                            下载全部文件
+                        </button>
+                        <button class="btn-reset" id="resetBtn" style="display: none;">
+                            重新开始
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>高精度 STL 到 STEP 转换</p>
+        </footer>
+    </div>
+
+    <!-- 预览模态框 -->
+    <div class="modal" id="previewModal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="previewTitle">STL 文件预览</h3>
+                <button class="modal-close" id="closePreview">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="previewContainer" style="width: 100%; height: 500px; background: #f0f0f0;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('stl_to_step_page.static', filename='app.js') }}"></script>
+</body>
+</html>
+

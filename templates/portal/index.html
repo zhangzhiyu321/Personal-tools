@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>个人小工具集合</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: #fff;
+            border-bottom: 1px solid #e0e0e0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .header-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .header-left h1 {
+            font-size: 24px;
+            font-weight: 500;
+            color: #333;
+        }
+
+        .header-left .subtitle {
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .header-right {
+            font-size: 12px;
+            color: #999;
+            text-align: right;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px 24px 32px;
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .search-wrapper {
+            flex: 1;
+            min-width: 220px;
+            position: relative;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 10px 12px 10px 32px;
+            border-radius: 999px;
+            border: 1px solid #ddd;
+            font-size: 14px;
+            background: #fff;
+            transition: all 0.2s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #666;
+            box-shadow: 0 0 0 2px rgba(0,0,0,0.04);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        .tag-hint {
+            font-size: 12px;
+            color: #999;
+        }
+
+        .tools-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 18px;
+        }
+
+        .tool-card {
+            background: #fff;
+            border-radius: 12px;
+            padding: 18px 18px 16px;
+            border: 1px solid #e5e5e5;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        }
+
+        .tool-card:hover {
+            transform: translateY(-2px);
+            border-color: #d0d0d0;
+            box-shadow: 0 6px 14px rgba(0,0,0,0.06);
+        }
+
+        .tool-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .tool-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+            background: #f3f4f6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .tool-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: #222;
+        }
+
+        .tool-desc {
+            font-size: 13px;
+            color: #666;
+            min-height: 38px;
+        }
+
+        .tool-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .tag {
+            font-size: 11px;
+            color: #555;
+            background: #f3f3f3;
+            padding: 3px 8px;
+            border-radius: 999px;
+        }
+
+        .tool-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 2px;
+        }
+
+        .tool-link {
+            font-size: 12px;
+            color: #444;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .tool-link span {
+            font-size: 14px;
+        }
+
+        .empty-hint {
+            margin-top: 40px;
+            text-align: center;
+            font-size: 13px;
+            color: #999;
+        }
+
+        @media (max-width: 768px) {
+            .header-inner {
+                padding: 16px 16px;
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .container {
+                padding: 16px 16px 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    {% set page_title = '个人小工具集合' %}
+    {% set page_subtitle = '把自己常用的小功能集中到一个入口里，随时打开就能用' %}
+    {% set show_back = false %}
+    {% include 'partials/global_header.html' %}
+
+    <div class="container">
+        <div class="toolbar">
+            <div class="search-wrapper">
+                <span class="search-icon">🔍</span>
+                <input
+                    id="toolSearch"
+                    class="search-input"
+                    type="text"
+                    placeholder="搜索工具名称、功能描述或标签（例如：Excel / 打卡 / 文本处理）">
+            </div>
+            <div class="tag-hint">
+                小提示：搜索时会匹配工具的名称、描述和标签
+            </div>
+        </div>
+
+        <div id="toolsGrid" class="tools-grid">
+            {% for tool in tools %}
+            <div class="tool-card"
+                 data-name="{{ tool.name | lower }}"
+                 data-desc="{{ tool.description | lower }}"
+                 data-tags="{{ (tool.tags | join(' ')) | lower }}"
+                 onclick="window.location.href='{{ tool.path }}'">
+                <div class="tool-header">
+                    <div class="tool-icon">{{ tool.icon }}</div>
+                    <div class="tool-title">{{ tool.name }}</div>
+                </div>
+                <div class="tool-desc">{{ tool.description }}</div>
+                <div class="tool-tags">
+                    {% for tag in tool.tags %}
+                    <span class="tag">#{{ tag }}</span>
+                    {% endfor %}
+                </div>
+                <div class="tool-footer">
+                    <div class="tool-link">
+                        进入工具 <span>→</span>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div id="emptyHint" class="empty-hint" style="display: none;">
+            没有找到匹配的工具，可以换个关键词试试。
+        </div>
+    </div>
+
+    <script>
+        const searchInput = document.getElementById('toolSearch');
+        const toolsGrid = document.getElementById('toolsGrid');
+        const emptyHint = document.getElementById('emptyHint');
+
+        function normalize(str) {
+            if (!str) return '';
+            return str.toString().toLowerCase();
+        }
+
+        function filterTools() {
+            const keyword = normalize(searchInput.value).trim();
+            const cards = Array.from(toolsGrid.getElementsByClassName('tool-card'));
+
+            if (!keyword) {
+                cards.forEach(card => card.style.display = '');
+                emptyHint.style.display = cards.length ? 'none' : '';
+                return;
+            }
+
+            let visibleCount = 0;
+            cards.forEach(card => {
+                const name = card.dataset.name || '';
+                const desc = card.dataset.desc || '';
+                const tags = card.dataset.tags || '';
+                const full = name + ' ' + desc + ' ' + tags;
+
+                if (full.includes(keyword)) {
+                    card.style.display = '';
+                    visibleCount += 1;
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+
+            emptyHint.style.display = visibleCount === 0 ? '' : 'none';
+        }
+
+        searchInput.addEventListener('input', filterTools);
+    </script>
+</body>
+</html>
+

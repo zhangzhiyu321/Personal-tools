@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+venv/
+*.log
+.DS_Store
+tools/stl_to_step/stltostp/build/
