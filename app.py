@@ -29,6 +29,14 @@ def create_app() -> Flask:
     # 注册所有小工具的 Blueprint
     register_tools_blueprints(app)
 
+    # 初始化记账工具的数据库（在应用上下文中）
+    try:
+        from tools.expense_tracker.database import init_db
+        with app.app_context():
+            init_db(app)
+    except Exception as e:
+        print(f"记账工具数据库初始化警告: {e}")
+
     # 注册通用路由（首页 / 工具列表 API）
     register_common_routes(app)
 
@@ -59,16 +67,15 @@ def get_tools():
             "tags": ["STL", "STEP", "三维", "CAD", "格式转换"],
             "icon": "📐",
         },
-        # 以后新增工具示例：
-        # {
-        #     "id": "xxx",
-        #     "name": "工具名称",
-        #     "description": "工具说明",
-        #     "path": "/tools/xxx",
-        #     "api_prefix": "/api/xxx",
-        #     "tags": ["标签1", "标签2"],
-        #     "icon": "🛠",
-        # },
+        {
+            "id": "expense_tracker",
+            "name": "记账工具",
+            "description": "简单清晰的个人财务管理工具，支持收入支出记录、数据统计、图表展示、数据导入导出。",
+            "path": "/tools/expense_tracker",
+            "api_prefix": "/api/expense_tracker",
+            "tags": ["记账", "财务", "统计", "图表"],
+            "icon": "💰",
+        },
     ]
 
 
@@ -101,6 +108,18 @@ def register_tools_blueprints(app: Flask) -> None:
     except Exception as e:
         print("加载 STL 转 STEP 工具 Blueprint 失败：", e)
 
+    # 记账工具
+    try:
+        from tools.expense_tracker import (  # type: ignore
+            api_blueprint as expense_tracker_api_bp,
+            page_blueprint as expense_tracker_page_bp,
+        )
+
+        app.register_blueprint(expense_tracker_api_bp)
+        app.register_blueprint(expense_tracker_page_bp)
+    except Exception as e:
+        print("加载记账工具 Blueprint 失败：", e)
+
 
 def register_common_routes(app: Flask) -> None:
     """注册通用路由：首页 + 工具列表 API"""
@@ -115,7 +134,6 @@ def register_common_routes(app: Flask) -> None:
     def api_tools():
         """返回工具列表 JSON，供前端使用"""
         return jsonify(get_tools())
-
 
 if __name__ == "__main__":
     import sys

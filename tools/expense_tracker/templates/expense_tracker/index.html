@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>记账工具</title>
+    <link rel="stylesheet" href="{{ url_for('expense_tracker_page.static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    {% set page_title = '记账工具' %}
+    {% set page_subtitle = '简单清晰的个人财务管理' %}
+    {% set show_back = true %}
+    {% include 'partials/global_header.html' %}
+
+    <div class="expense-container">
+
+        <!-- 首页标签页 -->
+        <div class="tab-content active" id="tab-home">
+            <!-- 统计卡片 -->
+            <div class="stats-cards">
+                <div class="stat-card income">
+                    <div class="stat-icon">💰</div>
+                    <div class="stat-info">
+                        <div class="stat-label">总收入</div>
+                        <div class="stat-value" id="total-income">¥0.00</div>
+                    </div>
+                </div>
+                <div class="stat-card expense">
+                    <div class="stat-icon">💸</div>
+                    <div class="stat-info">
+                        <div class="stat-label">总支出</div>
+                        <div class="stat-value" id="total-expense">¥0.00</div>
+                    </div>
+                </div>
+                <div class="stat-card balance">
+                    <div class="stat-icon">📊</div>
+                    <div class="stat-info">
+                        <div class="stat-label">结余</div>
+                        <div class="stat-value" id="total-balance">¥0.00</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 快速记账表单 -->
+            <div class="quick-add-section">
+                <h2>快速记账</h2>
+                <form id="quick-add-form" class="quick-add-form">
+                    <input type="hidden" id="record-date" name="date">
+                    <input type="hidden" id="record-type" name="type" value="expense" required>
+                    <input type="hidden" id="category-selected-value" name="category" value="">
+                    
+                    <!-- 类型和金额行 -->
+                    <div class="form-compact-row">
+                        <div class="type-selector-compact">
+                            <button type="button" class="type-btn-compact active" data-type="expense">
+                                <span class="type-icon">💸</span>
+                                <span>支出</span>
+                            </button>
+                            <button type="button" class="type-btn-compact" data-type="income">
+                                <span class="type-icon">💰</span>
+                                <span>收入</span>
+                            </button>
+                        </div>
+                        <div class="amount-input-wrapper">
+                            <span class="amount-prefix">¥</span>
+                            <input type="number" id="record-amount" name="amount" step="0.01" min="0.01" placeholder="0.00" required class="amount-input">
+                        </div>
+                    </div>
+                    
+                    <!-- 分类选择 -->
+                    <div class="category-section-compact">
+                        <div class="category-selector-wrapper">
+                            <div id="category-selector" class="category-selector">
+                                <!-- 动态生成分类按钮 -->
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 备注和提交按钮 -->
+                    <div class="form-compact-row">
+                        <div class="note-input-wrapper">
+                            <span class="note-icon">📝</span>
+                            <input type="text" id="record-note" name="note" placeholder="添加备注（可选）..." class="note-input">
+                        </div>
+                        <button type="submit" class="btn-primary-compact">
+                            <span>记账</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- 今日记账记录 -->
+            <div class="today-records-section">
+                <div class="section-header">
+                    <h2>今日记录</h2>
+                </div>
+                <div id="today-records-list" class="today-records-list">
+                    <!-- 动态加载今日记录 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 数据分析标签页 -->
+        <div class="tab-content" id="tab-analysis">
+            <!-- 时间维度选择器 -->
+            <div class="time-dimension-selector">
+                <button class="dimension-btn active" data-dimension="day">日</button>
+                <button class="dimension-btn" data-dimension="week">周</button>
+                <button class="dimension-btn" data-dimension="month">月</button>
+                <button class="dimension-btn" data-dimension="year">年</button>
+                <button class="dimension-btn" data-dimension="custom">自定义</button>
+            </div>
+
+            <!-- 自定义时间范围选择器（默认隐藏） -->
+            <div class="custom-date-range" id="custom-date-range" style="display: none;">
+                <div class="date-range-inputs">
+                    <div class="form-group">
+                        <label>开始日期</label>
+                        <input type="date" id="custom-start-date" class="date-input">
+                    </div>
+                    <div class="form-group">
+                        <label>结束日期</label>
+                        <input type="date" id="custom-end-date" class="date-input">
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <button type="button" class="btn-primary" id="apply-custom-range">应用</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 分析统计卡片 -->
+            <div class="stats-cards" id="analysis-stats-cards">
+                <div class="stat-card income">
+                    <div class="stat-icon">💰</div>
+                    <div class="stat-info">
+                        <div class="stat-label">总收入</div>
+                        <div class="stat-value" id="analysis-total-income">¥0.00</div>
+                    </div>
+                </div>
+                <div class="stat-card expense">
+                    <div class="stat-icon">💸</div>
+                    <div class="stat-info">
+                        <div class="stat-label">总支出</div>
+                        <div class="stat-value" id="analysis-total-expense">¥0.00</div>
+                    </div>
+                </div>
+                <div class="stat-card balance">
+                    <div class="stat-icon">📊</div>
+                    <div class="stat-info">
+                        <div class="stat-label">结余</div>
+                        <div class="stat-value" id="analysis-total-balance">¥0.00</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 图表区域 - 三个图表从上往下直接列出 -->
+            <div class="charts-section">
+                <div class="chart-container" id="chart-container-trend">
+                    <h3>收支趋势</h3>
+                    <canvas id="line-chart"></canvas>
+                </div>
+                <div class="chart-container" id="chart-container-category">
+                    <h3>支出分类</h3>
+                    <canvas id="pie-chart"></canvas>
+                </div>
+                <div class="chart-container" id="chart-container-comparison">
+                    <h3>对比分析</h3>
+                    <canvas id="bar-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- 记录列表标签页 -->
+        <div class="tab-content" id="tab-records">
+            <div class="records-section">
+                <div class="section-header">
+                    <h2>记账记录</h2>
+                    <div class="section-actions">
+                        <div class="time-filter-wrapper">
+                            <select id="records-time-dimension" class="time-dimension-select">
+                                <option value="month">按月查看</option>
+                                <option value="week">按周查看</option>
+                                <option value="day">按日查看</option>
+                                <option value="year">按年查看</option>
+                            </select>
+                        </div>
+                        <div class="month-picker-wrapper">
+                            <button type="button" class="month-picker-btn" id="filter-month-btn">
+                                <span id="filter-month-display">选择月份</span>
+                                <span class="picker-arrow">▼</span>
+                            </button>
+                        </div>
+                        <button id="btn-export" class="btn-secondary">导出</button>
+                        <label for="file-import" class="btn-secondary">导入</label>
+                        <input type="file" id="file-import" accept=".csv" style="display: none;">
+                        <input type="hidden" id="filter-year-month" value="">
+                    </div>
+                </div>
+                <div id="records-list" class="records-list">
+                    <!-- 动态加载记录 -->
+                </div>
+                <div id="pagination" class="pagination"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 分类管理模态框 -->
+    <div id="category-modal" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <span class="modal-close">&times;</span>
+            <h2>管理分类</h2>
+            <div class="category-management">
+                <div class="category-tabs">
+                    <button class="tab-btn active" data-tab="expense">支出分类</button>
+                    <button class="tab-btn" data-tab="income">收入分类</button>
+                </div>
+                <div class="category-list-container">
+                    <div id="category-list-expense" class="category-list active"></div>
+                    <div id="category-list-income" class="category-list"></div>
+                </div>
+                <div class="add-category-form">
+                    <h3>添加新分类</h3>
+                    <form id="add-category-form">
+                        <input type="hidden" id="new-category-type" value="expense">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>名称</label>
+                                <input type="text" id="new-category-name" required placeholder="分类名称">
+                            </div>
+                            <div class="form-group">
+                                <label>图标</label>
+                                <div class="icon-selector-wrapper">
+                                    <button type="button" class="icon-selector-btn" id="icon-selector-btn">
+                                        <span id="selected-icon-preview">📦</span>
+                                        <span class="icon-selector-arrow">▼</span>
+                                    </button>
+                                    <input type="hidden" id="new-category-icon" value="📦">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>颜色</label>
+                                <input type="color" id="new-category-color" value="#C7CEEA">
+                            </div>
+                            <div class="form-group">
+                                <label>&nbsp;</label>
+                                <button type="submit" class="btn-primary">添加</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑模态框 -->
+    <div id="edit-modal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <h2>编辑记录</h2>
+            <form id="edit-form">
+                <input type="hidden" id="edit-id">
+                <div class="form-group">
+                    <label>类型</label>
+                    <select id="edit-type" name="type" required>
+                        <option value="expense">支出</option>
+                        <option value="income">收入</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>日期</label>
+                    <input type="date" id="edit-date" name="date" required>
+                </div>
+                <div class="form-group">
+                    <label>金额</label>
+                    <input type="number" id="edit-amount" name="amount" step="0.01" min="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label>分类</label>
+                    <select id="edit-category" name="category" required></select>
+                </div>
+                <div class="form-group">
+                    <label>备注</label>
+                    <input type="text" id="edit-note" name="note">
+                </div>
+                <div class="modal-actions">
+                    <button type="submit" class="btn-primary">保存</button>
+                    <button type="button" class="btn-secondary modal-close-btn">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 图标选择器模态框 -->
+    <div id="icon-picker-modal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <span class="modal-close">&times;</span>
+            <h2>选择图标</h2>
+            <div id="icon-picker-container" class="icon-picker-container">
+                <!-- 动态生成图标选项 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 通用日期时间选择器模态框 -->
+    <div id="date-picker-modal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <span class="modal-close">&times;</span>
+            <h2 id="date-picker-title">选择日期</h2>
+            <div class="date-picker-container">
+                <div class="picker-wheels">
+                    <div class="picker-wheel-wrapper">
+                        <div class="picker-wheel" id="picker-year-wheel">
+                            <!-- 动态生成年份选项 -->
+                        </div>
+                    </div>
+                    <div class="picker-wheel-wrapper">
+                        <div class="picker-wheel" id="picker-month-wheel">
+                            <!-- 动态生成月份选项 -->
+                        </div>
+                    </div>
+                    <div class="picker-wheel-wrapper" id="picker-day-wrapper" style="display: none;">
+                        <div class="picker-wheel" id="picker-day-wheel">
+                            <!-- 动态生成日期选项 -->
+                        </div>
+                    </div>
+                </div>
+                <div class="picker-selection-indicator"></div>
+                <div class="picker-actions">
+                    <button type="button" class="btn-secondary" id="date-picker-cancel">取消</button>
+                    <button type="button" class="btn-primary" id="date-picker-confirm">确定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 年月选择器模态框（保留兼容，使用通用选择器） -->
+    <div id="month-picker-modal" class="modal" style="display: none;">
+        <!-- 已废弃，使用 date-picker-modal -->
+    </div>
+
+    <!-- 主标签页导航 - 固定在底部 -->
+    <div class="main-tabs fixed-bottom">
+        <button class="main-tab-btn active" data-tab="home">
+            <span class="tab-icon">🏠</span>
+            <span class="tab-label">首页</span>
+        </button>
+        <button class="main-tab-btn" data-tab="analysis">
+            <span class="tab-icon">📊</span>
+            <span class="tab-label">数据分析</span>
+        </button>
+        <button class="main-tab-btn" data-tab="records">
+            <span class="tab-icon">📝</span>
+            <span class="tab-label">记录列表</span>
+        </button>
+    </div>
+
+    <script src="{{ url_for('expense_tracker_page.static', filename='app.js') }}"></script>
+</body>
+</html>
