@@ -16,52 +16,16 @@
             background: #f5f5f5;
             color: #333;
             line-height: 1.6;
+            padding-top: 60px;
         }
 
+        /* 全局头部样式已由global_header.html提供，这里只做补充 */
         .header {
-            background: #fff;
-            border-bottom: 1px solid #e0e0e0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
-
-        .header-inner {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px 40px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 16px;
-        }
-
-        .header-left h1 {
-            font-size: 24px;
-            font-weight: 500;
-            color: #333;
-        }
-
-        .header-left .subtitle {
-            font-size: 14px;
-            color: #666;
-            margin-top: 5px;
-        }
-
-        .header-back-link,
-        .header-right a {
-            font-size: 13px;
-            color: #555;
-            text-decoration: none;
-            padding: 8px 14px;
-            border-radius: 999px;
-            border: 1px solid #ddd;
-            background: #fafafa;
-            transition: all 0.2s ease;
-        }
-
-        .header-back-link:hover,
-        .header-right a:hover {
-            background: #f0f0f0;
-            border-color: #ccc;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
         }
 
         .container {
@@ -383,18 +347,16 @@
         }
 
         @media (max-width: 768px) {
+            body {
+                padding-top: 50px;
+            }
+            
             .main-content {
                 grid-template-columns: 1fr;
             }
 
             .container {
                 padding: 20px;
-            }
-
-            .header-inner {
-                padding: 15px 20px;
-                flex-direction: column;
-                align-items: flex-start;
             }
         }
     </style>

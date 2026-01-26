@@ -16,9 +16,15 @@
             background: #f5f5f5;
             color: #333;
             line-height: 1.6;
+            padding-top: 60px;
         }
 
         .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
             background: #fff;
             border-bottom: 1px solid #e0e0e0;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
@@ -27,27 +33,30 @@
         .header-inner {
             max-width: 1200px;
             margin: 0 auto;
-            padding: 20px 32px;
+            padding: 8px 16px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 16px;
+            gap: 12px;
         }
 
         .header-left h1 {
-            font-size: 24px;
+            font-size: 18px;
             font-weight: 500;
             color: #333;
+            margin: 0;
+            line-height: 1.2;
         }
 
         .header-left .subtitle {
-            font-size: 14px;
+            font-size: 12px;
             color: #666;
-            margin-top: 5px;
+            margin-top: 2px;
+            line-height: 1.2;
         }
 
         .header-right {
-            font-size: 12px;
+            font-size: 11px;
             color: #999;
             text-align: right;
         }
@@ -197,10 +206,22 @@
         }
 
         @media (max-width: 768px) {
+            body {
+                padding-top: 50px;
+            }
+            
             .header-inner {
-                padding: 16px 16px;
-                flex-direction: column;
-                align-items: flex-start;
+                padding: 6px 12px;
+                flex-direction: row;
+                align-items: center;
+            }
+            
+            .header-left h1 {
+                font-size: 16px;
+            }
+            
+            .header-left .subtitle {
+                font-size: 11px;
             }
 
             .container {
@@ -211,7 +232,7 @@
 </head>
 <body>
     {% set page_title = '小工具集合' %}
-    {% set page_subtitle = '把常用的小功能集中到一个入口，随时打开就能用' %}
+    {% set page_subtitle = '' %}
     {% set show_back = false %}
     {% include 'partials/global_header.html' %}
 
@@ -223,7 +244,7 @@
                     id="toolSearch"
                     class="search-input"
                     type="text"
-                    placeholder="搜索工具名称、功能描述或标签（例如：Excel / 打卡 / 文本处理）">
+                    placeholder="搜索工具名称、功能描述或标签">
             </div>
             <div class="tag-hint">
                 小提示：搜索时会匹配工具的名称、描述和标签
