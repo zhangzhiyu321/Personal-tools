@@ -10,6 +10,30 @@ let pieChart = null;
 let barChart = null;
 let currentTimeDimension = 'month'; // day, week, month, year, custom
 let customDateRange = { start: '', end: '' };
+let chartJsLoaded = false; // Chart.js是否已加载
+
+// 动态加载Chart.js（延迟加载，提升初始加载速度）
+async function loadChartJs() {
+    if (chartJsLoaded || typeof Chart !== 'undefined') {
+        chartJsLoaded = true;
+        return Promise.resolve();
+    }
+    
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = '/tools/expense_tracker/static/chart.umd.min.js';
+        script.async = true;
+        script.onload = () => {
+            chartJsLoaded = true;
+            resolve();
+        };
+        script.onerror = () => {
+            console.error('Chart.js加载失败');
+            reject(new Error('Chart.js加载失败'));
+        };
+        document.head.appendChild(script);
+    });
+}
 
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
@@ -35,11 +59,20 @@ document.addEventListener('DOMContentLoaded', () => {
         incomeBtn.classList.remove('active');
     }
     
-    // 初始化
-    loadCategories();
-    loadStatistics();
-    loadRecords();
-    loadTodayRecords(); // 加载今日记录
+    // 优化加载顺序：先加载关键数据，图表延迟加载
+    // 1. 先加载分类（记账表单需要）
+    loadCategories().then(() => {
+        // 2. 然后加载今日记录（首页显示）
+        loadTodayRecords();
+    });
+    
+    // 3. 并行加载统计和记录列表（非阻塞）
+    Promise.all([
+        loadStatistics(),
+        loadRecords()
+    ]).catch(error => {
+        console.error('数据加载错误:', error);
+    });
     
     // 绑定事件
     bindEvents();
@@ -84,7 +117,7 @@ function initMainTabs() {
 }
 
 // 切换主标签页
-function switchMainTab(tabName) {
+async function switchMainTab(tabName) {
     // 更新按钮状态
     document.querySelectorAll('.main-tab-btn').forEach(btn => {
         btn.classList.remove('active');
@@ -96,6 +129,15 @@ function switchMainTab(tabName) {
         content.classList.remove('active');
     });
     document.getElementById(`tab-${tabName}`).classList.add('active');
+    
+    // 如果切换到数据分析页面，确保Chart.js已加载
+    if (tabName === 'analysis' && !chartJsLoaded) {
+        try {
+            await loadChartJs();
+        } catch (error) {
+            console.error('加载Chart.js失败:', error);
+        }
+    }
     
     // 根据标签页加载相应数据
     if (tabName === 'analysis') {
@@ -224,9 +266,19 @@ async function loadAnalysisData() {
 }
 
 // 更新柱状图（对比分析）
-function updateBarChart(categoryStats) {
+async function updateBarChart(categoryStats) {
     const canvas = document.getElementById('bar-chart');
     if (!canvas) return;
+    
+    // 确保Chart.js已加载
+    if (!chartJsLoaded) {
+        try {
+            await loadChartJs();
+        } catch (error) {
+            console.error('Chart.js加载失败，无法显示图表:', error);
+            return;
+        }
+    }
     
     const chartCtx = canvas.getContext('2d');
     
@@ -751,18 +803,31 @@ async function loadStatistics() {
         document.getElementById('total-expense').textContent = `¥${data.total_expense.toFixed(2)}`;
         document.getElementById('total-balance').textContent = `¥${data.balance.toFixed(2)}`;
         
-        // 更新图表（首页只显示趋势和分类图）
-        updateLineChart(data.daily_stats);
-        updatePieChart(data.category_stats);
+        // 延迟更新图表（非阻塞，提升初始加载速度）
+        // 图表只在数据分析页面显示，首页不需要立即加载
+        setTimeout(() => {
+            updateLineChart(data.daily_stats).catch(err => console.error('更新折线图失败:', err));
+            updatePieChart(data.category_stats).catch(err => console.error('更新饼图失败:', err));
+        }, 100);
     } catch (error) {
         console.error('加载统计数据失败:', error);
     }
 }
 
 // 更新折线图
-function updateLineChart(dailyStats) {
+async function updateLineChart(dailyStats) {
     const canvas = document.getElementById('line-chart');
     if (!canvas) return;
+    
+    // 确保Chart.js已加载
+    if (!chartJsLoaded) {
+        try {
+            await loadChartJs();
+        } catch (error) {
+            console.error('Chart.js加载失败，无法显示图表:', error);
+            return;
+        }
+    }
     
     const ctx = canvas.getContext('2d');
     
@@ -922,9 +987,19 @@ function updateLineChart(dailyStats) {
 }
 
 // 更新饼图
-function updatePieChart(categoryStats) {
+async function updatePieChart(categoryStats) {
     const canvas = document.getElementById('pie-chart');
     if (!canvas) return;
+    
+    // 确保Chart.js已加载
+    if (!chartJsLoaded) {
+        try {
+            await loadChartJs();
+        } catch (error) {
+            console.error('Chart.js加载失败，无法显示图表:', error);
+            return;
+        }
+    }
     
     const ctx = canvas.getContext('2d');
     

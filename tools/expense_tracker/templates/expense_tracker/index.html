@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>记账工具</title>
     <link rel="stylesheet" href="{{ url_for('expense_tracker_page.static', filename='style.css') }}">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <!-- Chart.js 延迟加载，只在需要时加载（数据分析页面） -->
 </head>
 <body>
     {% set page_title = '记账工具' %}

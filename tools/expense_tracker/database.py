@@ -70,7 +70,7 @@ def init_db(app: Flask):
         'EXPENSE_TRACKER_DB_URI',
         app.config.get(
             'EXPENSE_TRACKER_DB_URI',
-            'mysql+pymysql://root:root@localhost:3306/expense_tracker?charset=utf8mb4'
+            'mysql+pymysql://root:root123456@localhost:3306/expense_tracker?charset=utf8mb4'
         )
     )
     app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
