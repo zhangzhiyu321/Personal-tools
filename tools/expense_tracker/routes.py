@@ -171,10 +171,6 @@ def delete_category(category_id):
     
     category = Category.query.get_or_404(category_id)
     
-    # 检查是否为默认分类
-    if category.is_default:
-        return jsonify({'error': '不能删除默认分类'}), 400
-    
     # 检查是否有记录使用此分类（按名称匹配）
     category_name = category.name
     count = Expense.query.filter_by(category=category_name).count()

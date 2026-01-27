@@ -128,26 +128,22 @@
                     </div>
                 </div>
 
-                <!-- 周视图：显示年份和第几周，可滑动切换 -->
+                <!-- 周视图：显示近几周，可滑动切换 -->
                 <div class="date-picker-container" id="week-date-picker" data-dimension="week" style="display: none;">
                     <div class="date-picker-slider" id="week-date-slider">
                         <div class="date-picker-item">
-                            <span class="date-picker-label">年</span>
-                            <div class="date-picker-value" id="week-year-display">2026</div>
-                        </div>
-                        <div class="date-picker-item">
-                            <span class="date-picker-label">周</span>
-                            <div class="date-picker-value" id="week-week-display">第1周</div>
+                            <span class="date-picker-label">近</span>
+                            <div class="date-picker-value" id="week-count-display">1周</div>
                         </div>
                     </div>
                 </div>
 
-                <!-- 月视图：显示年份，可滑动切换 -->
+                <!-- 月视图：显示近几月，可滑动切换 -->
                 <div class="date-picker-container" id="month-date-picker" data-dimension="month" style="display: none;">
                     <div class="date-picker-slider" id="month-date-slider">
                         <div class="date-picker-item">
-                            <span class="date-picker-label">年</span>
-                            <div class="date-picker-value" id="month-year-display">2026</div>
+                            <span class="date-picker-label">近</span>
+                            <div class="date-picker-value" id="month-count-display">1月</div>
                         </div>
                     </div>
                 </div>
@@ -200,22 +196,10 @@
             <!-- 筛选区域 -->
             <div class="records-filter-section">
                 <div class="date-filter-wrapper">
-                    <div class="form-group">
-                        <label>开始日期</label>
-                        <input type="date" id="records-start-date" class="date-input">
-                    </div>
-                    <div class="form-group">
-                        <label>结束日期</label>
-                        <input type="date" id="records-end-date" class="date-input">
-                    </div>
-                    <div class="form-group">
-                        <label>&nbsp;</label>
-                        <button type="button" class="btn-secondary" id="clear-records-filter">清除</button>
-                    </div>
-                    <div class="form-group">
-                        <label>&nbsp;</label>
-                        <button type="button" class="btn-primary" id="apply-records-filter">应用</button>
-                    </div>
+                    <input type="date" id="records-start-date" class="date-input-compact" placeholder="开始日期">
+                    <input type="date" id="records-end-date" class="date-input-compact" placeholder="结束日期">
+                    <button type="button" class="btn-filter-compact" id="clear-records-filter">清除</button>
+                    <button type="button" class="btn-filter-compact btn-filter-primary" id="apply-records-filter">应用</button>
                 </div>
             </div>
             
@@ -239,49 +223,62 @@
 
     <!-- 分类管理模态框 -->
     <div id="category-modal" class="modal">
-        <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-content category-modal-content">
             <span class="modal-close">&times;</span>
             <h2>管理分类</h2>
             <div class="category-management">
                 <div class="category-tabs">
-                    <button class="tab-btn active" data-tab="expense">支出分类</button>
-                    <button class="tab-btn" data-tab="income">收入分类</button>
+                    <button class="tab-btn active" data-tab="expense">支出</button>
+                    <button class="tab-btn" data-tab="income">收入</button>
                 </div>
                 <div class="category-list-container">
                     <div id="category-list-expense" class="category-list active"></div>
                     <div id="category-list-income" class="category-list"></div>
                 </div>
                 <div class="add-category-form">
-                    <h3>添加新分类</h3>
-                    <form id="add-category-form">
+                    <form id="add-category-form" class="add-category-form-compact">
                         <input type="hidden" id="new-category-type" value="expense">
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>名称</label>
-                                <input type="text" id="new-category-name" required placeholder="分类名称">
-                            </div>
-                            <div class="form-group">
-                                <label>图标</label>
-                                <div class="icon-selector-wrapper">
-                                    <button type="button" class="icon-selector-btn" id="icon-selector-btn">
-                                        <span id="selected-icon-preview">📦</span>
-                                        <span class="icon-selector-arrow">▼</span>
-                                    </button>
-                                    <input type="hidden" id="new-category-icon" value="📦">
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <label>颜色</label>
-                                <input type="color" id="new-category-color" value="#C7CEEA">
-                            </div>
-                            <div class="form-group">
-                                <label>&nbsp;</label>
-                                <button type="submit" class="btn-primary">添加</button>
-                            </div>
-                        </div>
+                        <input type="text" id="new-category-name" required placeholder="分类名称" class="category-name-input">
+                        <button type="button" class="icon-selector-btn-compact" id="icon-selector-btn">
+                            <span id="selected-icon-preview">📦</span>
+                        </button>
+                        <input type="hidden" id="new-category-icon" value="📦">
+                        <input type="color" id="new-category-color" value="#C7CEEA" class="category-color-input">
+                        <button type="submit" class="btn-primary-compact">添加</button>
                     </form>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- 编辑分类模态框 -->
+    <div id="edit-category-modal" class="modal">
+        <div class="modal-content category-modal-content">
+            <span class="modal-close">&times;</span>
+            <h2>编辑分类</h2>
+            <form id="edit-category-form" class="edit-category-form-compact">
+                <input type="hidden" id="edit-category-id">
+                <input type="hidden" id="edit-category-type">
+                <div class="form-group-compact">
+                    <label>名称</label>
+                    <input type="text" id="edit-category-name" required placeholder="分类名称">
+                </div>
+                <div class="form-group-compact">
+                    <label>图标</label>
+                    <button type="button" class="icon-selector-btn-compact" id="edit-icon-selector-btn">
+                        <span id="edit-selected-icon-preview">📦</span>
+                    </button>
+                    <input type="hidden" id="edit-category-icon" value="📦">
+                </div>
+                <div class="form-group-compact">
+                    <label>颜色</label>
+                    <input type="color" id="edit-category-color" value="#C7CEEA">
+                </div>
+                <div class="form-actions-compact">
+                    <button type="submit" class="btn-primary-compact">保存</button>
+                    <button type="button" class="btn-secondary-compact modal-close-btn">取消</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -395,11 +392,11 @@
             <span class="keyboard-display-prefix">¥</span>
             <span class="keyboard-display-value" id="number-keyboard-display">0.00</span>
         </div>
-        <!-- 备注输入区域 -->
+        <!-- 备注输入区域 - 直接集成在键盘中 -->
         <div class="keyboard-note-section">
             <div class="keyboard-note-wrapper">
                 <span class="keyboard-note-icon">📝</span>
-                <input type="text" id="keyboard-note-input" class="keyboard-note-input" placeholder="添加备注（可选）...">
+                <input type="text" id="keyboard-note-input" class="keyboard-note-input" placeholder="添加备注..." autocomplete="off">
             </div>
         </div>
         <div class="keyboard-body">

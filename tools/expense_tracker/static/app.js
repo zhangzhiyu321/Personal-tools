@@ -14,6 +14,7 @@ let categoryDetailCurrentPage = 1; // 分类明细记录列表当前页码
 let categoryDetailPageSize = 20; // 每页显示的记录数
 let currentTimeDimension = 'day'; // day, week, month
 let chartJsLoaded = false; // Chart.js是否已加载
+let currentDailyStats = null; // 保存当前的每日统计数据，用于图表点击
 
 // 获取日期所在周数（ISO周，周一开始）
 function getWeekNumber(date) {
@@ -27,8 +28,8 @@ function getWeekNumber(date) {
 // 日期选择器状态
 let datePickerState = {
     day: { year: new Date().getFullYear(), month: new Date().getMonth() + 1 },
-    week: { year: new Date().getFullYear(), week: getWeekNumber(new Date()) },
-    month: { year: new Date().getFullYear() }
+    week: { count: 1 }, // 近N周，最多50周
+    month: { count: 1 } // 近N月，最多24个月
 };
 
 // 获取指定年份和周数的日期范围（ISO周，周一开始）
@@ -331,7 +332,7 @@ function initDatePickerSwipe(pickerId, dimension) {
     });
 }
 
-// 导航日期选择器（direction: -1 上一个, 1 下一个）
+// 导航日期选择器（direction: -1 减少, 1 增加）
 function navigateDatePicker(dimension, direction) {
     const state = datePickerState[dimension];
     
@@ -345,17 +346,21 @@ function navigateDatePicker(dimension, direction) {
             state.year -= 1;
         }
     } else if (dimension === 'week') {
-        state.week += direction;
-        const maxWeek = getMaxWeekInYear(state.year);
-        if (state.week > maxWeek) {
-            state.week = 1;
-            state.year += 1;
-        } else if (state.week < 1) {
-            state.week = getMaxWeekInYear(state.year - 1);
-            state.year -= 1;
+        // 近N周：1-50周
+        state.count += direction;
+        if (state.count > 50) {
+            state.count = 50;
+        } else if (state.count < 1) {
+            state.count = 1;
         }
     } else if (dimension === 'month') {
-        state.year += direction;
+        // 近N月：1-24个月
+        state.count += direction;
+        if (state.count > 24) {
+            state.count = 24;
+        } else if (state.count < 1) {
+            state.count = 1;
+        }
     }
     
     updateDatePickerDisplay();
@@ -392,10 +397,9 @@ function updateDatePickerDisplay() {
         document.getElementById('day-year-display').textContent = state.year;
         document.getElementById('day-month-display').textContent = `${state.month}月`;
     } else if (currentTimeDimension === 'week') {
-        document.getElementById('week-year-display').textContent = state.year;
-        document.getElementById('week-week-display').textContent = `第${state.week}周`;
+        document.getElementById('week-count-display').textContent = `${state.count}周`;
     } else if (currentTimeDimension === 'month') {
-        document.getElementById('month-year-display').textContent = state.year;
+        document.getElementById('month-count-display').textContent = `${state.count}月`;
     }
 }
 
@@ -417,10 +421,10 @@ function switchTimeDimension(dimension) {
     const now = new Date();
     if (dimension === 'day' && !datePickerState.day.year) {
         datePickerState.day = { year: now.getFullYear(), month: now.getMonth() + 1 };
-    } else if (dimension === 'week' && !datePickerState.week.year) {
-        datePickerState.week = { year: now.getFullYear(), week: getWeekNumber(now) };
-    } else if (dimension === 'month' && !datePickerState.month.year) {
-        datePickerState.month = { year: now.getFullYear() };
+    } else if (dimension === 'week' && !datePickerState.week.count) {
+        datePickerState.week = { count: 1 };
+    } else if (dimension === 'month' && !datePickerState.month.count) {
+        datePickerState.month = { count: 1 };
     }
     
     // 更新日期选择器显示
@@ -472,15 +476,35 @@ function getCurrentAnalysisDateRange() {
         const lastDay = new Date(year, month, 0).getDate();
         endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     } else if (currentTimeDimension === 'week') {
-        // 选中周的所有天
-        const { startDate: weekStart, endDate: weekEnd } = getWeekDateRange(state.year, state.week);
-        startDate = weekStart.toISOString().split('T')[0];
-        endDate = weekEnd.toISOString().split('T')[0];
+        // 近N周：从N周前的周一开始到今天
+        const count = state.count || 1;
+        const endDateObj = new Date();
+        endDateObj.setHours(23, 59, 59, 999);
+        // 找到本周的周一
+        const dayOfWeek = endDateObj.getDay() || 7; // 0=周日，转换为7
+        const daysToMonday = dayOfWeek - 1;
+        const thisWeekMonday = new Date(endDateObj);
+        thisWeekMonday.setDate(endDateObj.getDate() - daysToMonday);
+        thisWeekMonday.setHours(0, 0, 0, 0);
+        
+        // 计算N周前的周一
+        const startDateObj = new Date(thisWeekMonday);
+        startDateObj.setDate(thisWeekMonday.getDate() - (count - 1) * 7);
+        
+        startDate = startDateObj.toISOString().split('T')[0];
+        endDate = endDateObj.toISOString().split('T')[0];
     } else if (currentTimeDimension === 'month') {
-        // 选中年的所有月（1月1日到12月31日）
-        const year = state.year;
-        startDate = `${year}-01-01`;
-        endDate = `${year}-12-31`;
+        // 近N月：从N个月前的第一天到今天
+        const count = state.count || 1;
+        const endDateObj = new Date();
+        endDateObj.setHours(23, 59, 59, 999);
+        const startDateObj = new Date(endDateObj);
+        startDateObj.setMonth(endDateObj.getMonth() - (count - 1));
+        startDateObj.setDate(1); // 设置为该月第一天
+        startDateObj.setHours(0, 0, 0, 0);
+        
+        startDate = startDateObj.toISOString().split('T')[0];
+        endDate = endDateObj.toISOString().split('T')[0];
     }
     
     return { startDate, endDate };
@@ -902,6 +926,64 @@ function renderCategoryDetailRecords() {
         </div>
         ${paginationHtml}
     `;
+    
+    // 防止滚动穿透：当在表格内滚动时，阻止事件传播到背景页面
+    let touchStartY = 0;
+    let lastScrollTop = recordsEl.scrollTop;
+    
+    recordsEl.addEventListener('touchstart', (e) => {
+        touchStartY = e.touches[0].clientY;
+        lastScrollTop = recordsEl.scrollTop;
+    }, { passive: true });
+    
+    recordsEl.addEventListener('touchmove', (e) => {
+        const currentY = e.touches[0].clientY;
+        const deltaY = currentY - touchStartY;
+        const { scrollTop, scrollHeight, clientHeight } = recordsEl;
+        const isAtTop = scrollTop === 0;
+        const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1;
+        
+        // 如果表格可以滚动，且不在边界处，或者虽然在边界但滚动方向是向内的，都阻止传播
+        if (scrollHeight > clientHeight) {
+            if (!isAtTop && !isAtBottom) {
+                // 在中间位置，完全阻止传播
+                e.stopPropagation();
+            } else if (isAtTop && deltaY > 0) {
+                // 在顶部且向下滑动，阻止传播（防止继续向下滚动背景）
+                e.stopPropagation();
+            } else if (isAtBottom && deltaY < 0) {
+                // 在底部且向上滑动，阻止传播（防止继续向上滚动背景）
+                e.stopPropagation();
+            }
+        } else {
+            // 表格内容不足以滚动，完全阻止传播
+            e.stopPropagation();
+        }
+    }, { passive: false });
+    
+    // 鼠标滚轮事件处理（桌面端）
+    recordsEl.addEventListener('wheel', (e) => {
+        const { scrollTop, scrollHeight, clientHeight } = recordsEl;
+        const isAtTop = scrollTop === 0;
+        const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1;
+        
+        // 如果表格可以滚动，且不在边界处，或者虽然在边界但滚动方向是向内的，都阻止传播
+        if (scrollHeight > clientHeight) {
+            if (!isAtTop && !isAtBottom) {
+                // 在中间位置，完全阻止传播
+                e.stopPropagation();
+            } else if (isAtTop && e.deltaY < 0) {
+                // 在顶部且向上滚动，阻止传播
+                e.stopPropagation();
+            } else if (isAtBottom && e.deltaY > 0) {
+                // 在底部且向下滚动，阻止传播
+                e.stopPropagation();
+            }
+        } else {
+            // 表格内容不足以滚动，完全阻止传播
+            e.stopPropagation();
+        }
+    }, { passive: false });
 }
 
 // 分类明细分页切换
@@ -1046,7 +1128,7 @@ function bindEvents() {
         });
     }
     
-    // 编辑模态框中的备注输入框
+    // 编辑模态框中的备注输入框 - 打开键盘并聚焦到备注输入框
     const editNoteInput = document.getElementById('edit-note');
     if (editNoteInput) {
         editNoteInput.addEventListener('click', function(e) {
@@ -1071,6 +1153,15 @@ function bindEvents() {
                     keyboardNoteInput.focus();
                 }
             }, 300);
+        });
+    }
+    
+    // 确保键盘中的备注输入框可以正常使用系统键盘
+    const keyboardNoteInput = document.getElementById('keyboard-note-input');
+    if (keyboardNoteInput) {
+        // 允许正常聚焦，使用系统键盘
+        keyboardNoteInput.addEventListener('focus', function() {
+            // 不做任何阻止，让系统键盘正常弹出
         });
     }
     
@@ -1134,8 +1225,14 @@ function bindEvents() {
     // 添加分类表单
     document.getElementById('add-category-form').addEventListener('submit', handleAddCategory);
     
+    // 编辑分类表单
+    document.getElementById('edit-category-form').addEventListener('submit', handleEditCategory);
+    
     // 图标选择器
     document.getElementById('icon-selector-btn').addEventListener('click', openIconPicker);
+    document.getElementById('edit-icon-selector-btn').addEventListener('click', function() {
+        openIconPicker('edit');
+    });
     
     // 图标选择器模态框
     document.getElementById('icon-picker-modal').addEventListener('click', (e) => {
@@ -1156,10 +1253,19 @@ function bindEvents() {
         btn.addEventListener('click', function() {
             if (this.closest('#category-modal')) {
                 closeCategoryModal();
+            } else if (this.closest('#edit-category-modal')) {
+                document.getElementById('edit-category-modal').classList.remove('show');
             } else {
                 closeModal();
             }
         });
+    });
+    
+    // 编辑分类模态框点击外部关闭
+    document.getElementById('edit-category-modal').addEventListener('click', (e) => {
+        if (e.target.id === 'edit-category-modal') {
+            document.getElementById('edit-category-modal').classList.remove('show');
+        }
     });
     
     // 点击模态框外部关闭
@@ -1204,7 +1310,7 @@ function updateCategorySelector() {
     
     if (!container) return;
     
-    // 生成分类按钮
+    // 生成所有分类按钮（不限制数量，通过CSS限制可视区域）
     container.innerHTML = categoryList.map(cat => {
         const isOther = cat.name === '其他';
         return `
@@ -1542,6 +1648,260 @@ async function loadStatistics() {
     }
 }
 
+// 获取某日的记录并按分类分组
+let dailyRecordsCache = {}; // 缓存每日记录数据
+async function getDailyRecordsByCategory(date) {
+    // 检查缓存
+    if (dailyRecordsCache[date]) {
+        return dailyRecordsCache[date];
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/records?start_date=${date}&end_date=${date}&per_page=1000`);
+        const data = await response.json();
+        const records = data.records || [];
+        
+        // 按分类分组
+        const categoryGroups = {};
+        records.forEach(record => {
+            const categoryName = record.category || '未分类';
+            if (!categoryGroups[categoryName]) {
+                categoryGroups[categoryName] = {
+                    name: categoryName,
+                    icon: '📦',
+                    color: '#C7CEEA',
+                    amount: 0,
+                    count: 0,
+                    type: record.type
+                };
+                
+                // 查找分类信息
+                const allCategories = [...categories.expense, ...categories.income];
+                const categoryInfo = allCategories.find(c => c.name === categoryName || c.id === categoryName);
+                if (categoryInfo) {
+                    categoryGroups[categoryName].icon = categoryInfo.icon || '📦';
+                    categoryGroups[categoryName].color = categoryInfo.color || '#C7CEEA';
+                }
+            }
+            categoryGroups[categoryName].amount += Number(record.amount || 0);
+            categoryGroups[categoryName].count += 1;
+        });
+        
+        // 转换为数组并排序
+        const result = Object.values(categoryGroups).sort((a, b) => b.amount - a.amount);
+        
+        // 缓存结果（5分钟过期）
+        dailyRecordsCache[date] = result;
+        setTimeout(() => {
+            delete dailyRecordsCache[date];
+        }, 5 * 60 * 1000);
+        
+        return result;
+    } catch (error) {
+        console.error('获取每日记录失败:', error);
+        return [];
+    }
+}
+
+// 显示分类tooltip
+function showCategoryTooltip(date, categoryGroups, event) {
+    if (!categoryGroups || categoryGroups.length === 0) {
+        hideCategoryTooltip();
+        return;
+    }
+    
+    // 创建或获取tooltip元素
+    let tooltipEl = document.getElementById('trend-chart-tooltip');
+    if (!tooltipEl) {
+        tooltipEl = document.createElement('div');
+        tooltipEl.id = 'trend-chart-tooltip';
+        tooltipEl.className = 'trend-chart-tooltip';
+        document.body.appendChild(tooltipEl);
+    }
+    
+    // 计算总收入和总支出
+    let totalIncome = 0;
+    let totalExpense = 0;
+    categoryGroups.forEach(group => {
+        if (group.type === 'income') {
+            totalIncome += group.amount;
+        } else {
+            totalExpense += group.amount;
+        }
+    });
+    
+    // 格式化日期显示
+    const dateObj = new Date(date);
+    const month = dateObj.getMonth() + 1;
+    const day = dateObj.getDate();
+    const dateStr = `${month}月${day}日`;
+    
+    // 生成分类列表HTML
+    const categoryHtml = categoryGroups.map(group => {
+        const typeLabel = group.type === 'income' ? '收入' : '支出';
+        return `
+            <div class="trend-tooltip-category-item" style="border-left-color: ${group.color}">
+                <span class="trend-tooltip-category-icon">${group.icon}</span>
+                <span class="trend-tooltip-category-name">${group.name}</span>
+                <span class="trend-tooltip-category-type">${typeLabel}</span>
+                <span class="trend-tooltip-category-amount">¥${group.amount.toFixed(2)}</span>
+                <span class="trend-tooltip-category-count">(${group.count}条)</span>
+            </div>
+        `;
+    }).join('');
+    
+    tooltipEl.innerHTML = `
+        <div class="trend-tooltip-header">
+            <span class="trend-tooltip-date">${dateStr}</span>
+            ${totalIncome > 0 ? `<span class="trend-tooltip-total income">收入: ¥${totalIncome.toFixed(2)}</span>` : ''}
+            ${totalExpense > 0 ? `<span class="trend-tooltip-total expense">支出: ¥${totalExpense.toFixed(2)}</span>` : ''}
+        </div>
+        <div class="trend-tooltip-categories">
+            ${categoryHtml}
+        </div>
+        <div class="trend-tooltip-footer">
+            <span class="trend-tooltip-hint">点击查看详细记录</span>
+        </div>
+    `;
+    
+    // 保存日期到data属性，用于点击事件
+    tooltipEl.setAttribute('data-date', date);
+    
+    // 移除旧的事件监听器
+    const newTooltipEl = tooltipEl.cloneNode(true);
+    tooltipEl.parentNode.replaceChild(newTooltipEl, tooltipEl);
+    tooltipEl = newTooltipEl;
+    
+    // 添加点击事件 - 使用捕获阶段，确保先处理
+    tooltipEl.addEventListener('click', function(e) {
+        e.stopPropagation();
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const dateValue = this.getAttribute('data-date');
+        if (dateValue) {
+            navigateToDateRecords(dateValue);
+        }
+        return false;
+    }, true);
+    
+    // 也添加mousedown和touchstart事件，确保移动端也能响应
+    tooltipEl.addEventListener('mousedown', function(e) {
+        e.stopPropagation();
+    }, true);
+    
+    tooltipEl.addEventListener('touchstart', function(e) {
+        e.stopPropagation();
+    }, true);
+    
+    // 先显示tooltip以便计算尺寸
+    tooltipEl.style.display = 'block';
+    tooltipEl.style.visibility = 'hidden';
+    tooltipEl.style.pointerEvents = 'auto';
+    
+    // 定位tooltip - 使用requestAnimationFrame优化性能
+    if (event) {
+        const x = event.clientX || (event.touches && event.touches[0]?.clientX) || 0;
+        const y = event.clientY || (event.touches && event.touches[0]?.clientY) || 0;
+        
+        // 先设置一个临时位置
+        tooltipEl.style.left = `${x + 15}px`;
+        tooltipEl.style.top = `${y + 15}px`;
+        
+        // 使用requestAnimationFrame优化DOM更新
+        requestAnimationFrame(() => {
+            const tooltipWidth = tooltipEl.offsetWidth || 320;
+            const tooltipHeight = tooltipEl.offsetHeight || 300;
+            const windowWidth = window.innerWidth;
+            const windowHeight = window.innerHeight;
+            
+            let left = x + 15;
+            let top = y + 15;
+            
+            // 防止超出右边界
+            if (left + tooltipWidth > windowWidth) {
+                left = x - tooltipWidth - 15;
+            }
+            // 防止超出下边界
+            if (top + tooltipHeight > windowHeight) {
+                top = y - tooltipHeight - 15;
+            }
+            // 防止超出左边界
+            if (left < 10) {
+                left = 10;
+            }
+            // 防止超出上边界
+            if (top < 10) {
+                top = 10;
+            }
+            
+            tooltipEl.style.left = `${left}px`;
+            tooltipEl.style.top = `${top}px`;
+            tooltipEl.style.visibility = 'visible';
+        });
+    } else {
+        tooltipEl.style.visibility = 'visible';
+    }
+    
+    // 清除之前的自动隐藏定时器
+    clearTimeout(window.trendTooltipTimeout);
+    window.trendTooltipTimeout = setTimeout(() => {
+        hideCategoryTooltip();
+    }, 5000);
+}
+
+// 隐藏分类tooltip
+function hideCategoryTooltip() {
+    const tooltipEl = document.getElementById('trend-chart-tooltip');
+    if (tooltipEl) {
+        tooltipEl.style.display = 'none';
+    }
+    clearTimeout(window.trendTooltipTimeout);
+}
+
+// 跳转到指定日期的记录列表
+function navigateToDateRecords(date) {
+    // 确保日期格式正确（YYYY-MM-DD）
+    let dateStr = date;
+    if (date instanceof Date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        dateStr = `${year}-${month}-${day}`;
+    } else if (typeof date === 'string') {
+        // 如果已经是字符串，确保格式正确
+        const dateObj = new Date(date);
+        if (!isNaN(dateObj.getTime())) {
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            dateStr = `${year}-${month}-${day}`;
+        }
+    }
+    
+    // 设置日期筛选器为该日期
+    const startDateInput = document.getElementById('records-start-date');
+    const endDateInput = document.getElementById('records-end-date');
+    if (startDateInput && endDateInput) {
+        startDateInput.value = dateStr;
+        endDateInput.value = dateStr;
+    }
+    
+    // 切换到记录列表标签页
+    switchMainTab('records');
+    
+    // 加载该日期的记录
+    loadRecords(1);
+    
+    // 格式化日期显示
+    const dateObj = new Date(dateStr);
+    const month = dateObj.getMonth() + 1;
+    const day = dateObj.getDate();
+    showMessage(`已筛选 ${month}月${day}日 的记录`, 'info');
+    
+    // 隐藏tooltip
+    hideCategoryTooltip();
+}
+
 // 更新折线图
 async function updateLineChart(dailyStats) {
     const canvas = document.getElementById('line-chart');
@@ -1563,6 +1923,12 @@ async function updateLineChart(dailyStats) {
         lineChart.destroy();
     }
     
+    // 保存当前统计数据，用于点击事件
+    currentDailyStats = dailyStats;
+    
+    // 清除旧的缓存
+    dailyRecordsCache = {};
+    
     const labels = dailyStats.map(d => {
         const date = new Date(d.date);
         return `${date.getMonth() + 1}/${date.getDate()}`;
@@ -1576,6 +1942,113 @@ async function updateLineChart(dailyStats) {
     const expenseGradient = ctx.createLinearGradient(0, 0, 0, 400);
     expenseGradient.addColorStop(0, 'rgba(220, 38, 38, 0.2)'); /* 柔和的红色 */
     expenseGradient.addColorStop(1, 'rgba(220, 38, 38, 0.03)');
+    
+    // 添加触摸事件支持（移动端滑动）
+    let trendChartTouching = false;
+    let currentHoverDate = null; // 当前显示的日期
+    let hoverThrottleTimer = null; // 节流定时器
+    let pendingHoverUpdate = null; // 待处理的更新
+    
+    // 节流函数：限制更新频率
+    function throttleHoverUpdate(callback, delay = 16) { // 约60fps
+        return function(...args) {
+            if (hoverThrottleTimer) {
+                pendingHoverUpdate = { callback, args };
+                return;
+            }
+            
+            hoverThrottleTimer = setTimeout(() => {
+                hoverThrottleTimer = null;
+                callback.apply(null, args);
+                
+                // 执行待处理的更新
+                if (pendingHoverUpdate) {
+                    const { callback: pendingCallback, args: pendingArgs } = pendingHoverUpdate;
+                    pendingHoverUpdate = null;
+                    requestAnimationFrame(() => {
+                        pendingCallback.apply(null, pendingArgs);
+                    });
+                }
+            }, delay);
+        };
+    }
+    
+    // 优化的hover更新函数
+    const optimizedHoverUpdate = throttleHoverUpdate(async (date, event) => {
+        // 如果日期相同，只更新位置，不重新获取数据
+        if (date === currentHoverDate) {
+            const tooltipEl = document.getElementById('trend-chart-tooltip');
+            if (tooltipEl && tooltipEl.style.display !== 'none') {
+                // 只更新位置，使用requestAnimationFrame确保流畅
+                if (event) {
+                    requestAnimationFrame(() => {
+                        const x = event.clientX || (event.touches && event.touches[0]?.clientX) || 0;
+                        const y = event.clientY || (event.touches && event.touches[0]?.clientY) || 0;
+                        tooltipEl.style.left = `${x + 15}px`;
+                        tooltipEl.style.top = `${y + 15}px`;
+                    });
+                }
+                return;
+            }
+        }
+        
+        // 日期变化，获取新数据
+        currentHoverDate = date;
+        const categoryGroups = await getDailyRecordsByCategory(date);
+        showCategoryTooltip(date, categoryGroups, event);
+    }, 16);
+    
+    canvas.addEventListener('touchstart', async (e) => {
+        if (!lineChart) return;
+        trendChartTouching = true;
+        const touch = e.touches[0];
+        
+        const points = lineChart.getElementsAtEventForMode(
+            { native: { clientX: touch.clientX, clientY: touch.clientY } },
+            'index',
+            { intersect: false }
+        );
+        
+        if (points && points.length > 0 && currentDailyStats) {
+            const dataIndex = points[0].index;
+            if (dataIndex >= 0 && dataIndex < currentDailyStats.length) {
+                const hoverDate = currentDailyStats[dataIndex].date;
+                await optimizedHoverUpdate(hoverDate, { clientX: touch.clientX, clientY: touch.clientY });
+            }
+        }
+    }, { passive: true });
+    
+    canvas.addEventListener('touchmove', (e) => {
+        if (!trendChartTouching || !lineChart) return;
+        e.preventDefault();
+        
+        const touch = e.touches[0];
+        
+        const points = lineChart.getElementsAtEventForMode(
+            { native: { clientX: touch.clientX, clientY: touch.clientY } },
+            'index',
+            { intersect: false }
+        );
+        
+        if (points && points.length > 0 && currentDailyStats) {
+            const dataIndex = points[0].index;
+            if (dataIndex >= 0 && dataIndex < currentDailyStats.length) {
+                const hoverDate = currentDailyStats[dataIndex].date;
+                optimizedHoverUpdate(hoverDate, { clientX: touch.clientX, clientY: touch.clientY });
+            }
+        }
+    }, { passive: false });
+    
+    canvas.addEventListener('touchend', (e) => {
+        trendChartTouching = false;
+        // 延迟隐藏，给用户时间点击tooltip
+        setTimeout(() => {
+            if (!trendChartTouching) {
+                hideCategoryTooltip();
+                currentHoverDate = null;
+            }
+        }, 3000);
+    }, { passive: true });
     
     lineChart = new Chart(ctx, {
         type: 'line',
@@ -1636,6 +2109,24 @@ async function updateLineChart(dailyStats) {
                 intersect: false,
                 mode: 'index'
             },
+            onHover: (event, activeElements) => {
+                // 悬停时显示分类信息（桌面端）- 使用节流优化
+                if (activeElements && activeElements.length > 0 && currentDailyStats) {
+                    const element = activeElements[0];
+                    const dataIndex = element.index;
+                    
+                    if (dataIndex >= 0 && dataIndex < currentDailyStats.length) {
+                        const hoverDate = currentDailyStats[dataIndex].date;
+                        optimizedHoverUpdate(hoverDate, event.native);
+                    } else {
+                        hideCategoryTooltip();
+                        currentHoverDate = null;
+                    }
+                } else {
+                    hideCategoryTooltip();
+                    currentHoverDate = null;
+                }
+            },
             plugins: {
                 legend: {
                     position: 'top',
@@ -1647,36 +2138,7 @@ async function updateLineChart(dailyStats) {
                     }
                 },
                 tooltip: {
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    padding: 12,
-                    titleFont: { size: 12, weight: '600' },
-                    bodyFont: { size: 13, weight: '500' },
-                    borderColor: 'rgba(255, 255, 255, 0.1)',
-                    borderWidth: 1,
-                    cornerRadius: 8,
-                    displayColors: true,
-                    callbacks: {
-                        label: function(context) {
-                            const value = context.parsed.y;
-                            const label = context.dataset.label;
-                            return `${label}: ¥${value.toFixed(2)}`;
-                        },
-                        afterLabel: function(context) {
-                            // 计算变化趋势
-                            const index = context.dataIndex;
-                            if (index > 0) {
-                                const current = context.parsed.y;
-                                const previous = context.dataset.data[index - 1];
-                                if (previous > 0) {
-                                    const change = ((current - previous) / previous * 100).toFixed(1);
-                                    const arrow = change > 0 ? '↑' : change < 0 ? '↓' : '→';
-                                    const color = change > 0 ? '#52c41a' : change < 0 ? '#ff4d4f' : '#999';
-                                    return `${arrow} ${Math.abs(change)}%`;
-                                }
-                            }
-                            return '';
-                        }
-                    }
+                    enabled: false // 禁用默认tooltip，使用自定义tooltip
                 }
             },
             scales: {
@@ -3105,12 +3567,10 @@ async function loadCategoryList(type) {
                 </div>
                 <div class="category-item-info">
                     <div class="category-item-name">${escapeHtml(cat.name)}</div>
-                    ${cat.is_default ? '<span class="category-item-badge">默认</span>' : ''}
                 </div>
                 <div class="category-item-actions">
-                    ${!cat.is_default ? `
-                        <button class="btn-danger-small" onclick="deleteCategory(${cat.id})">删除</button>
-                    ` : ''}
+                    <button class="btn-edit-small" onclick="editCategory(${cat.id}, '${type}')">编辑</button>
+                    <button class="btn-danger-small" onclick="deleteCategory(${cat.id})">删除</button>
                 </div>
             </div>
         `).join('');
@@ -3163,6 +3623,77 @@ async function handleAddCategory(e) {
     } catch (error) {
         console.error('添加分类失败:', error);
         customAlert('添加失败，请重试', '错误', 'error');
+    }
+}
+
+async function editCategory(categoryId, type) {
+    try {
+        // 获取分类详情
+        const response = await fetch(`${API_BASE}/categories`);
+        const data = await response.json();
+        const categoryList = data[type] || [];
+        const category = categoryList.find(cat => cat.id === categoryId);
+        
+        if (!category) {
+            customAlert('分类不存在', '错误', 'error');
+            return;
+        }
+        
+        // 填充编辑表单
+        document.getElementById('edit-category-id').value = category.id;
+        document.getElementById('edit-category-type').value = type;
+        document.getElementById('edit-category-name').value = category.name;
+        document.getElementById('edit-category-icon').value = category.icon;
+        document.getElementById('edit-selected-icon-preview').textContent = category.icon;
+        document.getElementById('edit-category-color').value = category.color;
+        
+        // 打开编辑模态框
+        document.getElementById('edit-category-modal').classList.add('show');
+    } catch (error) {
+        console.error('加载分类详情失败:', error);
+        customAlert('加载失败，请重试', '错误', 'error');
+    }
+}
+
+async function handleEditCategory(e) {
+    e.preventDefault();
+    
+    const categoryId = document.getElementById('edit-category-id').value;
+    const formData = {
+        name: document.getElementById('edit-category-name').value.trim(),
+        icon: document.getElementById('edit-category-icon').value.trim() || '📦',
+        color: document.getElementById('edit-category-color').value
+    };
+    
+    if (!formData.name) {
+        customAlert('请输入分类名称', '提示', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/categories/${categoryId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            // 关闭编辑模态框
+            document.getElementById('edit-category-modal').classList.remove('show');
+            
+            // 重新加载分类列表和分类选择器
+            const type = document.getElementById('edit-category-type').value;
+            loadCategoryList(type);
+            loadCategories();
+            showMessage('编辑成功！', 'success');
+        } else {
+            customAlert(result.error || '编辑失败', '编辑失败', 'error');
+        }
+    } catch (error) {
+        console.error('编辑分类失败:', error);
+        customAlert('编辑失败，请重试', '错误', 'error');
     }
 }
 
@@ -3250,7 +3781,9 @@ function initIconPicker() {
 }
 
 // 打开图标选择器
-function openIconPicker() {
+function openIconPicker(mode = 'add') {
+    // 保存当前模式
+    document.getElementById('icon-picker-modal').dataset.mode = mode;
     document.getElementById('icon-picker-modal').classList.add('show');
 }
 
@@ -3261,8 +3794,14 @@ function closeIconPicker() {
 
 // 选择图标
 function selectIcon(icon) {
-    document.getElementById('new-category-icon').value = icon;
-    document.getElementById('selected-icon-preview').textContent = icon;
+    const mode = document.getElementById('icon-picker-modal').dataset.mode || 'add';
+    if (mode === 'edit') {
+        document.getElementById('edit-category-icon').value = icon;
+        document.getElementById('edit-selected-icon-preview').textContent = icon;
+    } else {
+        document.getElementById('new-category-icon').value = icon;
+        document.getElementById('selected-icon-preview').textContent = icon;
+    }
     closeIconPicker();
 }
 
@@ -3484,15 +4023,6 @@ function initKeyboardEvents() {
             }
         }
     });
-    
-    // 确保键盘中的备注输入框可以正常使用系统键盘
-    const keyboardNoteInput = document.getElementById('keyboard-note-input');
-    if (keyboardNoteInput) {
-        // 允许正常聚焦，使用系统键盘
-        keyboardNoteInput.addEventListener('focus', function() {
-            // 不做任何阻止，让系统键盘正常弹出
-        });
-    }
 }
 
 // 处理数字键盘按键
