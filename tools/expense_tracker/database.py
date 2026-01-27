@@ -102,7 +102,7 @@ def init_db(app: Flask):
 
 def init_default_categories():
     """初始化默认分类"""
-    from .database import Category
+    # Category 已经在当前文件中定义，直接使用即可
     
     # 默认支出分类
     default_expense_categories = [

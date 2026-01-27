@@ -117,8 +117,11 @@ def register_tools_blueprints(app: Flask) -> None:
 
         app.register_blueprint(expense_tracker_api_bp)
         app.register_blueprint(expense_tracker_page_bp)
+        print("✓ 记账工具 Blueprint 注册成功")
     except Exception as e:
-        print("加载记账工具 Blueprint 失败：", e)
+        import traceback
+        print(f"✗ 加载记账工具 Blueprint 失败：{e}")
+        print(traceback.format_exc())
 
 
 def register_common_routes(app: Flask) -> None:
