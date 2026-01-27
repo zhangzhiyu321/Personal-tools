@@ -448,14 +448,34 @@ async function loadAnalysisData() {
         const data = await response.json();
         
         // 更新分析统计卡片
-        document.getElementById('analysis-total-income').textContent = `¥${data.total_income.toFixed(2)}`;
-        document.getElementById('analysis-total-expense').textContent = `¥${data.total_expense.toFixed(2)}`;
-        document.getElementById('analysis-total-balance').textContent = `¥${data.balance.toFixed(2)}`;
+        const incomeEl = document.getElementById('analysis-total-income');
+        const expenseEl = document.getElementById('analysis-total-expense');
+        const balanceEl = document.getElementById('analysis-total-balance');
+        
+        if (incomeEl) incomeEl.textContent = `¥${data.total_income.toFixed(2)}`;
+        if (expenseEl) expenseEl.textContent = `¥${data.total_expense.toFixed(2)}`;
+        if (balanceEl) balanceEl.textContent = `¥${data.balance.toFixed(2)}`;
+        
+        // 强制浏览器重新渲染统计卡片，防止模糊
+        if (incomeEl) incomeEl.offsetHeight; // 触发重排
+        if (expenseEl) expenseEl.offsetHeight;
+        if (balanceEl) balanceEl.offsetHeight;
         
         // 更新所有图表
-        updateLineChart(data.daily_stats);
-        updatePieChart(data.category_stats);
-        updateBarChart(data.category_stats);
+        await Promise.all([
+            updateLineChart(data.daily_stats),
+            updatePieChart(data.category_stats),
+            updateBarChart(data.category_stats)
+        ]);
+        
+        // 图表更新完成后，强制浏览器重新渲染
+        requestAnimationFrame(() => {
+            // 确保所有图表都已渲染完成
+            const chartContainers = document.querySelectorAll('.chart-container');
+            chartContainers.forEach(container => {
+                container.style.transform = 'translateZ(0)';
+            });
+        });
     } catch (error) {
         console.error('加载分析数据失败:', error);
     }
@@ -510,6 +530,15 @@ function getCurrentAnalysisDateRange() {
     return { startDate, endDate };
 }
 
+// 设置Canvas高分辨率支持，防止模糊
+// Chart.js会自动处理devicePixelRatio，这里主要用于确保Canvas上下文正确
+function setupHighDPICanvas(canvas) {
+    const ctx = canvas.getContext('2d');
+    // Chart.js会自动处理高DPI，我们只需要返回上下文
+    // 但可以确保Canvas在渲染前有正确的尺寸
+    return ctx;
+}
+
 // 更新柱状图（对比分析）
 async function updateBarChart(categoryStats) {
     const canvas = document.getElementById('bar-chart');
@@ -525,7 +554,8 @@ async function updateBarChart(categoryStats) {
         }
     }
     
-    const chartCtx = canvas.getContext('2d');
+    // 设置高分辨率支持
+    const chartCtx = setupHighDPICanvas(canvas);
     
     if (barChart) {
         barChart.destroy();
@@ -699,7 +729,8 @@ async function renderCategoryDetailModal(detailData) {
             }
         }
 
-        const ctx = canvas.getContext('2d');
+        // 设置高分辨率支持
+        const ctx = setupHighDPICanvas(canvas);
         if (categoryDetailChart) {
             categoryDetailChart.destroy();
         }
@@ -1917,7 +1948,8 @@ async function updateLineChart(dailyStats) {
         }
     }
     
-    const ctx = canvas.getContext('2d');
+    // 设置高分辨率支持
+    const ctx = setupHighDPICanvas(canvas);
     
     if (lineChart) {
         lineChart.destroy();
@@ -2184,7 +2216,8 @@ async function updatePieChart(categoryStats) {
         }
     }
     
-    const ctx = canvas.getContext('2d');
+    // 设置高分辨率支持
+    const ctx = setupHighDPICanvas(canvas);
     
     if (pieChart) {
         pieChart.destroy();
