@@ -121,6 +121,10 @@
                     </div>
                     <div class="form-group">
                         <label>&nbsp;</label>
+                        <button type="button" class="btn-secondary" id="clear-custom-range">清除</button>
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
                         <button type="button" class="btn-primary" id="apply-custom-range">应用</button>
                     </div>
                 </div>
@@ -170,28 +174,36 @@
 
         <!-- 记录列表标签页 -->
         <div class="tab-content" id="tab-records">
+            <!-- 筛选区域 -->
+            <div class="records-filter-section">
+                <div class="date-filter-wrapper">
+                    <div class="form-group">
+                        <label>开始日期</label>
+                        <input type="date" id="records-start-date" class="date-input">
+                    </div>
+                    <div class="form-group">
+                        <label>结束日期</label>
+                        <input type="date" id="records-end-date" class="date-input">
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <button type="button" class="btn-secondary" id="clear-records-filter">清除</button>
+                    </div>
+                    <div class="form-group">
+                        <label>&nbsp;</label>
+                        <button type="button" class="btn-primary" id="apply-records-filter">应用</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 记录列表区域 -->
             <div class="records-section">
                 <div class="section-header">
                     <h2>记账记录</h2>
                     <div class="section-actions">
-                        <div class="time-filter-wrapper">
-                            <select id="records-time-dimension" class="time-dimension-select">
-                                <option value="month">按月查看</option>
-                                <option value="week">按周查看</option>
-                                <option value="day">按日查看</option>
-                                <option value="year">按年查看</option>
-                            </select>
-                        </div>
-                        <div class="month-picker-wrapper">
-                            <button type="button" class="month-picker-btn" id="filter-month-btn">
-                                <span id="filter-month-display">选择月份</span>
-                                <span class="picker-arrow">▼</span>
-                            </button>
-                        </div>
                         <button id="btn-export" class="btn-secondary">导出</button>
                         <label for="file-import" class="btn-secondary">导入</label>
                         <input type="file" id="file-import" accept=".csv" style="display: none;">
-                        <input type="hidden" id="filter-year-month" value="">
                     </div>
                 </div>
                 <div id="records-list" class="records-list">
@@ -329,11 +341,6 @@
                 </div>
             </div>
         </div>
-    </div>
-
-    <!-- 年月选择器模态框（保留兼容，使用通用选择器） -->
-    <div id="month-picker-modal" class="modal" style="display: none;">
-        <!-- 已废弃，使用 date-picker-modal -->
     </div>
 
     <!-- 自定义数字键盘（金额输入） -->

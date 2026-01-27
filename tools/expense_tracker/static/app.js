@@ -49,12 +49,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeInput) {
         typeInput.value = 'expense';
     }
-    // 确保支出按钮是激活状态（支持新旧两种样式）
-    const expenseBtn = document.querySelector('.type-btn[data-type="expense"], .type-btn-compact[data-type="expense"]');
+    // 确保支出按钮是激活状态
+    const expenseBtn = document.querySelector('.type-btn-compact[data-type="expense"]');
     if (expenseBtn) {
         expenseBtn.classList.add('active');
     }
-    const incomeBtn = document.querySelector('.type-btn[data-type="income"], .type-btn-compact[data-type="income"]');
+    const incomeBtn = document.querySelector('.type-btn-compact[data-type="income"]');
     if (incomeBtn) {
         incomeBtn.classList.remove('active');
     }
@@ -77,30 +77,49 @@ document.addEventListener('DOMContentLoaded', () => {
     // 绑定事件
     bindEvents();
     
-    // 初始化年月选择器显示（默认显示当前年月）
-    const currentDate = new Date();
-    const currentYear = currentDate.getFullYear();
-    const currentMonth = currentDate.getMonth() + 1;
-    const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
-    document.getElementById('filter-month-display').textContent = `${currentYear}年${monthNames[currentMonth - 1]}`;
-    document.getElementById('filter-year-month').value = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
-    
     // 初始化标签页
     initMainTabs();
     
     // 初始化时间维度选择器
     initTimeDimensionSelector();
     
-    // 初始化记录列表时间维度选择器
-    initRecordsTimeDimension();
+    // 初始化记录列表日期筛选
+    initRecordsDateFilter();
 });
 
-// 初始化记录列表时间维度选择器
-function initRecordsTimeDimension() {
-    const select = document.getElementById('records-time-dimension');
-    if (select) {
-        select.addEventListener('change', function() {
-            // 根据选择的时间维度重新加载记录
+// 初始化记录列表日期筛选
+function initRecordsDateFilter() {
+    // 应用按钮
+    const applyBtn = document.getElementById('apply-records-filter');
+    if (applyBtn) {
+        applyBtn.addEventListener('click', function() {
+            const startDate = document.getElementById('records-start-date').value;
+            const endDate = document.getElementById('records-end-date').value;
+            
+            // 如果两个日期都选择了，验证日期范围
+            if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+                customAlert('开始日期不能晚于结束日期', '提示', 'warning');
+                return;
+            }
+            
+            // 应用筛选，重新加载记录
+            loadRecords(1);
+        });
+    }
+    
+    // 清除按钮（带回弹效果）
+    const clearBtn = document.getElementById('clear-records-filter');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function() {
+            // 添加回弹动画
+            this.classList.add('bounce');
+            setTimeout(() => {
+                this.classList.remove('bounce');
+            }, 600);
+            
+            document.getElementById('records-start-date').value = '';
+            document.getElementById('records-end-date').value = '';
+            // 清除后也要查询（显示所有数据）
             loadRecords(1);
         });
     }
@@ -129,6 +148,9 @@ async function switchMainTab(tabName) {
         content.classList.remove('active');
     });
     document.getElementById(`tab-${tabName}`).classList.add('active');
+    
+    // 滚动到页面顶部
+    window.scrollTo({ top: 0, behavior: 'instant' });
     
     // 如果切换到数据分析页面，确保Chart.js已加载
     if (tabName === 'analysis' && !chartJsLoaded) {
@@ -164,19 +186,31 @@ function initTimeDimensionSelector() {
         const startDate = document.getElementById('custom-start-date').value;
         const endDate = document.getElementById('custom-end-date').value;
         
-        if (!startDate || !endDate) {
-            customAlert('请选择开始和结束日期', '提示', 'warning');
-            return;
-        }
-        
-        if (new Date(startDate) > new Date(endDate)) {
+        // 如果两个日期都选择了，验证日期范围
+        if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
             customAlert('开始日期不能晚于结束日期', '提示', 'warning');
             return;
         }
         
-        customDateRange.start = startDate;
-        customDateRange.end = endDate;
+        customDateRange.start = startDate || '';
+        customDateRange.end = endDate || '';
         currentTimeDimension = 'custom';
+        loadAnalysisData();
+    });
+    
+    // 自定义时间范围清除按钮（带回弹效果）
+    document.getElementById('clear-custom-range').addEventListener('click', function() {
+        // 添加回弹动画
+        this.classList.add('bounce');
+        setTimeout(() => {
+            this.classList.remove('bounce');
+        }, 600);
+        
+        document.getElementById('custom-start-date').value = '';
+        document.getElementById('custom-end-date').value = '';
+        customDateRange.start = '';
+        customDateRange.end = '';
+        // 清除后也要查询（显示所有数据）
         loadAnalysisData();
     });
 }
@@ -321,14 +355,7 @@ async function updateBarChart(categoryStats) {
             responsive: true,
             maintainAspectRatio: false,
             animation: {
-                duration: 1500,
-                easing: 'easeOutQuart',
-                y: {
-                    type: 'number',
-                    easing: 'easeOutQuart',
-                    duration: 1500,
-                    from: 0
-                }
+                duration: 0  // 禁用动画，立即显示
             },
             interaction: {
                 mode: 'index',
@@ -390,9 +417,6 @@ let numberKeyboardExpression = '';
 
 // 绑定事件
 function bindEvents() {
-    // 快速记账表单 - 不再直接提交，改为打开键盘
-    // document.getElementById('quick-add-form').addEventListener('submit', handleAddRecord);
-    
     // 记账按钮点击事件 - 打开键盘
     const btnOpenKeyboard = document.getElementById('btn-open-keyboard');
     if (btnOpenKeyboard) {
@@ -456,11 +480,11 @@ function bindEvents() {
     // 初始化键盘事件
     initKeyboardEvents();
     
-    // 类型切换按钮（支持新旧两种样式）
-    document.querySelectorAll('.type-btn, .type-btn-compact').forEach(btn => {
+    // 类型切换按钮
+    document.querySelectorAll('.type-btn-compact').forEach(btn => {
         btn.addEventListener('click', function() {
-            // 移除所有active类（包括新旧两种）
-            document.querySelectorAll('.type-btn, .type-btn-compact').forEach(b => b.classList.remove('active'));
+            // 移除所有active类
+            document.querySelectorAll('.type-btn-compact').forEach(b => b.classList.remove('active'));
             // 添加active类到当前按钮
             this.classList.add('active');
             // 更新隐藏输入框的值
@@ -471,15 +495,7 @@ function bindEvents() {
         });
     });
     
-    // 类型切换时更新分类（兼容旧代码）
-    const typeInput = document.getElementById('record-type');
-    if (typeInput && typeInput.tagName === 'SELECT') {
-        typeInput.addEventListener('change', updateCategorySelector);
-    }
     
-    
-    // 年月选择器（使用通用日期选择器）
-    document.getElementById('filter-month-btn').addEventListener('click', openMonthPicker);
     
     // 通用日期选择器事件
     document.getElementById('date-picker-modal').addEventListener('click', (e) => {
@@ -783,8 +799,8 @@ async function handleAddRecord(e) {
             if (keyboardNoteInput) {
                 keyboardNoteInput.value = '';
             }
-            // 重置类型选择为支出（支持新旧两种样式）
-            document.querySelectorAll('.type-btn, .type-btn-compact').forEach(btn => {
+            // 重置类型选择为支出
+            document.querySelectorAll('.type-btn-compact').forEach(btn => {
                 btn.classList.remove('active');
                 if (btn.dataset.type === 'expense') {
                     btn.classList.add('active');
@@ -878,25 +894,11 @@ function renderTodayRecords(records) {
     container.innerHTML = html;
 }
 
-// 加载统计数据
+// 加载统计数据（首页统计）
 async function loadStatistics() {
     try {
-        const yearMonth = document.getElementById('filter-year-month').value;
-        let startDate = '';
-        let endDate = '';
-        
-        if (yearMonth) {
-            // 年月格式：YYYY-MM，转换为日期范围
-            startDate = `${yearMonth}-01`;
-            // 计算该月的最后一天
-            const [year, month] = yearMonth.split('-').map(Number);
-            const lastDay = new Date(year, month, 0).getDate();
-            endDate = `${yearMonth}-${String(lastDay).padStart(2, '0')}`;
-        }
-        
+        // 首页统计不筛选，显示所有数据
         let url = `${API_BASE}/statistics?`;
-        if (startDate) url += `start_date=${startDate}&`;
-        if (endDate) url += `end_date=${endDate}&`;
         
         const response = await fetch(url);
         const data = await response.json();
@@ -1005,14 +1007,7 @@ async function updateLineChart(dailyStats) {
             responsive: true,
             maintainAspectRatio: false,
             animation: {
-                duration: 1500, // 动画时长
-                easing: 'easeOutQuart', // 弹性动画
-                y: {
-                    type: 'number',
-                    easing: 'easeOutQuart',
-                    duration: 1500,
-                    from: 0 // 从0开始动画
-                }
+                duration: 0  // 禁用动画，立即显示
             },
             interaction: {
                 intersect: false,
@@ -1133,10 +1128,7 @@ async function updatePieChart(categoryStats) {
             responsive: true,
             maintainAspectRatio: false,
             animation: {
-                animateRotate: true,
-                animateScale: true,
-                duration: 1500,
-                easing: 'easeOutQuart'
+                duration: 0  // 禁用动画，立即显示
             },
             plugins: {
                 legend: {
@@ -1194,50 +1186,17 @@ async function updatePieChart(categoryStats) {
 // 加载记录列表
 async function loadRecords(page = 1) {
     try {
-        let startDate = '';
-        let endDate = '';
-        
-        // 获取记录列表的时间维度选择
-        const timeDimensionSelect = document.getElementById('records-time-dimension');
-        const timeDimension = timeDimensionSelect ? timeDimensionSelect.value : 'month';
-        
-        const now = new Date();
-        
-        if (timeDimension === 'day') {
-            // 今天
-            startDate = endDate = now.toISOString().split('T')[0];
-        } else if (timeDimension === 'week') {
-            // 本周
-            const dayOfWeek = now.getDay();
-            const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-            const monday = new Date(now);
-            monday.setDate(now.getDate() + diff);
-            startDate = monday.toISOString().split('T')[0];
-            endDate = now.toISOString().split('T')[0];
-        } else if (timeDimension === 'month') {
-            // 使用月份选择器的值
-            const yearMonth = document.getElementById('filter-year-month').value;
-            if (yearMonth) {
-                startDate = `${yearMonth}-01`;
-                const [year, month] = yearMonth.split('-').map(Number);
-                const lastDay = new Date(year, month, 0).getDate();
-                endDate = `${yearMonth}-${String(lastDay).padStart(2, '0')}`;
-            } else {
-                // 默认当前月
-                const year = now.getFullYear();
-                const month = now.getMonth() + 1;
-                startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-                const lastDay = new Date(year, month, 0).getDate();
-                endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-            }
-        } else if (timeDimension === 'year') {
-            // 本年
-            const year = now.getFullYear();
-            startDate = `${year}-01-01`;
-            endDate = `${year}-12-31`;
-        }
+        // 获取日期筛选的值
+        const startDateInput = document.getElementById('records-start-date');
+        const endDateInput = document.getElementById('records-end-date');
+        const startDate = startDateInput ? startDateInput.value : '';
+        const endDate = endDateInput ? endDateInput.value : '';
         
         let url = `${API_BASE}/records?page=${page}&per_page=100`;
+        // 只选择起始日期：显示起始日期之后的数据
+        // 只选择结束日期：显示结束日期之前的数据
+        // 两个都选：显示范围内的数据
+        // 都不选：显示所有数据
         if (startDate) url += `&start_date=${startDate}`;
         if (endDate) url += `&end_date=${endDate}`;
         
@@ -1844,12 +1803,6 @@ async function handleDeleteRecord(event, recordId) {
     }
 }
 
-// 日期筛选（已改为年月筛选）
-function handleDateFilter() {
-    loadStatistics();
-    loadRecords(1);
-}
-
 // 通用日期时间选择器
 let datePickerConfig = {
     selectedYear: null,
@@ -2065,7 +2018,7 @@ function updateDayWheel(year, month) {
     }, 50);
 }
 
-// 带声音的滚轮设置
+// 带声音的滚轮设置（改进版 - 更稳定的滚动体验）
 function setupPickerWheelWithSound(wheelId, onSelect) {
     const wheel = document.getElementById(wheelId);
     if (!wheel) return;
@@ -2074,11 +2027,23 @@ function setupPickerWheelWithSound(wheelId, onSelect) {
     let scrollTimeout = null;
     let lastScrollTop = wheel.scrollTop;
     let lastSoundScrollTop = lastScrollTop;
+    let isUserScrolling = false; // 标记用户是否在主动滚动
+    let scrollVelocity = 0; // 滚动速度
+    let lastScrollTime = Date.now();
     
     // 滚动事件
     wheel.addEventListener('scroll', () => {
-        // 检测滚动方向和距离，播放声音
         const currentScrollTop = wheel.scrollTop;
+        const currentTime = Date.now();
+        const timeDelta = currentTime - lastScrollTime;
+        
+        // 计算滚动速度
+        if (timeDelta > 0) {
+            scrollVelocity = Math.abs(currentScrollTop - lastScrollTop) / timeDelta;
+        }
+        lastScrollTime = currentTime;
+        
+        // 检测滚动方向和距离，播放声音
         const scrollDelta = Math.abs(currentScrollTop - lastSoundScrollTop);
         
         // 每滚动约20px播放一次声音
@@ -2088,42 +2053,78 @@ function setupPickerWheelWithSound(wheelId, onSelect) {
         }
         
         lastScrollTop = currentScrollTop;
+        isUserScrolling = true;
         
         // 清除之前的定时器
         if (scrollTimeout) {
             clearTimeout(scrollTimeout);
         }
         
-        // 更新选中状态（实时）
-        updatePickerSelectedOption(wheelId, onSelect);
+        // 更新选中状态（实时，但不强制对齐）
+        updatePickerSelectedOption(wheelId, onSelect, false);
         
-        // 滚动停止后再次更新
+        // 滚动停止后对齐（延迟更长，让用户有足够时间滚动）
         scrollTimeout = setTimeout(() => {
-            updatePickerSelectedOption(wheelId, onSelect);
-            isScrolling = false;
-        }, 150);
+            // 如果滚动速度很慢或已停止，才进行对齐
+            if (scrollVelocity < 0.5 || Math.abs(wheel.scrollTop - lastScrollTop) < 1) {
+                updatePickerSelectedOption(wheelId, onSelect, true);
+                isScrolling = false;
+                isUserScrolling = false;
+                scrollVelocity = 0;
+            } else {
+                // 如果还在滚动，继续等待
+                scrollTimeout = setTimeout(() => {
+                    updatePickerSelectedOption(wheelId, onSelect, true);
+                    isScrolling = false;
+                    isUserScrolling = false;
+                    scrollVelocity = 0;
+                }, 100);
+            }
+        }, 200); // 增加延迟到200ms，让滚动更自然
         
         isScrolling = true;
     });
     
-    // 触摸事件支持（移动端滑动）
+    // 触摸事件支持（移动端滑动）- 改进版
     let touchStartY = 0;
     let touchStartScrollTop = 0;
     let isTouching = false;
     let lastTouchY = 0;
     let lastSoundTouchY = 0;
+    let touchVelocity = 0;
+    let lastTouchTime = Date.now();
+    let touchMoved = false;
     
     wheel.addEventListener('touchstart', (e) => {
         isTouching = true;
+        touchMoved = false;
         touchStartY = e.touches[0].clientY;
         touchStartScrollTop = wheel.scrollTop;
         lastTouchY = touchStartY;
         lastSoundTouchY = touchStartY;
+        lastTouchTime = Date.now();
+        touchVelocity = 0;
+        isUserScrolling = true;
+        
+        // 停止任何正在进行的自动对齐
+        if (scrollTimeout) {
+            clearTimeout(scrollTimeout);
+        }
     }, { passive: true });
     
     wheel.addEventListener('touchmove', (e) => {
         if (!isTouching) return;
+        touchMoved = true;
         const currentY = e.touches[0].clientY;
+        const currentTime = Date.now();
+        const timeDelta = currentTime - lastTouchTime;
+        
+        // 计算触摸速度
+        if (timeDelta > 0) {
+            touchVelocity = Math.abs(currentY - lastTouchY) / timeDelta;
+        }
+        lastTouchTime = currentTime;
+        
         const deltaY = Math.abs(currentY - lastSoundTouchY);
         
         // 每移动约15px播放一次声音
@@ -2134,14 +2135,26 @@ function setupPickerWheelWithSound(wheelId, onSelect) {
         
         const totalDeltaY = currentY - touchStartY;
         wheel.scrollTop = touchStartScrollTop - totalDeltaY;
+        lastTouchY = currentY;
     }, { passive: true });
     
     wheel.addEventListener('touchend', () => {
+        if (!isTouching) return;
         isTouching = false;
-        // 触摸结束后，自动对齐到最近的选项
-        setTimeout(() => {
-            updatePickerSelectedOption(wheelId, onSelect);
-        }, 100);
+        
+        // 如果用户有滑动操作，延迟对齐，让惯性滚动完成
+        if (touchMoved) {
+            // 根据速度决定延迟时间
+            const delay = touchVelocity > 2 ? 300 : 150;
+            setTimeout(() => {
+                updatePickerSelectedOption(wheelId, onSelect, true);
+                isUserScrolling = false;
+            }, delay);
+        } else {
+            // 如果没有滑动，立即对齐
+            updatePickerSelectedOption(wheelId, onSelect, true);
+            isUserScrolling = false;
+        }
     });
 }
 
@@ -2165,8 +2178,8 @@ function scrollToPickerOption(wheelId, value) {
     }
 }
 
-// 更新选中选项
-function updatePickerSelectedOption(wheelId, onSelect) {
+// 更新选中选项（改进版 - 更稳定的对齐）
+function updatePickerSelectedOption(wheelId, onSelect, shouldAlign = true) {
     const wheel = document.getElementById(wheelId);
     if (!wheel) return;
     
@@ -2195,18 +2208,24 @@ function updatePickerSelectedOption(wheelId, onSelect) {
         // 添加选中状态
         closestOption.classList.add('selected');
         
-        // 如果距离中心较远，自动对齐
-        const optionTop = closestOption.offsetTop;
-        const optionHeight = closestOption.clientHeight;
-        const targetScroll = optionTop - (wheelHeight / 2) + (optionHeight / 2);
-        const currentScroll = wheel.scrollTop;
-        
-        // 如果距离超过阈值，自动对齐
-        if (Math.abs(targetScroll - currentScroll) > 5) {
-            wheel.scrollTo({
-                top: targetScroll,
-                behavior: 'smooth'
-            });
+        // 只有在需要对齐且距离中心较远时才自动对齐
+        if (shouldAlign) {
+            const optionTop = closestOption.offsetTop;
+            const optionHeight = closestOption.clientHeight;
+            const targetScroll = optionTop - (wheelHeight / 2) + (optionHeight / 2);
+            const currentScroll = wheel.scrollTop;
+            
+            // 增加阈值到10px，避免频繁对齐
+            if (Math.abs(targetScroll - currentScroll) > 10) {
+                // 使用更平滑的对齐方式
+                const distance = Math.abs(targetScroll - currentScroll);
+                const duration = Math.min(distance * 0.5, 300); // 根据距离调整动画时长
+                
+                wheel.scrollTo({
+                    top: targetScroll,
+                    behavior: 'smooth'
+                });
+            }
         }
         
         if (onSelect) {
@@ -2249,66 +2268,13 @@ function confirmDateSelection() {
     }
 }
 
-// 年月选择器功能（兼容旧代码，使用新的通用选择器）
-let selectedYear = null;
-let selectedMonth = null;
-
-// 初始化年月选择器（已废弃，保留兼容）
-function initMonthPicker() {
-    // 不再需要，使用通用日期选择器
-}
-
-function openMonthPicker() {
-    // 使用通用日期选择器，不包含日期
-    const yearMonth = document.getElementById('filter-year-month').value;
-    let initialDate = null;
-    if (yearMonth) {
-        initialDate = `${yearMonth}-01`; // 使用该月第一天作为初始日期
-    }
-    
-    openDatePicker({
-        initialDate: initialDate,
-        includeDay: false,
-        title: '选择年月',
-        onConfirm: (dateStr) => {
-            // dateStr 格式：YYYY-MM
-            const yearMonth = dateStr.substring(0, 7);
-            document.getElementById('filter-year-month').value = yearMonth;
-            
-            // 更新显示
-            const [year, month] = yearMonth.split('-').map(Number);
-            const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
-            document.getElementById('filter-month-display').textContent = `${year}年${monthNames[month - 1]}`;
-            
-            // 重新加载数据
-            loadStatistics();
-            loadRecords(1);
-        }
-    });
-}
-
-function closeMonthPicker() {
-    closeDatePicker();
-}
-
-function confirmMonthSelection() {
-    confirmDateSelection();
-}
-
 // 导出数据
 function handleExport() {
-    const yearMonth = document.getElementById('filter-year-month').value;
-    let startDate = '';
-    let endDate = '';
-    
-    if (yearMonth) {
-        // 年月格式：YYYY-MM，转换为日期范围
-        startDate = `${yearMonth}-01`;
-        // 计算该月的最后一天
-        const [year, month] = yearMonth.split('-').map(Number);
-        const lastDay = new Date(year, month, 0).getDate();
-        endDate = `${yearMonth}-${String(lastDay).padStart(2, '0')}`;
-    }
+    // 使用记录列表的日期筛选
+    const startDateInput = document.getElementById('records-start-date');
+    const endDateInput = document.getElementById('records-end-date');
+    const startDate = startDateInput ? startDateInput.value : '';
+    const endDate = endDateInput ? endDateInput.value : '';
     
     let url = `${API_BASE}/export?`;
     if (startDate) url += `start_date=${startDate}&`;
@@ -2508,7 +2474,6 @@ async function loadCategoryList(type) {
                 </div>
                 <div class="category-item-actions">
                     ${!cat.is_default ? `
-                        <button class="btn-edit-small" onclick="editCategory(${cat.id})">编辑</button>
                         <button class="btn-danger-small" onclick="deleteCategory(${cat.id})">删除</button>
                     ` : ''}
                 </div>
@@ -2593,10 +2558,6 @@ async function deleteCategory(categoryId) {
     }
 }
 
-function editCategory(categoryId) {
-    // 简单的编辑功能（可以后续扩展为更完整的编辑界面）
-    customAlert('编辑功能开发中，请先删除后重新添加', '提示', 'info');
-}
 
 // 图标库
 const ICON_LIBRARY = {
@@ -2718,11 +2679,6 @@ function openNumberKeyboard(inputId = 'record-amount') {
     // 显示键盘
     keyboard.classList.add('show');
     document.body.classList.add('keyboard-open');
-    
-    // 滚动到输入框
-    setTimeout(() => {
-        amountInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 100);
 }
 
 // 关闭数字键盘
@@ -2736,7 +2692,8 @@ function closeNumberKeyboard() {
     // 如果有未完成的表达式，先计算结果
     if (numberKeyboardExpression) {
         try {
-            let expr = numberKeyboardExpression.replace(/×/g, '*').replace(/÷/g, '/');
+            // 构建完整表达式：表达式 + 当前值
+            let expr = (numberKeyboardExpression + numberKeyboardValue).replace(/×/g, '*').replace(/÷/g, '/');
             const result = eval(expr);
             numberKeyboardValue = parseFloat(result).toFixed(2);
             numberKeyboardExpression = '';
@@ -2917,8 +2874,8 @@ function handleNumberKeyPress(key) {
         // 计算结果
         if (numberKeyboardExpression) {
             try {
-                // 替换运算符符号
-                let expr = numberKeyboardExpression.replace(/×/g, '*').replace(/÷/g, '/');
+                // 构建完整表达式：表达式 + 当前值
+                let expr = (numberKeyboardExpression + numberKeyboardValue).replace(/×/g, '*').replace(/÷/g, '/');
                 const result = eval(expr);
                 numberKeyboardValue = parseFloat(result).toFixed(2);
                 numberKeyboardExpression = '';
@@ -2929,13 +2886,16 @@ function handleNumberKeyPress(key) {
                 numberKeyboardExpression = '';
                 updateNumberKeyboardDisplay();
             }
+        } else {
+            // 如果没有表达式，只是显示当前值（已经是结果）
+            // 不做任何操作，保持当前值
         }
     } else if (['+', '-', '×', '÷'].includes(key)) {
         // 运算符
         if (numberKeyboardExpression) {
-            // 如果已有表达式，先计算结果
+            // 如果已有表达式，先计算完整表达式（表达式 + 当前值）
             try {
-                let expr = numberKeyboardExpression.replace(/×/g, '*').replace(/÷/g, '/');
+                let expr = (numberKeyboardExpression + numberKeyboardValue).replace(/×/g, '*').replace(/÷/g, '/');
                 const result = eval(expr);
                 numberKeyboardValue = parseFloat(result).toFixed(2);
             } catch (e) {

@@ -173,11 +173,23 @@ input, textarea {
     border: 1px solid #f0f1f3; /* 更淡的边框 */
 }
 
-.date-range-inputs {
+.date-range-inputs,
+.date-filter-wrapper {
     display: grid;
-    grid-template-columns: 1fr 1fr auto;
+    grid-template-columns: 1fr 1fr auto auto;
     gap: 8px;
     align-items: end;
+}
+
+/* 确保清除按钮在左，应用按钮在右 */
+.date-range-inputs .form-group:nth-child(3),
+.date-filter-wrapper .form-group:nth-child(3) {
+    order: 3; /* 清除按钮 */
+}
+
+.date-range-inputs .form-group:nth-child(4),
+.date-filter-wrapper .form-group:nth-child(4) {
+    order: 4; /* 应用按钮 */
 }
 
 .date-input {
@@ -196,41 +208,6 @@ input, textarea {
 }
 
 
-/* 记录列表时间维度选择 */
-.time-filter-wrapper {
-    display: flex;
-    align-items: center;
-}
-
-.time-dimension-select {
-    padding: 6px 10px;
-    border: 1px solid #d9d9d9;
-    border-radius: 8px;
-    background: white;
-    cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    font-size: 12px;
-    color: #333;
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23333' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 8px center;
-    background-size: 12px;
-    padding-right: 28px;
-}
-
-.time-dimension-select:hover {
-    border-color: #1890ff;
-    background-color: #f0f8ff;
-}
-
-.time-dimension-select:focus {
-    outline: none;
-    border-color: #1890ff;
-    box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.1);
-}
 
 /* 统计卡片 */
 .stats-cards {
@@ -391,89 +368,9 @@ input, textarea {
     line-height: 1;
 }
 
-/* 金额输入框 - 带前缀 */
-.amount-input-wrapper {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    border: 1px solid #e5e7eb; /* 更淡的边框 */
-    border-radius: 10px;
-    background: #fefefe; /* 柔和的白色 */
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    overflow: hidden;
-}
-
-.amount-input-wrapper:focus-within {
-    border-color: #93c5fd; /* 柔和的蓝色 */
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.08); /* 更淡的阴影 */
-}
-
-.amount-prefix {
-    padding: 0 8px 0 12px;
-    font-size: 14px;
-    font-weight: 600;
-    color: #6b7280; /* 更柔和的文字 */
-    background: #f9fafb; /* 更淡的背景 */
-    border-right: 1px solid #f0f1f3; /* 更淡的分隔线 */
-}
-
-.amount-input {
-    flex: 1;
-    border: none;
-    padding: 10px 12px;
-    font-size: 15px;
-    font-weight: 600;
-    outline: none;
-    background: transparent;
-    cursor: pointer;
-    -webkit-user-select: none;
-    user-select: none;
-}
-
-.amount-input::placeholder {
-    color: #bfbfbf;
-    font-weight: normal;
-}
-
 /* 分类区域 */
 .category-section-compact {
     width: 100%;
-}
-
-/* 备注输入框 - 带图标 */
-.note-input-wrapper {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    border: 1px solid #e5e7eb; /* 更淡的边框 */
-    border-radius: 10px;
-    background: #fefefe; /* 柔和的白色 */
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    overflow: hidden;
-}
-
-.note-input-wrapper:focus-within {
-    border-color: #93c5fd; /* 柔和的蓝色 */
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.08); /* 更淡的阴影 */
-}
-
-.note-icon {
-    padding: 0 8px 0 12px;
-    font-size: 14px;
-    color: #9ca3af; /* 更柔和的图标颜色 */
-}
-
-.note-input {
-    flex: 1;
-    border: none;
-    padding: 10px 12px 10px 0;
-    font-size: 13px;
-    outline: none;
-    background: transparent;
-}
-
-.note-input::placeholder {
-    color: #bfbfbf;
 }
 
 /* 提交按钮 - 紧凑版 */
@@ -621,56 +518,7 @@ input, textarea {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231890ff' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
 }
 
-/* 类型选择器 */
-.type-selector {
-    display: flex;
-    gap: 8px;
-}
-
-.type-btn {
-    flex: 1;
-    padding: 10px 16px;
-    border: 2px solid #d9d9d9;
-    border-radius: 12px;
-    background: white;
-    cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    font-size: 13px;
-    font-weight: 500;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    color: #666;
-}
-
-.type-btn:hover {
-    border-color: #1890ff;
-    background: #e6f7ff;
-    color: #1890ff;
-    transform: translateY(-1px) scale(1.02);
-}
-
-.type-btn.active {
-    border-color: #1890ff;
-    background: #1890ff;
-    color: white;
-    transform: scale(1.05);
-    box-shadow: 0 2px 8px rgba(24, 144, 255, 0.3);
-}
-
-.type-btn.active[data-type="expense"] {
-    border-color: #ff4d4f;
-    background: #ff4d4f;
-    box-shadow: 0 2px 8px rgba(255, 77, 79, 0.3);
-}
-
-.type-btn.active[data-type="income"] {
-    border-color: #52c41a;
-    background: #52c41a;
-    box-shadow: 0 2px 8px rgba(82, 196, 26, 0.3);
-}
-
+/* 类型选择器图标 */
 .type-icon {
     font-size: 16px;
     line-height: 1;
@@ -843,6 +691,27 @@ input, textarea {
     color: #2563eb; /* 稍微深一点的蓝色 */
     border-color: #60a5fa;
     transform: translateY(-1px) scale(1.05);
+}
+
+/* 回弹动画 */
+@keyframes bounce {
+    0%, 100% {
+        transform: scale(1);
+    }
+    25% {
+        transform: scale(0.9);
+    }
+    50% {
+        transform: scale(1.1);
+    }
+    75% {
+        transform: scale(0.95);
+    }
+}
+
+.btn-secondary.bounce,
+.btn-primary.bounce {
+    animation: bounce 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
 }
 
 .btn-danger {
@@ -1028,6 +897,16 @@ input, textarea {
     color: #dc2626; /* 柔和的红色 */
 }
 
+/* 记录列表筛选区域 */
+.records-filter-section {
+    background: #fefefe; /* 柔和的白色 */
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04); /* 更淡的阴影 */
+    border: 1px solid #f0f1f3; /* 更淡的边框 */
+}
+
 /* 记录列表 */
 .records-section {
     background: #fefefe; /* 柔和的白色 */
@@ -1062,40 +941,13 @@ input, textarea {
     font-size: 11px;
 }
 
-/* 年月选择器按钮 */
+/* 年月选择器（使用普通date input） */
 .month-picker-wrapper {
     position: relative;
 }
 
-.month-picker-btn {
-    padding: 6px 12px;
-    border: 1px solid #d9d9d9;
-    border-radius: 8px;
-    background: white;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    font-size: 12px;
-    color: #333;
-}
-
-.month-picker-btn:hover {
-    border-color: #1890ff;
-    background: #f0f8ff;
-    color: #1890ff;
-}
-
-.month-picker-btn:focus {
-    outline: none;
-    border-color: #1890ff;
-    box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.1);
-}
-
-.picker-arrow {
-    font-size: 10px;
-    color: #999;
+.month-picker-wrapper .date-input {
+    min-width: 150px;
 }
 
 /* 通用日期时间选择器容器 */
@@ -1128,6 +980,9 @@ input, textarea {
     scrollbar-width: none;
     -ms-overflow-style: none;
     padding: 80px 0;
+    /* 改进滚动体验 */
+    scroll-behavior: auto; /* 禁用自动平滑滚动，手动控制 */
+    overscroll-behavior: contain; /* 防止滚动溢出 */
 }
 
 .picker-wheel::-webkit-scrollbar {
@@ -1142,10 +997,13 @@ input, textarea {
     font-size: 16px;
     color: #999;
     scroll-snap-align: center;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: color 0.15s ease, font-size 0.15s ease, transform 0.15s ease; /* 只对颜色和大小做过渡，不对位置 */
     padding: 0 10px;
     user-select: none;
     -webkit-user-select: none;
+    /* 改进触摸体验 */
+    touch-action: pan-y;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .picker-option.selected {
@@ -1387,17 +1245,6 @@ input, textarea {
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.btn-edit {
-    background: #4ECDC4;
-    color: white;
-}
-
-.btn-edit:hover {
-    background: #3bb5ad;
-    transform: translateY(-1px) scale(1.05);
-    box-shadow: 0 2px 8px rgba(78, 205, 196, 0.3);
-}
-
 /* 分页 */
 .pagination {
     display: flex;
@@ -1608,8 +1455,24 @@ input, textarea {
         font-size: 16px;
     }
 
-    .date-range-inputs {
+    .date-range-inputs,
+    .date-filter-wrapper {
         grid-template-columns: 1fr;
+    }
+    
+    .records-filter-section {
+        margin-bottom: 10px;
+    }
+    
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .section-actions {
+        width: 100%;
+        justify-content: flex-start;
     }
     
 }
