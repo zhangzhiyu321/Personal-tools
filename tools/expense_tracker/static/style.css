@@ -13,6 +13,16 @@ body {
     padding: 10px;
     padding-bottom: 75px; /* 为底部悬浮导航栏留出空间（减少了一些，因为按钮更紧凑） */
     color: #4a5568; /* 降低文字对比度 */
+    /* 防止页面缩放 */
+    touch-action: pan-y;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* 允许输入框选择文本 */
+input, textarea {
+    -webkit-user-select: text;
+    user-select: text;
 }
 
 .expense-container {
@@ -412,6 +422,9 @@ body {
     font-weight: 600;
     outline: none;
     background: transparent;
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .amount-input::placeholder {
@@ -454,6 +467,9 @@ body {
     font-size: 13px;
     outline: none;
     background: transparent;
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .note-input::placeholder {
@@ -1993,5 +2009,244 @@ body {
 @media (max-width: 768px) {
     .icon-grid {
         grid-template-columns: repeat(6, 1fr);
+    }
+}
+
+/* 自定义键盘样式 */
+.custom-keyboard {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #f5f5f5;
+    border-top: 1px solid #e0e0e0;
+    z-index: 2000;
+    display: none;
+    flex-direction: column;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+    animation: slideUp 0.3s ease-out;
+    max-height: 50vh;
+    overflow-y: auto;
+}
+
+.custom-keyboard.show {
+    display: flex;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(100%);
+    }
+    to {
+        transform: translateY(0);
+    }
+}
+
+.keyboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 16px;
+    background: #fff;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.keyboard-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+}
+
+.keyboard-close {
+    padding: 6px 16px;
+    background: #1890ff;
+    color: white;
+    border: none;
+    border-radius: 16px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.keyboard-close:active {
+    background: #40a9ff;
+    transform: scale(0.95);
+}
+
+.keyboard-display {
+    padding: 16px;
+    background: #fff;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.keyboard-display-prefix {
+    font-size: 20px;
+    font-weight: 600;
+    color: #333;
+}
+
+.keyboard-display-value {
+    font-size: 32px;
+    font-weight: 600;
+    color: #333;
+    min-height: 40px;
+    display: inline-block;
+    text-align: center;
+}
+
+.keyboard-display-input {
+    width: 100%;
+    padding: 12px;
+    font-size: 16px;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    background: #fff;
+    text-align: center;
+}
+
+.keyboard-body {
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.keyboard-row {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+}
+
+.keyboard-key {
+    flex: 1;
+    min-width: 0;
+    padding: 14px 8px;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 18px;
+    font-weight: 500;
+    color: #333;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.keyboard-key:active {
+    background: #e6f7ff;
+    border-color: #1890ff;
+    transform: scale(0.95);
+}
+
+.keyboard-key-operator {
+    background: #f0f0f0;
+    color: #1890ff;
+    font-weight: 600;
+}
+
+.keyboard-key-operator:active {
+    background: #d4edff;
+}
+
+.keyboard-key-backspace {
+    background: #fff5f5;
+    color: #ff4d4f;
+}
+
+.keyboard-key-backspace:active {
+    background: #ffe6e6;
+}
+
+.keyboard-key-clear {
+    background: #fff5f5;
+    color: #ff4d4f;
+    font-size: 14px;
+}
+
+.keyboard-key-equals {
+    background: #1890ff;
+    color: white;
+    font-weight: 600;
+    flex: 3;
+}
+
+.keyboard-key-equals:active {
+    background: #40a9ff;
+}
+
+.keyboard-key-shift {
+    background: #f0f0f0;
+    font-size: 16px;
+}
+
+.keyboard-key-number {
+    background: #f0f0f0;
+    font-size: 14px;
+}
+
+.keyboard-key-chinese {
+    background: #f0f0f0;
+    font-size: 14px;
+}
+
+.keyboard-key-confirm {
+    background: #1890ff;
+    color: white;
+    font-weight: 600;
+    flex: 2;
+}
+
+.keyboard-key-confirm:active {
+    background: #40a9ff;
+}
+
+/* 文本键盘特殊样式 */
+.text-keyboard .keyboard-key {
+    padding: 12px 4px;
+    font-size: 16px;
+}
+
+.text-keyboard .keyboard-row {
+    gap: 4px;
+}
+
+.text-keyboard .keyboard-key[data-key=" "] {
+    flex: 3;
+}
+
+/* 键盘显示时调整页面底部间距 */
+body.keyboard-open {
+    padding-bottom: 0;
+}
+
+body.keyboard-open .expense-container {
+    padding-bottom: 0;
+}
+
+/* 移动端优化 */
+@media (max-width: 768px) {
+    .custom-keyboard {
+        max-height: 60vh;
+    }
+    
+    .keyboard-display-value {
+        font-size: 28px;
+    }
+    
+    .keyboard-key {
+        padding: 16px 6px;
+        font-size: 20px;
+    }
+    
+    .text-keyboard .keyboard-key {
+        padding: 14px 3px;
+        font-size: 15px;
     }
 }
