@@ -44,7 +44,8 @@ class Expense(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     date = db.Column(db.Date, nullable=False, index=True)  # 日期
     type = db.Column(db.String(10), nullable=False)  # 类型：income(收入) 或 expense(支出)
-    category = db.Column(db.String(50), nullable=False)  # 分类（存储分类ID或名称）
+    category = db.Column(db.String(50), nullable=False)  # 分类（存储分类名称）
+    account = db.Column(db.String(50), default='未关联')  # 账户（默认：未关联）
     amount = db.Column(db.Numeric(10, 2), nullable=False)  # 金额
     note = db.Column(db.String(200))  # 备注
     created_at = db.Column(db.DateTime, default=datetime.now)  # 创建时间
@@ -56,6 +57,7 @@ class Expense(db.Model):
             'date': self.date.strftime('%Y-%m-%d') if self.date else None,
             'type': self.type,
             'category': self.category,
+            'account': self.account or '未关联',
             'amount': float(self.amount) if self.amount else 0.0,
             'note': self.note or '',
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None

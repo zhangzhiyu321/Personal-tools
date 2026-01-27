@@ -258,11 +258,15 @@ def add_record():
         except:
             pass  # 如果转换失败，使用原始值
         
+        # 获取账户（如果未提供，默认为"未关联"）
+        account = data.get('account', '未关联').strip() or '未关联'
+        
         # 创建记录
         expense = Expense(
             date=date,
             type=record_type,
             category=category,  # 存储分类名称
+            account=account,   # 账户
             amount=amount,
             note=note
         )
@@ -316,6 +320,8 @@ def update_record(record_id):
             if amount <= 0:
                 return jsonify({'error': '金额必须大于0'}), 400
             expense.amount = amount
+        if 'account' in data:
+            expense.account = data['account'].strip() or '未关联'
         if 'note' in data:
             expense.note = data['note'].strip()
         
@@ -383,15 +389,13 @@ def get_statistics():
     total_expense = sum(float(r.amount) for r in records if r.type == 'expense')
     balance = total_income - total_expense
     
-    # 计算当日支出（仅当没有日期筛选时，即首页统计）
-    today_expense = 0.0
-    if not start_date and not end_date:
-        today = datetime.now().date()
-        today_records = Expense.query.filter(
-            Expense.date == today,
-            Expense.type == 'expense'
-        ).all()
-        today_expense = sum(float(r.amount) for r in today_records)
+    # 计算当日支出（始终返回今日支出，方便首页展示）
+    today = datetime.now().date()
+    today_records = Expense.query.filter(
+        Expense.date == today,
+        Expense.type == 'expense'
+    ).all()
+    today_expense = sum(float(r.amount) for r in today_records)
     
     # 按分类统计支出
     expense_by_category = defaultdict(float)
@@ -464,6 +468,94 @@ def get_statistics():
     })
 
 
+@api_blueprint.route('/statistics/category_detail', methods=['GET'])
+def get_category_detail():
+    """获取指定分类在当前时间范围内的明细（趋势 + 记录列表）"""
+    try:
+        ensure_db_initialized()
+    except Exception as e:
+        return jsonify({'error': f'数据库未初始化: {str(e)}'}), 500
+
+    category_key = request.args.get('category')
+    if not category_key:
+        return jsonify({'error': '缺少分类参数 category'}), 400
+
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+
+    # 只统计支出类型，并限定分类
+    query = Expense.query.filter(
+        Expense.type == 'expense',
+        Expense.category == category_key
+    )
+
+    if start_date:
+        query = query.filter(Expense.date >= datetime.strptime(start_date, '%Y-%m-%d').date())
+    if end_date:
+        query = query.filter(Expense.date <= datetime.strptime(end_date, '%Y-%m-%d').date())
+
+    records = query.order_by(Expense.date.asc(), Expense.created_at.asc()).all()
+
+    # 计算总金额与按日聚合
+    daily_amount = defaultdict(float)
+    total_amount = 0.0
+    for r in records:
+        amount = float(r.amount)
+        total_amount += amount
+        if r.date:
+            date_str = r.date.strftime('%Y-%m-%d')
+            daily_amount[date_str] += amount
+
+    daily_trend = sorted(
+        [
+            {'date': d, 'amount': v}
+            for d, v in daily_amount.items()
+        ],
+        key=lambda x: x['date']
+    )
+
+    # 获取分类的展示信息（名称/图标/颜色）
+    category_info = {
+        'key': category_key,
+        'name': category_key,
+        'icon': '📦',
+        'color': '#C7CEEA'
+    }
+    try:
+        cat_obj = Category.query.filter(
+            Category.name == category_key,
+            Category.type == 'expense'
+        ).first()
+        if cat_obj:
+            category_info.update({
+                'name': cat_obj.name,
+                'icon': cat_obj.icon,
+                'color': cat_obj.color
+            })
+    except Exception:
+        # 查询失败时使用默认信息
+        pass
+
+    # 组装记录列表（前端直接展示）
+    records_list = [
+        {
+            'id': r.id,
+            'date': r.date.strftime('%Y-%m-%d') if r.date else None,
+            'amount': float(r.amount),
+            'note': r.note or '',
+            'created_at': r.created_at.strftime('%Y-%m-%d %H:%M:%S') if r.created_at else None
+        }
+        for r in records
+    ]
+
+    return jsonify({
+        'category': category_info,
+        'total_amount': total_amount,
+        'daily_trend': daily_trend,
+        'records': records_list
+    })
+
+
 @api_blueprint.route('/export', methods=['GET'])
 def export_data():
     """导出数据为CSV"""
@@ -478,29 +570,35 @@ def export_data():
     if end_date:
         query = query.filter(Expense.date <= datetime.strptime(end_date, '%Y-%m-%d').date())
     
-    records = query.order_by(Expense.date.desc(), Expense.created_at.desc()).all()
+    # 为了和示例一致，按日期升序导出
+    records = query.order_by(Expense.date.asc(), Expense.created_at.asc()).all()
     
-    # 创建CSV
+    # 创建CSV（使用制表符分隔，兼容你习惯的「空格/Tab 分隔」格式）
     output = io.StringIO()
-    writer = csv.writer(output)
+    writer = csv.writer(output, delimiter='\t')
     
-    # 写入表头
-    writer.writerow(['日期', '类型', '分类', '金额', '备注', '创建时间'])
+    # 写入表头（完全按照需求格式）
+    # 日期	收支类型	类别	账户	金额	备注
+    writer.writerow(['日期', '收支类型', '类别', '账户', '金额', '备注'])
     
     # 写入数据
     for record in records:
+        # 收支类型：income -> 收入，expense -> 支出
         type_name = '收入' if record.type == 'income' else '支出'
-        category_name = next(
-            (c['name'] for c in (EXPENSE_CATEGORIES + INCOME_CATEGORIES) if c['id'] == record.category),
-            record.category
-        )
+        # 类别：直接使用记录中存的中文名称（例如：餐饮、购物）
+        category_name = record.category
+#        账户：使用数据库中的账户字段，如果为空则默认为"未关联"
+        account_name = record.account if record.account else '未关联'
+        # 日期：2025年08月21日 这种格式
+        date_str = record.date.strftime('%Y年%m月%d日') if record.date else ''
+        
         writer.writerow([
-            record.date.strftime('%Y-%m-%d'),
-            type_name,
-            category_name,
-            float(record.amount),
-            record.note or '',
-            record.created_at.strftime('%Y-%m-%d %H:%M:%S') if record.created_at else ''
+            date_str,                    # 日期
+            type_name,                  # 收支类型
+            category_name,              # 类别
+            account_name,               # 账户
+            float(record.amount),       # 金额
+            record.note or ''           # 备注
         ])
     
     from flask import Response
@@ -524,9 +622,37 @@ def import_data():
         return jsonify({'error': '文件名为空'}), 400
     
     try:
+        # 读取文件内容（二进制）
+        file_content = file.stream.read()
+        
+        # 尝试多种编码格式
+        encodings = ['utf-8-sig', 'utf-8', 'gbk', 'gb2312', 'gb18030', 'utf-16', 'latin1']
+        decoded_content = None
+        used_encoding = None
+        
+        for encoding in encodings:
+            try:
+                decoded_content = file_content.decode(encoding)
+                used_encoding = encoding
+                break
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+        
+        if decoded_content is None:
+            return jsonify({'error': '无法识别文件编码，请确保文件是 UTF-8、GBK 或 GB2312 编码'}), 400
+        
+        # 根据首行内容判断分隔符（支持逗号或制表符）
+        # 你的示例是「看起来是空格」，实际上通常是 Tab 分隔
+        first_line_end = decoded_content.find('\n')
+        header_line = decoded_content[:first_line_end if first_line_end != -1 else None]
+        if '\t' in header_line:
+            delimiter = '\t'
+        else:
+            delimiter = ','
+        
         # 读取CSV
-        stream = io.StringIO(file.stream.read().decode('utf-8-sig'))
-        reader = csv.DictReader(stream)
+        stream = io.StringIO(decoded_content)
+        reader = csv.DictReader(stream, delimiter=delimiter)
         
         imported_count = 0
         errors = []
@@ -538,11 +664,41 @@ def import_data():
         
         for row_num, row in enumerate(reader, start=2):  # 从第2行开始（第1行是表头）
             try:
-                # 解析数据
-                date = datetime.strptime(row['日期'], '%Y-%m-%d').date()
-                type_name = row['类型']
-                record_type = 'income' if type_name == '收入' else 'expense'
-                category_name = row['分类']
+                # === 解析日期（示例格式：2025年08月21日）===
+                raw_date = (row.get('日期') or '').strip()
+                if not raw_date:
+                    errors.append(f'第{row_num}行: 日期不能为空')
+                    continue
+                try:
+                    date = datetime.strptime(raw_date, '%Y年%m月%d日').date()
+                except ValueError:
+                    # 兼容旧格式：2025-08-21
+                    try:
+                        date = datetime.strptime(raw_date, '%Y-%m-%d').date()
+                    except ValueError:
+                        errors.append(f'第{row_num}行: 日期格式不正确，应为 2025年08月21日')
+                        continue
+
+                # === 解析收支类型 ===
+                type_name = (row.get('收支类型') or '').strip()
+                if type_name == '收入':
+                    record_type = 'income'
+                elif type_name == '支出':
+                    record_type = 'expense'
+                else:
+                    errors.append(f'第{row_num}行: 收支类型必须是“收入”或“支出”')
+                    continue
+
+                # === 解析类别 ===
+                category_name = (row.get('类别') or '').strip()
+                if not category_name:
+                    category_name = '其他'
+
+                # === 解析账户 ===
+                account_name = (row.get('账户') or '').strip()
+                if not account_name:
+                    account_name = '未关联'
+
                 # 尝试从数据库查找分类，如果不存在则使用默认分类
                 try:
                     cat = Category.query.filter_by(name=category_name, type=record_type).first()
@@ -554,8 +710,16 @@ def import_data():
                         category_id = default_cat.name if default_cat else category_name
                 except:
                     category_id = category_name
-                amount = Decimal(str(row['金额']))
-                note = row.get('备注', '').strip()
+                
+                # === 解析金额 ===
+                raw_amount = str(row.get('金额') or '').strip()
+                if not raw_amount:
+                    errors.append(f'第{row_num}行: 金额不能为空')
+                    continue
+                amount = Decimal(raw_amount)
+
+                # 备注
+                note = (row.get('备注') or '').strip()
                 
                 if amount <= 0:
                     errors.append(f'第{row_num}行: 金额必须大于0')
@@ -566,6 +730,7 @@ def import_data():
                     date=date,
                     type=record_type,
                     category=category_id,
+                    account=account_name,
                     amount=amount,
                     note=note
                 )

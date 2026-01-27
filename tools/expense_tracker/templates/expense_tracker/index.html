@@ -110,28 +110,45 @@
                 <button class="dimension-btn active" data-dimension="day">日</button>
                 <button class="dimension-btn" data-dimension="week">周</button>
                 <button class="dimension-btn" data-dimension="month">月</button>
-                <button class="dimension-btn" data-dimension="year">年</button>
-                <button class="dimension-btn" data-dimension="custom">自定义</button>
             </div>
 
-            <!-- 自定义时间范围选择器（默认隐藏） -->
-            <div class="custom-date-range" id="custom-date-range" style="display: none;">
-                <div class="date-range-inputs">
-                    <div class="form-group">
-                        <label>开始日期</label>
-                        <input type="date" id="custom-start-date" class="date-input">
+            <!-- 日期选择器（支持滑动切换） -->
+            <div class="date-picker-wrapper" id="date-picker-wrapper">
+                <!-- 日视图：显示年月，可滑动切换 -->
+                <div class="date-picker-container" id="day-date-picker" data-dimension="day">
+                    <div class="date-picker-slider" id="day-date-slider">
+                        <div class="date-picker-item">
+                            <span class="date-picker-label">年</span>
+                            <div class="date-picker-value" id="day-year-display">2026</div>
+                        </div>
+                        <div class="date-picker-item">
+                            <span class="date-picker-label">月</span>
+                            <div class="date-picker-value" id="day-month-display">1月</div>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label>结束日期</label>
-                        <input type="date" id="custom-end-date" class="date-input">
+                </div>
+
+                <!-- 周视图：显示年份和第几周，可滑动切换 -->
+                <div class="date-picker-container" id="week-date-picker" data-dimension="week" style="display: none;">
+                    <div class="date-picker-slider" id="week-date-slider">
+                        <div class="date-picker-item">
+                            <span class="date-picker-label">年</span>
+                            <div class="date-picker-value" id="week-year-display">2026</div>
+                        </div>
+                        <div class="date-picker-item">
+                            <span class="date-picker-label">周</span>
+                            <div class="date-picker-value" id="week-week-display">第1周</div>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label>&nbsp;</label>
-                        <button type="button" class="btn-secondary" id="clear-custom-range">清除</button>
-                    </div>
-                    <div class="form-group">
-                        <label>&nbsp;</label>
-                        <button type="button" class="btn-primary" id="apply-custom-range">应用</button>
+                </div>
+
+                <!-- 月视图：显示年份，可滑动切换 -->
+                <div class="date-picker-container" id="month-date-picker" data-dimension="month" style="display: none;">
+                    <div class="date-picker-slider" id="month-date-slider">
+                        <div class="date-picker-item">
+                            <span class="date-picker-label">年</span>
+                            <div class="date-picker-value" id="month-year-display">2026</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -313,6 +330,26 @@
             <h2>选择图标</h2>
             <div id="icon-picker-container" class="icon-picker-container">
                 <!-- 动态生成图标选项 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 分类明细模态框（从柱状图点击某一分类进入） -->
+    <div id="category-detail-modal" class="modal">
+        <div class="modal-content" style="max-width: 520px;">
+            <span class="modal-close">&times;</span>
+            <h2 id="category-detail-title">分类明细</h2>
+            <div class="category-detail-summary">
+                <div class="category-detail-chart-container">
+                    <canvas id="category-detail-chart"></canvas>
+                </div>
+                <div class="category-detail-total">
+                    <span class="label">当前时间范围内总支出</span>
+                    <span class="value" id="category-detail-total-amount">¥0.00</span>
+                </div>
+            </div>
+            <div class="category-detail-records" id="category-detail-records">
+                <!-- 动态渲染该分类下的记录列表 -->
             </div>
         </div>
     </div>

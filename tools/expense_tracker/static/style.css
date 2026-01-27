@@ -163,14 +163,75 @@ input, textarea {
     box-shadow: 0 2px 6px rgba(59, 130, 246, 0.15); /* 更淡的阴影 */
 }
 
-/* 自定义时间范围选择器 */
-.custom-date-range {
-    background: #fefefe; /* 柔和的白色 */
+/* 日期选择器包装器 */
+.date-picker-wrapper {
+    margin-bottom: 12px;
+    background: #fefefe;
     padding: 12px;
     border-radius: 8px;
-    margin-bottom: 12px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03); /* 更淡的阴影 */
-    border: 1px solid #f0f1f3; /* 更淡的边框 */
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    border: 1px solid #f0f1f3;
+}
+
+/* 日期选择器容器 */
+.date-picker-container {
+    position: relative;
+    overflow: hidden;
+    user-select: none;
+    touch-action: pan-y;
+    cursor: grab;
+}
+
+.date-picker-container:active {
+    cursor: grabbing;
+}
+
+/* 日期选择器滑块 */
+.date-picker-slider {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: transform;
+}
+
+/* 日期选择器项 */
+.date-picker-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 80px;
+}
+
+.date-picker-label {
+    font-size: 11px;
+    color: #999;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.date-picker-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: #2563eb;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.date-picker-container:active .date-picker-value {
+    color: #1d4ed8;
+    transform: scale(0.95);
+}
+
+/* 滑动时的视觉反馈 */
+.date-picker-container.swiping {
+    opacity: 0.8;
+}
+
+.date-picker-container.swiping .date-picker-value {
+    transform: scale(0.95);
 }
 
 .date-range-inputs,
@@ -842,6 +903,251 @@ input, textarea {
 
 .chart-container canvas {
     max-height: 180px;
+}
+
+/* 分类明细模态框 */
+.category-detail-summary {
+    margin-bottom: 12px;
+}
+
+.category-detail-chart-container {
+    width: 100%;
+    height: 160px;
+}
+
+.category-detail-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: #f9fafb;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+}
+
+.category-detail-total .label {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.category-detail-total .value {
+    font-size: 16px;
+    font-weight: 700;
+    color: #ef4444;
+}
+
+.category-detail-records {
+    max-height: 300px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    border-top: 1px solid #f1f5f9;
+    padding-top: 8px;
+    margin-top: 4px;
+}
+
+.category-detail-records-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.category-detail-record {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 10px 8px;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 14px;
+    background: #fafbfc;
+    border-radius: 6px;
+    transition: background 0.2s;
+}
+
+.category-detail-record:hover {
+    background: #f3f4f6;
+}
+
+.category-detail-record:last-child {
+    border-bottom: none;
+}
+
+.category-detail-record-left {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+}
+
+.category-detail-record-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.category-detail-record-icon {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.category-detail-record-date {
+    color: #4b5563;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.category-detail-record-text {
+    color: #6b7280;
+    font-size: 13px;
+    word-break: break-word;
+}
+
+.category-detail-record-amount {
+    font-weight: 700;
+    color: #ef4444;
+    font-size: 15px;
+    margin-left: 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.category-detail-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.category-detail-pagination-btn {
+    border: 1px solid #d1d5db;
+    background: #ffffff;
+    color: #374151;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.category-detail-pagination-btn:hover:not(:disabled) {
+    background: #f3f4f6;
+    border-color: #9ca3af;
+}
+
+.category-detail-pagination-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.category-detail-pagination-info {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+/* 折线图悬浮提示框 */
+.chart-date-tooltip {
+    position: fixed;
+    background: rgba(15, 23, 42, 0.95);
+    color: #ffffff;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    z-index: 10000;
+    max-width: 280px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    display: none;
+    pointer-events: none;
+}
+
+.chart-date-tooltip-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.chart-date-tooltip-date {
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.chart-date-tooltip-total {
+    font-weight: 600;
+    color: #fca5a5;
+    font-size: 13px;
+}
+
+.chart-date-tooltip-records {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.chart-date-tooltip-record {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+}
+
+.chart-date-tooltip-icon {
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.chart-date-tooltip-text {
+    flex: 1;
+    min-width: 0;
+    word-break: break-word;
+    font-size: 11px;
+    color: #e5e7eb;
+}
+
+.chart-date-tooltip-amount {
+    font-weight: 600;
+    color: #fca5a5;
+    font-size: 12px;
+    flex-shrink: 0;
+    margin-left: 4px;
+}
+
+@media (max-width: 768px) {
+    .category-detail-chart-container {
+        height: 140px;
+    }
+
+    .category-detail-total .value {
+        font-size: 15px;
+    }
+
+    .category-detail-record {
+        padding: 8px 6px;
+        font-size: 13px;
+    }
+
+    .category-detail-record-date {
+        font-size: 12px;
+    }
+
+    .category-detail-record-text {
+        font-size: 12px;
+    }
+
+    .category-detail-record-amount {
+        font-size: 14px;
+    }
+
+    .chart-date-tooltip {
+        max-width: 240px;
+        font-size: 11px;
+    }
 }
 
 /* 今日记录区域 */
