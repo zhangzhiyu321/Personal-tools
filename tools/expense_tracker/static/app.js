@@ -908,6 +908,12 @@ async function loadStatistics() {
         document.getElementById('total-expense').textContent = `¥${data.total_expense.toFixed(2)}`;
         document.getElementById('total-balance').textContent = `¥${data.balance.toFixed(2)}`;
         
+        // 更新当日支出（如果存在）
+        const todayExpenseEl = document.getElementById('today-expense');
+        if (todayExpenseEl && data.today_expense !== undefined) {
+            todayExpenseEl.textContent = `¥${data.today_expense.toFixed(2)}`;
+        }
+        
         // 延迟更新图表（非阻塞，提升初始加载速度）
         // 图表只在数据分析页面显示，首页不需要立即加载
         setTimeout(() => {
@@ -1271,12 +1277,20 @@ function renderRecords(records) {
             dateLabel = `昨天 ${dateHeader}`;
         }
         
+        // 计算当日支出总额（只计算支出类型）
+        const dailyExpense = dateRecords
+            .filter(r => r.type === 'expense')
+            .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+        
         // 添加日期标题
         html += `
             <div class="date-section" data-date="${dateKey}">
                 <div class="date-header">
                     <span class="date-label">${dateLabel}</span>
-                    <span class="date-total">${dateRecords.length} 条</span>
+                    <div class="date-right-info">
+                        ${dailyExpense > 0 ? `<span class="date-expense">¥${dailyExpense.toFixed(2)}</span>` : ''}
+                        <span class="date-total">${dateRecords.length} 条</span>
+                    </div>
                 </div>
                 <div class="date-records">
         `;

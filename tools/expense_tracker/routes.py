@@ -383,6 +383,16 @@ def get_statistics():
     total_expense = sum(float(r.amount) for r in records if r.type == 'expense')
     balance = total_income - total_expense
     
+    # 计算当日支出（仅当没有日期筛选时，即首页统计）
+    today_expense = 0.0
+    if not start_date and not end_date:
+        today = datetime.now().date()
+        today_records = Expense.query.filter(
+            Expense.date == today,
+            Expense.type == 'expense'
+        ).all()
+        today_expense = sum(float(r.amount) for r in today_records)
+    
     # 按分类统计支出
     expense_by_category = defaultdict(float)
     for record in records:
@@ -447,6 +457,7 @@ def get_statistics():
         'total_income': total_income,
         'total_expense': total_expense,
         'balance': balance,
+        'today_expense': today_expense,
         'daily_stats': daily_list,
         'category_stats': category_list,
         'record_count': len(records)

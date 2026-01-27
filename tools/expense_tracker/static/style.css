@@ -216,6 +216,34 @@ input, textarea {
     margin-bottom: 12px;
 }
 
+/* 快速记账区域标题栏 - 包含当日金额 */
+.quick-add-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.today-expense-display {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.today-expense-label {
+    font-size: 14px;
+    color: #999;
+    font-weight: 600;
+}
+
+.today-expense-value {
+    font-size: 28px;
+    color: #ff4d4f;
+    font-weight: 800;
+    letter-spacing: -0.8px;
+    text-shadow: 0 1px 2px rgba(255, 77, 79, 0.2);
+}
+
 /* 确保最后一个内容区域有足够的底部间距 */
 .tab-content.active > *:last-child {
     margin-bottom: 20px;
@@ -295,7 +323,7 @@ input, textarea {
 
 .quick-add-section h2 {
     font-size: 14px;
-    margin-bottom: 12px;
+    margin: 0;
     color: #5a6578; /* 降低对比度 */
     font-weight: 600;
 }
@@ -1068,6 +1096,20 @@ input, textarea {
     color: #333;
 }
 
+.date-right-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.date-expense {
+    font-size: 12px;
+    font-weight: 600;
+    color: #666;
+    background: white;
+    padding: 2px 8px;
+    border-radius: 10px;
+}
 
 .date-total {
     font-size: 10px;
@@ -1407,6 +1449,18 @@ input, textarea {
         grid-template-columns: 1fr;
         gap: 6px;
     }
+    
+    .quick-add-header {
+        margin-bottom: 10px;
+    }
+    
+    .today-expense-label {
+        font-size: 13px;
+    }
+    
+    .today-expense-value {
+        font-size: 24px;
+    }
 
     .form-row {
         grid-template-columns: 1fr;
@@ -1433,6 +1487,28 @@ input, textarea {
     
     .picker-wheel-wrapper {
         height: 180px;
+    }
+    
+    .date-header {
+        padding: 6px 8px;
+    }
+    
+    .date-label {
+        font-size: 11px;
+    }
+    
+    .date-right-info {
+        gap: 6px;
+    }
+    
+    .date-expense {
+        font-size: 11px;
+        padding: 2px 6px;
+    }
+    
+    .date-total {
+        font-size: 9px;
+        padding: 2px 5px;
     }
     
     .picker-wheel {

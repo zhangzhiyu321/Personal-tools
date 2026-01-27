@@ -44,7 +44,13 @@
 
             <!-- 快速记账表单 -->
             <div class="quick-add-section">
-                <h2>快速记账</h2>
+                <div class="quick-add-header">
+                    <h2>快速记账</h2>
+                    <div class="today-expense-display">
+                        <span class="today-expense-label">今日支出</span>
+                        <span class="today-expense-value" id="today-expense">¥0.00</span>
+                    </div>
+                </div>
                 <form id="quick-add-form" class="quick-add-form">
                     <input type="hidden" id="record-date" name="date">
                     <input type="hidden" id="record-type" name="type" value="expense" required>
