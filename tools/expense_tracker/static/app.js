@@ -387,26 +387,26 @@ async function updateBarChart(categoryStats) {
 // 自定义键盘相关变量
 let numberKeyboardValue = '0.00';
 let numberKeyboardExpression = '';
-let isShiftPressed = false;
 
 // 绑定事件
 function bindEvents() {
-    // 快速记账表单
-    document.getElementById('quick-add-form').addEventListener('submit', handleAddRecord);
+    // 快速记账表单 - 不再直接提交，改为打开键盘
+    // document.getElementById('quick-add-form').addEventListener('submit', handleAddRecord);
     
-    // 金额输入框点击事件 - 显示数字键盘
-    const amountInput = document.getElementById('record-amount');
-    if (amountInput) {
-        amountInput.addEventListener('click', function(e) {
+    // 记账按钮点击事件 - 打开键盘
+    const btnOpenKeyboard = document.getElementById('btn-open-keyboard');
+    if (btnOpenKeyboard) {
+        btnOpenKeyboard.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            openNumberKeyboard();
-        });
-        // 阻止焦点事件
-        amountInput.addEventListener('focus', function(e) {
-            e.preventDefault();
-            this.blur();
-            openNumberKeyboard();
+            // 检查是否选择了分类
+            const categoryValue = document.getElementById('category-selected-value').value;
+            if (!categoryValue) {
+                customAlert('请先选择分类', '提示', 'warning');
+                return;
+            }
+            // 打开键盘
+            openNumberKeyboard('record-amount');
         });
     }
     
@@ -425,34 +425,31 @@ function bindEvents() {
         });
     }
     
-    // 备注输入框点击事件 - 显示文本键盘
-    const noteInput = document.getElementById('record-note');
-    if (noteInput) {
-        noteInput.addEventListener('click', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            openTextKeyboard();
-        });
-        // 阻止焦点事件
-        noteInput.addEventListener('focus', function(e) {
-            e.preventDefault();
-            this.blur();
-            openTextKeyboard();
-        });
-    }
-    
     // 编辑模态框中的备注输入框
     const editNoteInput = document.getElementById('edit-note');
     if (editNoteInput) {
         editNoteInput.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            openTextKeyboard('edit-note');
+            openNumberKeyboard('edit-amount');
+            // 打开键盘后，聚焦到键盘中的备注输入框
+            setTimeout(() => {
+                const keyboardNoteInput = document.getElementById('keyboard-note-input');
+                if (keyboardNoteInput) {
+                    keyboardNoteInput.focus();
+                }
+            }, 300);
         });
         editNoteInput.addEventListener('focus', function(e) {
             e.preventDefault();
             this.blur();
-            openTextKeyboard('edit-note');
+            openNumberKeyboard('edit-amount');
+            setTimeout(() => {
+                const keyboardNoteInput = document.getElementById('keyboard-note-input');
+                if (keyboardNoteInput) {
+                    keyboardNoteInput.focus();
+                }
+            }, 300);
         });
     }
     
@@ -704,7 +701,9 @@ function updateEditCategorySelect() {
 
 // 添加记录
 async function handleAddRecord(e) {
-    e.preventDefault();
+    if (e) {
+        e.preventDefault();
+    }
     
     const typeInput = document.getElementById('record-type');
     // 确保日期是今天（如果没有设置）
@@ -768,7 +767,6 @@ async function handleAddRecord(e) {
         if (response.ok) {
             // 关闭键盘（如果打开）
             closeNumberKeyboard();
-            closeTextKeyboard();
             
             // 重置表单
             document.getElementById('quick-add-form').reset();
@@ -780,6 +778,11 @@ async function handleAddRecord(e) {
             // 重置键盘状态
             numberKeyboardValue = '0.00';
             numberKeyboardExpression = '';
+            // 重置键盘中的备注输入框
+            const keyboardNoteInput = document.getElementById('keyboard-note-input');
+            if (keyboardNoteInput) {
+                keyboardNoteInput.value = '';
+            }
             // 重置类型选择为支出（支持新旧两种样式）
             document.querySelectorAll('.type-btn, .type-btn-compact').forEach(btn => {
                 btn.classList.remove('active');
@@ -1696,7 +1699,6 @@ async function openEditModal(recordId) {
     try {
         // 关闭所有键盘
         closeNumberKeyboard();
-        closeTextKeyboard();
         
         const response = await fetch(`${API_BASE}/records/${recordId}`);
         const data = await response.json();
@@ -1742,7 +1744,6 @@ async function openEditModal(recordId) {
 function closeModal() {
     // 关闭所有键盘
     closeNumberKeyboard();
-    closeTextKeyboard();
     document.getElementById('edit-modal').classList.remove('show');
 }
 
@@ -1752,7 +1753,6 @@ async function handleUpdateRecord(e) {
     
     // 关闭键盘
     closeNumberKeyboard();
-    closeTextKeyboard();
     
     const recordId = document.getElementById('edit-id').value;
     
@@ -2692,8 +2692,25 @@ function openNumberKeyboard(inputId = 'record-amount') {
         currentValue = num.toFixed(2);
     }
     
-    numberKeyboardValue = currentValue;
-    numberKeyboardExpression = '';
+    // 如果是首页的记账按钮打开的，重置键盘状态
+    if (inputId === 'record-amount') {
+        numberKeyboardValue = '0.00';
+        numberKeyboardExpression = '';
+        // 重置键盘中的备注输入框
+        const keyboardNoteInput = document.getElementById('keyboard-note-input');
+        if (keyboardNoteInput) {
+            keyboardNoteInput.value = '';
+        }
+    } else {
+        numberKeyboardValue = currentValue;
+        numberKeyboardExpression = '';
+        // 同步备注输入框的值（编辑模态框）
+        const editNoteInput = document.getElementById('edit-note');
+        const keyboardNoteInput = document.getElementById('keyboard-note-input');
+        if (keyboardNoteInput && editNoteInput) {
+            keyboardNoteInput.value = editNoteInput.value || '';
+        }
+    }
     
     // 更新显示
     updateNumberKeyboardDisplay();
@@ -2742,9 +2759,94 @@ function closeNumberKeyboard() {
     // 更新输入框值
     amountInput.value = finalValue;
     
+    // 同步备注输入框的值（支持首页和编辑模态框）
+    const keyboardNoteInput = document.getElementById('keyboard-note-input');
+    const noteInput = document.getElementById('record-note');
+    const editNoteInput = document.getElementById('edit-note');
+    if (keyboardNoteInput) {
+        // 优先更新编辑模态框的备注，如果编辑模态框打开的话
+        if (editNoteInput && document.getElementById('edit-modal').classList.contains('show')) {
+            editNoteInput.value = keyboardNoteInput.value || '';
+        } else if (noteInput) {
+            noteInput.value = keyboardNoteInput.value || '';
+        }
+    }
+    
     // 隐藏键盘
     keyboard.classList.remove('show');
     document.body.classList.remove('keyboard-open');
+}
+
+// 从键盘提交记账
+async function submitRecordFromKeyboard() {
+    // 先同步数据到隐藏输入框
+    const keyboard = document.getElementById('number-keyboard');
+    const inputId = keyboard.dataset.targetInput || 'record-amount';
+    const amountInput = document.getElementById(inputId);
+    
+    if (!amountInput) return;
+    
+    // 如果有未完成的表达式，先计算结果
+    if (numberKeyboardExpression) {
+        try {
+            let expr = numberKeyboardExpression.replace(/×/g, '*').replace(/÷/g, '/');
+            const result = eval(expr);
+            numberKeyboardValue = parseFloat(result).toFixed(2);
+            numberKeyboardExpression = '';
+        } catch (e) {
+            // 忽略错误，使用当前值
+        }
+    }
+    
+    // 确保格式正确
+    let finalValue = numberKeyboardValue;
+    if (finalValue && finalValue !== '0.00') {
+        const num = parseFloat(finalValue);
+        if (!isNaN(num)) {
+            finalValue = num.toFixed(2);
+        }
+    } else {
+        finalValue = '';
+    }
+    
+    // 更新金额输入框值
+    amountInput.value = finalValue;
+    
+    // 同步备注输入框的值
+    const keyboardNoteInput = document.getElementById('keyboard-note-input');
+    const noteInput = document.getElementById('record-note');
+    if (keyboardNoteInput && noteInput) {
+        noteInput.value = keyboardNoteInput.value || '';
+    }
+    
+    // 验证金额
+    const amount = parseFloat(finalValue);
+    if (isNaN(amount) || amount <= 0) {
+        customAlert('请输入有效的金额', '输入错误', 'warning');
+        return;
+    }
+    
+    // 如果是编辑模态框，只关闭键盘，不提交
+    if (inputId === 'edit-amount') {
+        // 关闭键盘
+        keyboard.classList.remove('show');
+        document.body.classList.remove('keyboard-open');
+        return;
+    }
+    
+    // 验证分类（仅首页记账需要）
+    const categoryValue = document.getElementById('category-selected-value').value;
+    if (!categoryValue) {
+        customAlert('请选择分类', '提示', 'warning');
+        return;
+    }
+    
+    // 关闭键盘
+    keyboard.classList.remove('show');
+    document.body.classList.remove('keyboard-open');
+    
+    // 提交表单
+    await handleAddRecord(null);
 }
 
 // 更新数字键盘显示
@@ -2760,63 +2862,11 @@ function updateNumberKeyboardDisplay() {
     }
 }
 
-// 打开文本键盘
-function openTextKeyboard(inputId = 'record-note') {
-    const keyboard = document.getElementById('text-keyboard');
-    const noteInput = document.getElementById(inputId);
-    if (!noteInput) return;
-    
-    const displayInput = document.getElementById('text-keyboard-display');
-    
-    // 保存当前输入框ID，用于关闭时更新
-    keyboard.dataset.targetInput = inputId;
-    
-    // 获取当前值
-    const currentValue = noteInput.value || '';
-    if (displayInput) {
-        displayInput.value = currentValue;
-    }
-    
-    // 显示键盘
-    keyboard.classList.add('show');
-    document.body.classList.add('keyboard-open');
-    
-    // 滚动到输入框
-    setTimeout(() => {
-        noteInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 100);
-}
-
-// 关闭文本键盘
-function closeTextKeyboard() {
-    const keyboard = document.getElementById('text-keyboard');
-    const inputId = keyboard.dataset.targetInput || 'record-note';
-    const noteInput = document.getElementById(inputId);
-    const displayInput = document.getElementById('text-keyboard-display');
-    
-    if (!noteInput) return;
-    
-    // 更新输入框值
-    if (displayInput) {
-        noteInput.value = displayInput.value;
-    }
-    
-    // 隐藏键盘
-    keyboard.classList.remove('show');
-    document.body.classList.remove('keyboard-open');
-}
-
 // 初始化键盘事件
 function initKeyboardEvents() {
     // 数字键盘事件
     const numberKeyboard = document.getElementById('number-keyboard');
     if (numberKeyboard) {
-        // 关闭按钮
-        const closeBtn = document.getElementById('close-number-keyboard');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', closeNumberKeyboard);
-        }
-        
         // 键盘按钮事件
         numberKeyboard.querySelectorAll('.keyboard-key').forEach(key => {
             key.addEventListener('click', function() {
@@ -2826,59 +2876,38 @@ function initKeyboardEvents() {
         });
     }
     
-    // 文本键盘事件
-    const textKeyboard = document.getElementById('text-keyboard');
-    if (textKeyboard) {
-        // 关闭按钮
-        const closeBtn = document.getElementById('close-text-keyboard');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', closeTextKeyboard);
-        }
-        
-        // 键盘按钮事件
-        textKeyboard.querySelectorAll('.keyboard-key').forEach(key => {
-            key.addEventListener('click', function() {
-                const keyValue = this.dataset.key;
-                handleTextKeyPress(keyValue);
-            });
-        });
-    }
-    
     // 点击键盘外部关闭
     document.addEventListener('click', function(e) {
         const numberKeyboard = document.getElementById('number-keyboard');
-        const textKeyboard = document.getElementById('text-keyboard');
+        const keyboardNoteInput = document.getElementById('keyboard-note-input');
         
         if (numberKeyboard && numberKeyboard.classList.contains('show')) {
             const inputId = numberKeyboard.dataset.targetInput || 'record-amount';
             const targetInput = document.getElementById(inputId);
+            // 如果点击的是键盘内部（包括备注输入框）或原输入框，不关闭
             if (!numberKeyboard.contains(e.target) && 
-                (!targetInput || !targetInput.contains(e.target))) {
+                (!targetInput || !targetInput.contains(e.target)) &&
+                (!keyboardNoteInput || !keyboardNoteInput.contains(e.target))) {
                 closeNumberKeyboard();
             }
         }
-        
-        if (textKeyboard && textKeyboard.classList.contains('show')) {
-            const inputId = textKeyboard.dataset.targetInput || 'record-note';
-            const targetInput = document.getElementById(inputId);
-            if (!textKeyboard.contains(e.target) && 
-                (!targetInput || !targetInput.contains(e.target))) {
-                closeTextKeyboard();
-            }
-        }
     });
+    
+    // 确保键盘中的备注输入框可以正常使用系统键盘
+    const keyboardNoteInput = document.getElementById('keyboard-note-input');
+    if (keyboardNoteInput) {
+        // 允许正常聚焦，使用系统键盘
+        keyboardNoteInput.addEventListener('focus', function() {
+            // 不做任何阻止，让系统键盘正常弹出
+        });
+    }
 }
 
 // 处理数字键盘按键
 function handleNumberKeyPress(key) {
-    if (key === 'backspace') {
-        // 退格
-        if (numberKeyboardValue.length > 1) {
-            numberKeyboardValue = numberKeyboardValue.slice(0, -1);
-        } else {
-            numberKeyboardValue = '0.00';
-        }
-        updateNumberKeyboardDisplay();
+    if (key === 'confirm') {
+        // 确定按钮 - 提交表单并关闭键盘
+        submitRecordFromKeyboard();
     } else if (key === 'clear') {
         // 清除
         numberKeyboardValue = '0.00';
@@ -2948,36 +2977,6 @@ function handleNumberKeyPress(key) {
     }
 }
 
-// 处理文本键盘按键
-function handleTextKeyPress(key) {
-    const displayInput = document.getElementById('text-keyboard-display');
-    if (!displayInput) return;
-    
-    if (key === 'backspace') {
-        // 退格
-        displayInput.value = displayInput.value.slice(0, -1);
-    } else if (key === 'shift') {
-        // 切换大小写（简化版，这里只做提示）
-        isShiftPressed = !isShiftPressed;
-        // 可以在这里切换键盘布局
-    } else if (key === 'confirm') {
-        // 确定，关闭键盘
-        closeTextKeyboard();
-    } else if (key === ' ') {
-        // 空格
-        displayInput.value += ' ';
-    } else if (key === '123') {
-        // 切换到数字键盘（可以扩展）
-        // 这里先不做处理
-    } else if (key === '中') {
-        // 切换到中文输入（可以扩展）
-        // 这里先不做处理
-    } else {
-        // 普通字符
-        const char = isShiftPressed ? key.toUpperCase() : key.toLowerCase();
-        displayInput.value += char;
-    }
-}
 
 // 添加动画样式
 const style = document.createElement('style');

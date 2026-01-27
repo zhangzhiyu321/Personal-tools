@@ -11,7 +11,7 @@ body {
     background: #fafbfc; /* 更柔和的背景色 */
     min-height: 100vh;
     padding: 10px;
-    padding-bottom: 75px; /* 为底部悬浮导航栏留出空间（减少了一些，因为按钮更紧凑） */
+    padding-bottom: 90px; /* 为底部悬浮导航栏留出更多空间（按钮变大了） */
     color: #4a5568; /* 降低文字对比度 */
     /* 防止页面缩放 */
     touch-action: pan-y;
@@ -36,14 +36,14 @@ input, textarea {
 /* 主标签页导航 - 毛玻璃悬浮效果 */
 .main-tabs {
     display: inline-flex; /* 改为 inline-flex，让宽度自适应内容 */
-    gap: 8px;
+    gap: 4px;
     background: rgba(255, 255, 255, 0.55); /* 半透明背景 */
     backdrop-filter: blur(20px) saturate(180%); /* 毛玻璃效果 */
     -webkit-backdrop-filter: blur(20px) saturate(180%);
-    padding: 8px 16px; /* 增加左右内边距，让按钮有呼吸空间 */
+    padding: 12px 20px; /* 增加内边距，让按钮有更多呼吸空间 */
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08); /* 增强阴影，增加悬浮感 */
     border: 1px solid rgba(255, 255, 255, 0.6);
-    border-radius: 24px; /* 更大的圆角，更柔和 */
+    border-radius: 28px; /* 更大的圆角，更柔和 */
 }
 
 .main-tabs.fixed-bottom {
@@ -56,24 +56,27 @@ input, textarea {
     z-index: 1000;
     margin: 0;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); /* 添加过渡动画 */
+    /* 确保在移动端有足够的点击区域 */
+    min-height: 60px;
 }
 
 .main-tab-btn {
     flex: 0 0 auto; /* 改为不自动伸缩，根据内容自适应 */
-    padding: 8px 12px; /* 增加左右内边距，让按钮更舒适 */
+    padding: 10px 18px; /* 增大内边距，让按钮更大更易点击 */
     border: none;
     background: transparent;
-    border-radius: 12px;
+    border-radius: 16px;
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 3px;
-    font-size: 10px;
+    gap: 6px; /* 增大图标和文字之间的间距 */
+    font-size: 12px; /* 增大文字大小 */
     color: #666;
     position: relative;
     white-space: nowrap; /* 防止文字换行 */
+    min-width: 60px; /* 设置最小宽度，确保按钮足够大 */
 }
 
 .main-tab-btn:hover {
@@ -90,17 +93,17 @@ input, textarea {
 .main-tab-btn.active::before {
     content: '';
     position: absolute;
-    bottom: -2px;
+    bottom: 2px; /* 调整位置，不要超出按钮 */
     left: 50%;
     transform: translateX(-50%);
-    width: 30px;
+    width: 24px; /* 稍微减小宽度，更精致 */
     height: 3px;
     background: #1890ff;
     border-radius: 2px;
 }
 
 .main-tab-btn .tab-icon {
-    font-size: 20px;
+    font-size: 24px; /* 增大图标大小 */
     line-height: 1;
     transition: transform 0.3s ease;
 }
@@ -111,8 +114,8 @@ input, textarea {
 
 .main-tab-btn .tab-label {
     font-weight: 500;
-    line-height: 1;
-    font-size: 10px;
+    line-height: 1.2;
+    font-size: 12px; /* 增大文字大小 */
 }
 
 /* 标签页内容 */
@@ -467,9 +470,6 @@ input, textarea {
     font-size: 13px;
     outline: none;
     background: transparent;
-    cursor: pointer;
-    -webkit-user-select: none;
-    user-select: none;
 }
 
 .note-input::placeholder {
@@ -478,16 +478,16 @@ input, textarea {
 
 /* 提交按钮 - 紧凑版 */
 .btn-primary-compact {
-    padding: 10px 20px;
+    padding: 14px 24px;
     background: #60a5fa; /* 柔和的蓝色 */
     color: white;
     border: none;
-    border-radius: 10px;
-    font-size: 13px;
-    font-weight: 500;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 600;
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.15); /* 更淡的阴影 */
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25); /* 更明显的阴影 */
     white-space: nowrap;
 }
 
@@ -1519,7 +1519,7 @@ input, textarea {
 @media (max-width: 768px) {
     body {
         padding: 8px;
-        padding-bottom: 80px; /* 为底部悬浮导航栏留出空间（增加了悬浮距离） */
+        padding-bottom: 95px; /* 为底部悬浮导航栏留出更多空间（按钮变大了） */
     }
     
     .expense-container {
@@ -1530,20 +1530,21 @@ input, textarea {
         bottom: 16px; /* 移动端也增加悬浮距离 */
         width: auto; /* 保持自适应 */
         max-width: calc(100% - 32px); /* 限制最大宽度，左右各留16px */
-        padding: 6px 12px; /* 稍微减小内边距 */
+        padding: 10px 16px; /* 移动端也保持较大的内边距 */
     }
     
     .main-tab-btn {
-        padding: 6px 8px; /* 移动端稍微减小内边距 */
-        gap: 2px;
+        padding: 8px 14px; /* 移动端保持较大的内边距，便于点击 */
+        gap: 5px; /* 移动端也保持较大的间距 */
+        min-width: 56px; /* 移动端最小宽度 */
     }
     
     .main-tab-btn .tab-icon {
-        font-size: 18px;
+        font-size: 22px; /* 移动端图标稍大 */
     }
     
     .main-tab-btn .tab-label {
-        font-size: 9px;
+        font-size: 11px; /* 移动端文字稍大 */
     }
     
     /* 移动端分类选择器调整为3列 */
@@ -2044,7 +2045,7 @@ input, textarea {
 
 .keyboard-header {
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
     padding: 8px 16px;
     background: #fff;
@@ -2055,22 +2056,6 @@ input, textarea {
     font-size: 14px;
     font-weight: 600;
     color: #333;
-}
-
-.keyboard-close {
-    padding: 6px 16px;
-    background: #1890ff;
-    color: white;
-    border: none;
-    border-radius: 16px;
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.keyboard-close:active {
-    background: #40a9ff;
-    transform: scale(0.95);
 }
 
 .keyboard-display {
@@ -2098,14 +2083,49 @@ input, textarea {
     text-align: center;
 }
 
-.keyboard-display-input {
-    width: 100%;
-    padding: 12px;
-    font-size: 16px;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
+/* 键盘中的备注输入区域 */
+.keyboard-note-section {
+    padding: 12px 16px;
     background: #fff;
-    text-align: center;
+    border-top: 1px solid #e0e0e0;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.keyboard-note-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #e0e0e0;
+    border-radius: 10px;
+    background: #f9fafb;
+    padding: 0 12px;
+    transition: all 0.2s ease;
+}
+
+.keyboard-note-wrapper:focus-within {
+    border-color: #1890ff;
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.1);
+}
+
+.keyboard-note-icon {
+    font-size: 16px;
+    color: #9ca3af;
+    flex-shrink: 0;
+}
+
+.keyboard-note-input {
+    flex: 1;
+    border: none;
+    padding: 12px 0;
+    font-size: 14px;
+    outline: none;
+    background: transparent;
+    color: #333;
+}
+
+.keyboard-note-input::placeholder {
+    color: #9ca3af;
 }
 
 .keyboard-body {
@@ -2155,30 +2175,10 @@ input, textarea {
     background: #d4edff;
 }
 
-.keyboard-key-backspace {
-    background: #fff5f5;
-    color: #ff4d4f;
-}
-
-.keyboard-key-backspace:active {
-    background: #ffe6e6;
-}
-
 .keyboard-key-clear {
     background: #fff5f5;
     color: #ff4d4f;
     font-size: 14px;
-}
-
-.keyboard-key-equals {
-    background: #1890ff;
-    color: white;
-    font-weight: 600;
-    flex: 3;
-}
-
-.keyboard-key-equals:active {
-    background: #40a9ff;
 }
 
 .keyboard-key-shift {
@@ -2200,25 +2200,11 @@ input, textarea {
     background: #1890ff;
     color: white;
     font-weight: 600;
-    flex: 2;
+    flex: 3; /* 占据更多空间，因为现在是底部的大按钮 */
 }
 
 .keyboard-key-confirm:active {
     background: #40a9ff;
-}
-
-/* 文本键盘特殊样式 */
-.text-keyboard .keyboard-key {
-    padding: 12px 4px;
-    font-size: 16px;
-}
-
-.text-keyboard .keyboard-row {
-    gap: 4px;
-}
-
-.text-keyboard .keyboard-key[data-key=" "] {
-    flex: 3;
 }
 
 /* 键盘显示时调整页面底部间距 */
@@ -2233,7 +2219,7 @@ body.keyboard-open .expense-container {
 /* 移动端优化 */
 @media (max-width: 768px) {
     .custom-keyboard {
-        max-height: 60vh;
+        max-height: 70vh; /* 增加高度，因为添加了备注输入区域 */
     }
     
     .keyboard-display-value {
@@ -2245,8 +2231,16 @@ body.keyboard-open .expense-container {
         font-size: 20px;
     }
     
-    .text-keyboard .keyboard-key {
-        padding: 14px 3px;
-        font-size: 15px;
+    .keyboard-note-section {
+        padding: 10px 12px;
+    }
+    
+    .keyboard-note-wrapper {
+        padding: 0 10px;
+    }
+    
+    .keyboard-note-input {
+        padding: 10px 0;
+        font-size: 13px;
     }
 }

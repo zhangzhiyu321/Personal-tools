@@ -50,7 +50,7 @@
                     <input type="hidden" id="record-type" name="type" value="expense" required>
                     <input type="hidden" id="category-selected-value" name="category" value="">
                     
-                    <!-- 类型和金额行 -->
+                    <!-- 类型选择 -->
                     <div class="form-compact-row">
                         <div class="type-selector-compact">
                             <button type="button" class="type-btn-compact active" data-type="expense">
@@ -61,10 +61,6 @@
                                 <span class="type-icon">💰</span>
                                 <span>收入</span>
                             </button>
-                        </div>
-                        <div class="amount-input-wrapper">
-                            <span class="amount-prefix">¥</span>
-                            <input type="text" id="record-amount" name="amount" inputmode="none" readonly placeholder="0.00" required class="amount-input">
                         </div>
                     </div>
                     
@@ -77,13 +73,13 @@
                         </div>
                     </div>
                     
-                    <!-- 备注和提交按钮 -->
+                    <!-- 隐藏的金额和备注输入框（用于表单提交） -->
+                    <input type="hidden" id="record-amount" name="amount" required>
+                    <input type="hidden" id="record-note" name="note">
+                    
+                    <!-- 记账按钮 -->
                     <div class="form-compact-row">
-                        <div class="note-input-wrapper">
-                            <span class="note-icon">📝</span>
-                            <input type="text" id="record-note" name="note" inputmode="none" readonly placeholder="添加备注（可选）..." class="note-input">
-                        </div>
-                        <button type="submit" class="btn-primary-compact">
+                        <button type="button" id="btn-open-keyboard" class="btn-primary-compact" style="width: 100%;">
                             <span>记账</span>
                         </button>
                     </div>
@@ -282,7 +278,7 @@
                 </div>
                 <div class="form-group">
                     <label>备注</label>
-                    <input type="text" id="edit-note" name="note" inputmode="none" readonly>
+                    <input type="text" id="edit-note" name="note">
                 </div>
                 <div class="modal-actions">
                     <button type="submit" class="btn-primary">保存</button>
@@ -344,11 +340,17 @@
     <div id="number-keyboard" class="custom-keyboard number-keyboard">
         <div class="keyboard-header">
             <span class="keyboard-title">输入金额</span>
-            <button type="button" class="keyboard-close" id="close-number-keyboard">完成</button>
         </div>
         <div class="keyboard-display">
             <span class="keyboard-display-prefix">¥</span>
             <span class="keyboard-display-value" id="number-keyboard-display">0.00</span>
+        </div>
+        <!-- 备注输入区域 -->
+        <div class="keyboard-note-section">
+            <div class="keyboard-note-wrapper">
+                <span class="keyboard-note-icon">📝</span>
+                <input type="text" id="keyboard-note-input" class="keyboard-note-input" placeholder="添加备注（可选）...">
+            </div>
         </div>
         <div class="keyboard-body">
             <div class="keyboard-row">
@@ -372,64 +374,11 @@
             <div class="keyboard-row">
                 <button type="button" class="keyboard-key" data-key="0">0</button>
                 <button type="button" class="keyboard-key" data-key=".">.</button>
-                <button type="button" class="keyboard-key keyboard-key-backspace" data-key="backspace">⌫</button>
+                <button type="button" class="keyboard-key keyboard-key-operator" data-key="=">=</button>
                 <button type="button" class="keyboard-key keyboard-key-operator" data-key="+">+</button>
             </div>
             <div class="keyboard-row">
                 <button type="button" class="keyboard-key keyboard-key-clear" data-key="clear">清除</button>
-                <button type="button" class="keyboard-key keyboard-key-equals" data-key="=" colspan="3">=</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 自定义文本键盘（备注输入） -->
-    <div id="text-keyboard" class="custom-keyboard text-keyboard">
-        <div class="keyboard-header">
-            <span class="keyboard-title">输入备注</span>
-            <button type="button" class="keyboard-close" id="close-text-keyboard">完成</button>
-        </div>
-        <div class="keyboard-display">
-            <input type="text" id="text-keyboard-display" class="keyboard-display-input" placeholder="添加备注..." readonly>
-        </div>
-        <div class="keyboard-body">
-            <div class="keyboard-row">
-                <button type="button" class="keyboard-key" data-key="q">q</button>
-                <button type="button" class="keyboard-key" data-key="w">w</button>
-                <button type="button" class="keyboard-key" data-key="e">e</button>
-                <button type="button" class="keyboard-key" data-key="r">r</button>
-                <button type="button" class="keyboard-key" data-key="t">t</button>
-                <button type="button" class="keyboard-key" data-key="y">y</button>
-                <button type="button" class="keyboard-key" data-key="u">u</button>
-                <button type="button" class="keyboard-key" data-key="i">i</button>
-                <button type="button" class="keyboard-key" data-key="o">o</button>
-                <button type="button" class="keyboard-key" data-key="p">p</button>
-            </div>
-            <div class="keyboard-row">
-                <button type="button" class="keyboard-key" data-key="a">a</button>
-                <button type="button" class="keyboard-key" data-key="s">s</button>
-                <button type="button" class="keyboard-key" data-key="d">d</button>
-                <button type="button" class="keyboard-key" data-key="f">f</button>
-                <button type="button" class="keyboard-key" data-key="g">g</button>
-                <button type="button" class="keyboard-key" data-key="h">h</button>
-                <button type="button" class="keyboard-key" data-key="j">j</button>
-                <button type="button" class="keyboard-key" data-key="k">k</button>
-                <button type="button" class="keyboard-key" data-key="l">l</button>
-            </div>
-            <div class="keyboard-row">
-                <button type="button" class="keyboard-key keyboard-key-shift" data-key="shift">⇧</button>
-                <button type="button" class="keyboard-key" data-key="z">z</button>
-                <button type="button" class="keyboard-key" data-key="x">x</button>
-                <button type="button" class="keyboard-key" data-key="c">c</button>
-                <button type="button" class="keyboard-key" data-key="v">v</button>
-                <button type="button" class="keyboard-key" data-key="b">b</button>
-                <button type="button" class="keyboard-key" data-key="n">n</button>
-                <button type="button" class="keyboard-key" data-key="m">m</button>
-                <button type="button" class="keyboard-key keyboard-key-backspace" data-key="backspace">⌫</button>
-            </div>
-            <div class="keyboard-row">
-                <button type="button" class="keyboard-key keyboard-key-number" data-key="123">123</button>
-                <button type="button" class="keyboard-key" data-key=" ">空格</button>
-                <button type="button" class="keyboard-key keyboard-key-chinese" data-key="中">中</button>
                 <button type="button" class="keyboard-key keyboard-key-confirm" data-key="confirm">确定</button>
             </div>
         </div>
