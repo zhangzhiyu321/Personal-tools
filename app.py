@@ -12,6 +12,20 @@
 import os
 import tempfile
 from flask import Flask, jsonify, render_template
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+# 导入安全模块
+from security.config import SecurityConfig
+from security.middleware import (
+    setup_security_headers,
+    setup_request_logging,
+    setup_error_handling,
+    rate_limit
+)
+from security.backup import BackupManager
+from security.logging import SecurityLogger
+
+logger = SecurityLogger()
 
 
 def create_app() -> Flask:
@@ -22,23 +36,85 @@ def create_app() -> Flask:
         static_folder=os.path.join(os.path.dirname(__file__), "static"),
     )
 
+    # ========== 安全配置 ==========
+    # 设置密钥
+    app.config['SECRET_KEY'] = SecurityConfig.get_or_create_secret_key()
+    
+    # 生产环境配置
+    if SecurityConfig.is_production():
+        app.config['DEBUG'] = False
+        app.config['TESTING'] = False
+    else:
+        app.config['DEBUG'] = True
+        app.config['TESTING'] = False
+    
     # 上传大小等通用配置
     app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB
     app.config["UPLOAD_FOLDER"] = tempfile.gettempdir()
+    
+    # 会话配置
+    app.config['PERMANENT_SESSION_LIFETIME'] = SecurityConfig.get_session_timeout()
+    app.config['SESSION_COOKIE_SECURE'] = SecurityConfig.is_production()  # HTTPS only in production
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    
+    # ========== 安全中间件 ==========
+    # 代理修复（如果使用反向代理）
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+    
+    # 设置安全头部
+    setup_security_headers(app)
+    
+    # 设置请求日志
+    setup_request_logging(app)
+    
+    # 设置错误处理
+    setup_error_handling(app)
+    
+    # ========== 注册认证路由 ==========
+    try:
+        from security.routes import auth_blueprint
+        app.register_blueprint(auth_blueprint)
+        logger.log_info('auth_blueprint_registered', {})
+        print("✓ 认证路由注册成功")
+    except Exception as e:
+        logger.log_error('auth_blueprint_failed', {'error': str(e)})
+        print(f"⚠️ 认证模块加载失败: {e}")
+        import traceback
+        traceback.print_exc()
 
-    # 注册所有小工具的 Blueprint
+    # ========== 注册所有小工具的 Blueprint ==========
     register_tools_blueprints(app)
 
-    # 初始化记账工具的数据库（在应用上下文中）
+    # ========== 初始化数据库（包括用户表和记账表）==========
     try:
         from tools.expense_tracker.database import init_db
         with app.app_context():
-            init_db(app)
+            init_db(app)  # 这会创建用户表和记账表，并初始化默认管理员
+            logger.log_info('database_initialized', {})
     except Exception as e:
-        print(f"记账工具数据库初始化警告: {e}")
+        error_msg = str(e)
+        logger.log_error('database_init_failed', {'error': error_msg})
+        print(f"❌ 数据库配置错误: {error_msg}")
+        if SecurityConfig.is_production():
+            # 生产环境数据库必须配置
+            raise
 
-    # 注册通用路由（首页 / 工具列表 API）
+    # ========== 初始化自动备份 ==========
+    try:
+        backup_manager = BackupManager()
+        backup_manager.init_app(app)
+    except Exception as e:
+        logger.log_warning('backup_init_failed', {'error': str(e)})
+        print(f"⚠️ 备份模块初始化失败: {e}")
+
+    # ========== 注册通用路由（首页 / 工具列表 API）==========
     register_common_routes(app)
+    
+    logger.log_info('app_created', {
+        'production': SecurityConfig.is_production(),
+        'debug': app.config.get('DEBUG', False)
+    })
 
     return app
 
@@ -134,12 +210,17 @@ def register_common_routes(app: Flask) -> None:
         return render_template("portal/index.html", tools=tools)
 
     @app.route("/api/tools")
+    @rate_limit(max_requests=100, window=3600)
     def api_tools():
         """返回工具列表 JSON，供前端使用"""
         return jsonify(get_tools())
 
 if __name__ == "__main__":
     import sys
+    from dotenv import load_dotenv
+    
+    # 加载环境变量
+    load_dotenv()
 
     port = 5001
     if len(sys.argv) > 1:
@@ -149,6 +230,13 @@ if __name__ == "__main__":
             pass
 
     app = create_app()
-    print(f"服务启动在 http://localhost:{port}")
-    app.run(debug=True, host="0.0.0.0", port=port)
+    
+    # 生产环境使用更安全的配置
+    if SecurityConfig.is_production():
+        print(f"🔒 生产模式启动在 http://0.0.0.0:{port}")
+        print("⚠️  请确保使用HTTPS和反向代理（如Nginx）")
+        app.run(debug=False, host="0.0.0.0", port=port, threaded=True)
+    else:
+        print(f"🔧 开发模式启动在 http://localhost:{port}")
+        app.run(debug=True, host="0.0.0.0", port=port)
 

@@ -1,6 +1,244 @@
 // 记账工具前端逻辑
 
 const API_BASE = '/api/expense_tracker';
+const AUTH_API = '/api/auth';
+
+// ========== 认证功能 ==========
+// Token管理
+function getToken() {
+    return localStorage.getItem('auth_token');
+}
+
+function setToken(token) {
+    if (token) {
+        localStorage.setItem('auth_token', token);
+    } else {
+        localStorage.removeItem('auth_token');
+    }
+}
+
+function clearAuth() {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('username');
+}
+
+// 带认证的fetch函数（自动添加token）
+async function authFetch(url, options = {}) {
+    const token = getToken();
+    
+    // 设置默认headers
+    // 如果body是FormData，不要设置Content-Type，让浏览器自动设置multipart/form-data
+    const isFormData = options.body instanceof FormData;
+    const headers = {
+        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+        ...options.headers
+    };
+    
+    // 如果有token，添加到headers
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    // 发起请求
+    const response = await fetch(url, {
+        ...options,
+        headers
+    });
+    
+    // 如果返回401未授权，清除token并显示登录弹窗
+    if (response.status === 401) {
+        clearAuth();
+        showLoginModal();
+        throw new Error('需要登录');
+    }
+    
+    return response;
+}
+
+// 登录功能
+let loginModal = null;
+let isLoggingIn = false;
+
+function showLoginModal() {
+    if (!loginModal) {
+        createLoginModal();
+    }
+    if (loginModal) {
+        loginModal.style.display = 'flex';
+        document.getElementById('login-username')?.focus();
+    }
+}
+
+function hideLoginModal() {
+    if (loginModal) {
+        loginModal.style.display = 'none';
+        // 清空表单
+        const usernameInput = document.getElementById('login-username');
+        const passwordInput = document.getElementById('login-password');
+        if (usernameInput) usernameInput.value = '';
+        if (passwordInput) passwordInput.value = '';
+    }
+}
+
+// 暴露到全局作用域，供HTML中的onclick使用
+window.showLoginModal = showLoginModal;
+window.hideLoginModal = hideLoginModal;
+window.handleLogin = handleLogin;
+
+function createLoginModal() {
+    // 检查是否已存在
+    if (document.getElementById('login-modal')) {
+        loginModal = document.getElementById('login-modal');
+        return;
+    }
+    
+    const modal = document.createElement('div');
+    modal.id = 'login-modal';
+    modal.className = 'login-modal';
+    modal.innerHTML = `
+        <div class="login-modal-content">
+            <div class="login-modal-header">
+                <h2>🔐 登录</h2>
+                <button class="login-close-btn" onclick="hideLoginModal()">×</button>
+            </div>
+            <div class="login-modal-body">
+                <div class="login-form-group">
+                    <label for="login-username">用户名</label>
+                    <input type="text" id="login-username" placeholder="请输入用户名" autocomplete="username">
+                </div>
+                <div class="login-form-group">
+                    <label for="login-password">密码</label>
+                    <input type="password" id="login-password" placeholder="请输入密码" autocomplete="current-password">
+                </div>
+                <div id="login-error" class="login-error" style="display: none;"></div>
+                <button id="login-submit-btn" class="login-submit-btn" onclick="handleLogin()">登录</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    loginModal = modal;
+    
+    // 回车键登录
+    document.getElementById('login-username')?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            document.getElementById('login-password')?.focus();
+        }
+    });
+    document.getElementById('login-password')?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !isLoggingIn) {
+            handleLogin();
+        }
+    });
+    
+    // 点击背景关闭
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            hideLoginModal();
+        }
+    });
+}
+
+async function handleLogin() {
+    if (isLoggingIn) return;
+    
+    const username = document.getElementById('login-username')?.value.trim();
+    const password = document.getElementById('login-password')?.value;
+    const errorDiv = document.getElementById('login-error');
+    const submitBtn = document.getElementById('login-submit-btn');
+    
+    if (!username || !password) {
+        if (errorDiv) {
+            errorDiv.textContent = '请输入用户名和密码';
+            errorDiv.style.display = 'block';
+        }
+        return;
+    }
+    
+    isLoggingIn = true;
+    if (submitBtn) {
+        submitBtn.textContent = '登录中...';
+        submitBtn.disabled = true;
+    }
+    if (errorDiv) errorDiv.style.display = 'none';
+    
+    try {
+        const response = await fetch(`${AUTH_API}/login`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username, password })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            // 保存token和用户名
+            setToken(data.token);
+            localStorage.setItem('username', data.username || username);
+            
+            // 隐藏登录弹窗
+            hideLoginModal();
+            
+            // 重新加载数据
+            location.reload();
+        } else {
+            if (errorDiv) {
+                errorDiv.textContent = data.error || '登录失败，请检查用户名和密码';
+                errorDiv.style.display = 'block';
+            }
+        }
+    } catch (error) {
+        if (errorDiv) {
+            errorDiv.textContent = '登录失败：' + error.message;
+            errorDiv.style.display = 'block';
+        }
+    } finally {
+        isLoggingIn = false;
+        if (submitBtn) {
+            submitBtn.textContent = '登录';
+            submitBtn.disabled = false;
+        }
+    }
+}
+
+// 检查登录状态
+async function checkAuthStatus() {
+    const token = getToken();
+    if (!token) {
+        showLoginModal();
+        return false;
+    }
+    
+    try {
+        const response = await authFetch(`${AUTH_API}/verify`);
+        if (response.ok) {
+            const data = await response.json();
+            // 验证返回的数据
+            if (data.valid) {
+                return true;
+            } else {
+                clearAuth();
+                showLoginModal();
+                return false;
+            }
+        } else {
+            // 如果不是401，记录错误信息
+            if (response.status !== 401) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('验证令牌失败:', response.status, errorData);
+            }
+            clearAuth();
+            showLoginModal();
+            return false;
+        }
+    } catch (error) {
+        console.error('验证令牌异常:', error);
+        clearAuth();
+        showLoginModal();
+        return false;
+    }
+}
 
 // 全局变量
 let categories = { expense: [], income: [] };
@@ -79,7 +317,57 @@ async function loadChartJs() {
 }
 
 // 初始化
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // 首先检查登录状态
+    const isAuthenticated = await checkAuthStatus();
+    if (!isAuthenticated) {
+        // 如果未登录，只初始化UI，不加载数据
+        initUI();
+        return;
+    }
+    
+    // 已登录，正常初始化
+    initApp();
+});
+
+// 初始化UI（未登录时）
+function initUI() {
+    // 设置默认日期为今天（隐藏字段）
+    const today = new Date().toISOString().split('T')[0];
+    const dateInput = document.getElementById('record-date');
+    if (dateInput) {
+        dateInput.value = today;
+    }
+    // 确保类型默认为支出
+    const typeInput = document.getElementById('record-type');
+    if (typeInput) {
+        typeInput.value = 'expense';
+    }
+    // 确保支出按钮是激活状态
+    const expenseBtn = document.querySelector('.type-btn-compact[data-type="expense"]');
+    if (expenseBtn) {
+        expenseBtn.classList.add('active');
+    }
+    const incomeBtn = document.querySelector('.type-btn-compact[data-type="income"]');
+    if (incomeBtn) {
+        incomeBtn.classList.remove('active');
+    }
+    
+    // 绑定事件
+    bindEvents();
+    
+    // 初始化标签页
+    initMainTabs();
+    
+    // 初始化时间维度选择器
+    initTimeDimensionSelector();
+    
+    // 初始化记录列表日期筛选
+    initRecordsDateFilter();
+}
+
+// 初始化应用（已登录时）
+function initApp() {
     // 设置默认日期为今天（隐藏字段）
     const today = new Date().toISOString().split('T')[0];
     const dateInput = document.getElementById('record-date');
@@ -127,7 +415,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // 初始化记录列表日期筛选
     initRecordsDateFilter();
-});
+}
 
 // 初始化记录列表日期筛选
 function initRecordsDateFilter() {
@@ -444,7 +732,7 @@ async function loadAnalysisData() {
         if (startDate) url += `start_date=${startDate}&`;
         if (endDate) url += `end_date=${endDate}&`;
         
-        const response = await fetch(url);
+        const response = await authFetch(url);
         const data = await response.json();
         
         // 更新分析统计卡片
@@ -671,7 +959,7 @@ async function openCategoryDetailFromBarChart(categoryStat) {
     if (endDate) url += `&end_date=${endDate}`;
 
     try {
-        const response = await fetch(url);
+        const response = await authFetch(url);
         const data = await response.json();
 
         if (!response.ok || data.error) {
@@ -1323,7 +1611,7 @@ function bindEvents() {
 // 加载分类
 async function loadCategories() {
     try {
-        const response = await fetch(`${API_BASE}/categories`);
+        const response = await authFetch(`${API_BASE}/categories`);
         categories = await response.json();
         updateCategorySelector();
         updateEditCategorySelect();
@@ -1516,7 +1804,7 @@ async function handleAddRecord(e) {
     };
     
     try {
-        const response = await fetch(`${API_BASE}/records`, {
+        const response = await authFetch(`${API_BASE}/records`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(formData)
@@ -1582,7 +1870,7 @@ async function loadTodayRecords() {
         const today = new Date().toISOString().split('T')[0];
         const url = `${API_BASE}/records?start_date=${today}&end_date=${today}&per_page=100`;
         
-        const response = await fetch(url);
+        const response = await authFetch(url);
         const data = await response.json();
         
         renderTodayRecords(data.records || []);
@@ -1654,7 +1942,7 @@ async function loadStatistics() {
 
         let url = `${API_BASE}/statistics?start_date=${startDate}&end_date=${endDate}`;
         
-        const response = await fetch(url);
+        const response = await authFetch(url);
         const data = await response.json();
         
         // 更新统计卡片
@@ -1688,7 +1976,7 @@ async function getDailyRecordsByCategory(date) {
     }
     
     try {
-        const response = await fetch(`${API_BASE}/records?start_date=${date}&end_date=${date}&per_page=1000`);
+        const response = await authFetch(`${API_BASE}/records?start_date=${date}&end_date=${date}&per_page=1000`);
         const data = await response.json();
         const records = data.records || [];
         
@@ -2318,9 +2606,9 @@ async function loadRecords(page = 1) {
         if (startDate) url += `&start_date=${startDate}`;
         if (endDate) url += `&end_date=${endDate}`;
         
-        const response = await fetch(url);
+        const response = await authFetch(url);
         const data = await response.json();
-        
+
         currentPage = page;
         renderRecords(data.records);
         renderPagination(data.page, data.pages);
@@ -2501,7 +2789,7 @@ function editRecordDate(recordItem) {
             
             try {
                 // 先获取当前记录
-                const response = await fetch(`${API_BASE}/records/${recordId}`);
+                const response = await authFetch(`${API_BASE}/records/${recordId}`);
                 const data = await response.json();
                 const record = data.record;
                 
@@ -2511,7 +2799,7 @@ function editRecordDate(recordItem) {
                 }
                 
                 // 更新记录日期
-                const updateResponse = await fetch(`${API_BASE}/records/${recordId}`, {
+                const updateResponse = await authFetch(`${API_BASE}/records/${recordId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -2636,7 +2924,7 @@ function startInlineEdit(element) {
 async function updateRecordField(recordId, field, newValue, element) {
     try {
         // 先获取当前记录
-        const response = await fetch(`${API_BASE}/records/${recordId}`);
+        const response = await authFetch(`${API_BASE}/records/${recordId}`);
         const data = await response.json();
         const record = data.record;
         
@@ -2688,7 +2976,7 @@ async function updateRecordField(recordId, field, newValue, element) {
         }
         
         // 发送更新请求
-        const updateResponse = await fetch(`${API_BASE}/records/${recordId}`, {
+        const updateResponse = await authFetch(`${API_BASE}/records/${recordId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updateData)
@@ -2785,7 +3073,7 @@ async function openEditModal(recordId) {
         // 关闭所有键盘
         closeNumberKeyboard();
         
-        const response = await fetch(`${API_BASE}/records/${recordId}`);
+        const response = await authFetch(`${API_BASE}/records/${recordId}`);
         const data = await response.json();
         const record = data.record;
         
@@ -2877,7 +3165,7 @@ async function handleUpdateRecord(e) {
     };
     
     try {
-        const response = await fetch(`${API_BASE}/records/${recordId}`, {
+        const response = await authFetch(`${API_BASE}/records/${recordId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(formData)
@@ -2913,7 +3201,7 @@ async function handleDeleteRecord(event, recordId) {
     }
     
     try {
-        const response = await fetch(`${API_BASE}/records/${recordId}`, {
+        const response = await authFetch(`${API_BASE}/records/${recordId}`, {
             method: 'DELETE'
         });
         
@@ -3399,7 +3687,7 @@ function confirmDateSelection() {
 }
 
 // 导出数据
-function handleExport() {
+async function handleExport() {
     // 使用记录列表的日期筛选
     const startDateInput = document.getElementById('records-start-date');
     const endDateInput = document.getElementById('records-end-date');
@@ -3410,13 +3698,52 @@ function handleExport() {
     if (startDate) url += `start_date=${startDate}&`;
     if (endDate) url += `end_date=${endDate}&`;
     
-    window.location.href = url;
+    try {
+        const response = await authFetch(url);
+        if (!response.ok) {
+            throw new Error('导出失败');
+        }
+        
+        // 获取文件名
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = 'expense_records.csv';
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+            if (filenameMatch) {
+                filename = filenameMatch[1];
+            }
+        }
+        
+        // 下载文件
+        const blob = await response.blob();
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(downloadUrl);
+        
+        customAlert('导出成功', '提示', 'success');
+    } catch (error) {
+        console.error('导出失败:', error);
+        customAlert('导出失败：' + error.message, '错误', 'error');
+    }
 }
 
 // 导入数据
+let isImporting = false; // 防止重复提交
 async function handleImport(e) {
     const file = e.target.files[0];
     if (!file) return;
+    
+    // 防止重复提交
+    if (isImporting) {
+        customAlert('正在导入中，请稍候...', '提示', 'info');
+        e.target.value = '';
+        return;
+    }
     
     const confirmed = await customConfirm('导入数据将添加到现有记录中，确定继续吗？', '确认导入');
     if (!confirmed) {
@@ -3424,11 +3751,12 @@ async function handleImport(e) {
         return;
     }
     
+    isImporting = true;
     const formData = new FormData();
     formData.append('file', file);
     
     try {
-        const response = await fetch(`${API_BASE}/import`, {
+        const response = await authFetch(`${API_BASE}/import`, {
             method: 'POST',
             body: formData
         });
@@ -3444,12 +3772,18 @@ async function handleImport(e) {
             loadStatistics();
             loadRecords();
         } else {
-            customAlert(result.error || '导入失败', '导入失败', 'error');
+            // 处理频率限制错误
+            if (response.status === 429) {
+                customAlert('请求过于频繁，请稍后再试（建议等待1分钟后重试）', '频率限制', 'warning');
+            } else {
+                customAlert(result.error || '导入失败', '导入失败', 'error');
+            }
         }
     } catch (error) {
         console.error('导入失败:', error);
         customAlert('导入失败，请重试', '错误', 'error');
     } finally {
+        isImporting = false;
         e.target.value = '';
     }
 }
@@ -3589,7 +3923,7 @@ function closeCategoryModal() {
 async function loadCategoryList(type) {
     const container = document.getElementById(`category-list-${type}`);
     try {
-        const response = await fetch(`${API_BASE}/categories`);
+        const response = await authFetch(`${API_BASE}/categories`);
         const data = await response.json();
         const categoryList = data[type] || [];
         
@@ -3629,7 +3963,7 @@ async function handleAddCategory(e) {
     }
     
     try {
-        const response = await fetch(`${API_BASE}/categories`, {
+        const response = await authFetch(`${API_BASE}/categories`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(formData)
@@ -3662,7 +3996,7 @@ async function handleAddCategory(e) {
 async function editCategory(categoryId, type) {
     try {
         // 获取分类详情
-        const response = await fetch(`${API_BASE}/categories`);
+        const response = await authFetch(`${API_BASE}/categories`);
         const data = await response.json();
         const categoryList = data[type] || [];
         const category = categoryList.find(cat => cat.id === categoryId);
@@ -3704,7 +4038,7 @@ async function handleEditCategory(e) {
     }
     
     try {
-        const response = await fetch(`${API_BASE}/categories/${categoryId}`, {
+        const response = await authFetch(`${API_BASE}/categories/${categoryId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(formData)
@@ -3737,7 +4071,7 @@ async function deleteCategory(categoryId) {
     }
     
     try {
-        const response = await fetch(`${API_BASE}/categories/${categoryId}`, {
+        const response = await authFetch(`${API_BASE}/categories/${categoryId}`, {
             method: 'DELETE'
         });
         

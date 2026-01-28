@@ -7,14 +7,28 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from .database import db, Expense, Category, init_db
 from . import page_blueprint, api_blueprint
+from security.auth import require_auth
+from security.validation import InputValidator
+from security.middleware import rate_limit
+from security.logging import SecurityLogger
 import json
 import csv
 import io
 from collections import defaultdict
 
+logger = SecurityLogger()
+
 
 # 初始化数据库（延迟初始化）
 _db_initialized = False
+
+
+def get_current_user_id():
+    """获取当前登录用户的ID"""
+    from flask import g
+    if hasattr(g, 'current_user') and g.current_user:
+        return g.current_user.get('id')
+    return None
 
 
 def ensure_db_initialized():
@@ -89,20 +103,46 @@ def index():
 # ========== API 路由 ==========
 
 @api_blueprint.route('/categories', methods=['GET'])
+@require_auth
+@rate_limit(max_requests=200, window=3600)
 def get_categories():
-    """获取分类列表"""
+    """获取分类列表（仅当前用户）"""
     try:
         ensure_db_initialized()
         
-        # 从数据库获取分类
-        expense_categories = Category.query.filter_by(type='expense').order_by(Category.sort_order, Category.id).all()
-        income_categories = Category.query.filter_by(type='income').order_by(Category.sort_order, Category.id).all()
+        user_id = get_current_user_id()
+        if not user_id:
+            return jsonify({'error': '未登录'}), 401
+        
+        # 从数据库获取当前用户的分类
+        expense_categories = Category.query.filter_by(
+            user_id=user_id, type='expense'
+        ).order_by(Category.sort_order, Category.id).all()
+        income_categories = Category.query.filter_by(
+            user_id=user_id, type='income'
+        ).order_by(Category.sort_order, Category.id).all()
+        
+        # 如果用户没有任何分类，自动创建默认分类
+        if len(expense_categories) == 0 and len(income_categories) == 0:
+            from .database import init_default_categories_for_user
+            try:
+                init_default_categories_for_user(user_id)
+                # 重新查询
+                expense_categories = Category.query.filter_by(
+                    user_id=user_id, type='expense'
+                ).order_by(Category.sort_order, Category.id).all()
+                income_categories = Category.query.filter_by(
+                    user_id=user_id, type='income'
+                ).order_by(Category.sort_order, Category.id).all()
+            except Exception as e:
+                logger.log_error('auto_init_categories_failed', {'user_id': user_id, 'error': str(e)})
         
         return jsonify({
             'expense': [cat.to_dict() for cat in expense_categories],
             'income': [cat.to_dict() for cat in income_categories]
         })
     except Exception as e:
+        logger.log_error('get_categories_failed', {'error': str(e)})
         # 如果数据库未初始化，返回默认分类
         return jsonify({
             'expense': EXPENSE_CATEGORIES,
@@ -111,38 +151,76 @@ def get_categories():
 
 
 @api_blueprint.route('/categories', methods=['POST'])
+@require_auth
+@rate_limit(max_requests=50, window=3600)
 def add_category():
     """添加分类"""
     ensure_db_initialized()
     
     data = request.get_json()
     
+    # 输入验证
+    schema = {
+        'type': {'type': 'enum', 'required': True, 'allowed_values': ['income', 'expense']},
+        'name': {'type': 'string', 'required': True, 'max_length': 50, 'sanitize': True},
+        'icon': {'type': 'string', 'required': False, 'max_length': 10, 'sanitize': True},
+        'color': {'type': 'string', 'required': False, 'max_length': 20, 'sanitize': True},
+        'sort_order': {'type': 'int', 'required': False, 'min_value': 0, 'max_value': 1000}
+    }
+    
+    is_valid, error_msg, cleaned_data = InputValidator.validate_json_input(data or {}, schema)
+    if not is_valid:
+        logger.log_security_event('invalid_category_input', {'error': error_msg})
+        return jsonify({'error': error_msg}), 400
+    
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': '未登录'}), 401
+    
     try:
+        # 检查同一用户下是否已有同名分类
+        existing = Category.query.filter_by(
+            user_id=user_id,
+            type=cleaned_data['type'],
+            name=cleaned_data['name']
+        ).first()
+        if existing:
+            return jsonify({'error': '该分类已存在'}), 400
+        
         category = Category(
-            type=data['type'],
-            name=data['name'],
-            icon=data.get('icon', '📦'),
-            color=data.get('color', '#C7CEEA'),
-            sort_order=data.get('sort_order', 0),
+            user_id=user_id,
+            type=cleaned_data['type'],
+            name=cleaned_data['name'],
+            icon=cleaned_data.get('icon', '📦'),
+            color=cleaned_data.get('color', '#C7CEEA'),
+            sort_order=cleaned_data.get('sort_order', 0),
             is_default=False
         )
         
         db.session.add(category)
         db.session.commit()
         
+        logger.log_info('category_added', {'user_id': user_id, 'category_id': category.id, 'name': category.name})
         return jsonify({'success': True, 'category': category.to_dict()}), 201
         
     except Exception as e:
         db.session.rollback()
+        logger.log_error('category_add_failed', {'error': str(e)})
         return jsonify({'error': f'添加失败: {str(e)}'}), 500
 
 
 @api_blueprint.route('/categories/<int:category_id>', methods=['PUT'])
+@require_auth
+@rate_limit(max_requests=50, window=3600)
 def update_category(category_id):
-    """更新分类"""
+    """更新分类（仅当前用户）"""
     ensure_db_initialized()
     
-    category = Category.query.get_or_404(category_id)
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': '未登录'}), 401
+    
+    category = Category.query.filter_by(id=category_id, user_id=user_id).first_or_404()
     data = request.get_json()
     
     try:
@@ -157,23 +235,31 @@ def update_category(category_id):
         
         db.session.commit()
         
+        logger.log_info('category_updated', {'user_id': user_id, 'category_id': category_id})
         return jsonify({'success': True, 'category': category.to_dict()})
         
     except Exception as e:
         db.session.rollback()
+        logger.log_error('category_update_failed', {'error': str(e)})
         return jsonify({'error': f'更新失败: {str(e)}'}), 500
 
 
 @api_blueprint.route('/categories/<int:category_id>', methods=['DELETE'])
+@require_auth
+@rate_limit(max_requests=50, window=3600)
 def delete_category(category_id):
-    """删除分类"""
+    """删除分类（仅当前用户）"""
     ensure_db_initialized()
     
-    category = Category.query.get_or_404(category_id)
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': '未登录'}), 401
     
-    # 检查是否有记录使用此分类（按名称匹配）
+    category = Category.query.filter_by(id=category_id, user_id=user_id).first_or_404()
+    
+    # 检查是否有记录使用此分类（按名称匹配，仅当前用户）
     category_name = category.name
-    count = Expense.query.filter_by(category=category_name).count()
+    count = Expense.query.filter_by(user_id=user_id, category=category_name).count()
     if count > 0:
         return jsonify({'error': f'该分类正在被 {count} 条记录使用，无法删除'}), 400
     
@@ -181,14 +267,18 @@ def delete_category(category_id):
         db.session.delete(category)
         db.session.commit()
         
+        logger.log_info('category_deleted', {'user_id': user_id, 'category_id': category_id})
         return jsonify({'success': True})
         
     except Exception as e:
         db.session.rollback()
+        logger.log_error('category_delete_failed', {'error': str(e)})
         return jsonify({'error': f'删除失败: {str(e)}'}), 500
 
 
 @api_blueprint.route('/records', methods=['GET'])
+@require_auth
+@rate_limit(max_requests=200, window=3600)
 def get_records():
     """获取记账记录列表"""
     try:
@@ -203,8 +293,12 @@ def get_records():
     page = int(request.args.get('page', 1))
     per_page = int(request.args.get('per_page', 20))
     
-    # 构建查询
-    query = Expense.query
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': '未登录'}), 401
+    
+    # 构建查询（仅当前用户的数据）
+    query = Expense.query.filter_by(user_id=user_id)
     
     if start_date:
         query = query.filter(Expense.date >= datetime.strptime(start_date, '%Y-%m-%d').date())
@@ -229,36 +323,61 @@ def get_records():
 
 
 @api_blueprint.route('/records', methods=['POST'])
+@require_auth
+@rate_limit(max_requests=200, window=3600)
 def add_record():
     """添加记账记录"""
     ensure_db_initialized()
     
     data = request.get_json()
     
+    # 输入验证
+    schema = {
+        'date': {'type': 'date', 'required': True},
+        'type': {'type': 'enum', 'required': True, 'allowed_values': ['income', 'expense']},
+        'category': {'type': 'string', 'required': True, 'max_length': 50, 'sanitize': True},
+        'account': {'type': 'string', 'required': False, 'max_length': 50, 'sanitize': True},
+        'amount': {'type': 'decimal', 'required': True, 'min_value': Decimal('0.01'), 'max_value': Decimal('999999999.99')},
+        'note': {'type': 'string', 'required': False, 'max_length': 200, 'sanitize': True}
+    }
+    
+    is_valid, error_msg, cleaned_data = InputValidator.validate_json_input(data or {}, schema)
+    if not is_valid:
+        logger.log_security_event('invalid_record_input', {'error': error_msg})
+        return jsonify({'error': error_msg}), 400
+    
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': '未登录'}), 401
+    
     try:
         # 验证数据
-        date = datetime.strptime(data['date'], '%Y-%m-%d').date()
-        record_type = data['type']  # income 或 expense
-        category = data['category']
-        amount = Decimal(str(data['amount']))
-        note = data.get('note', '').strip()
+        date = datetime.strptime(cleaned_data['date'], '%Y-%m-%d').date()
+        record_type = cleaned_data['type']  # income 或 expense
+        category = cleaned_data['category']
+        amount = cleaned_data['amount']
+        note = cleaned_data.get('note', '')
         
         if amount <= 0:
             return jsonify({'error': '金额必须大于0'}), 400
         
-        # 验证分类是否存在（如果是ID，转换为名称）
+        # 验证分类是否存在（仅当前用户的分类）
         try:
-            cat_obj = Category.query.get(int(category)) if category.isdigit() else None
+            if category.isdigit():
+                cat_obj = Category.query.filter_by(id=int(category), user_id=user_id).first()
+            else:
+                cat_obj = Category.query.filter_by(name=category, type=record_type, user_id=user_id).first()
             if cat_obj:
                 category = cat_obj.name
         except:
             pass  # 如果转换失败，使用原始值
         
         # 获取账户（如果未提供，默认为"未关联"）
-        account = data.get('account', '未关联').strip() or '未关联'
+        account = cleaned_data.get('account', '未关联') or '未关联'
         
         # 创建记录
         expense = Expense(
+            user_id=user_id,
             date=date,
             type=record_type,
             category=category,  # 存储分类名称
@@ -270,31 +389,61 @@ def add_record():
         db.session.add(expense)
         db.session.commit()
         
+        logger.log_info('record_added', {'record_id': expense.id, 'type': record_type, 'amount': float(amount)})
         return jsonify({'success': True, 'record': expense.to_dict()}), 201
         
     except ValueError as e:
+        logger.log_error('record_add_validation_failed', {'error': str(e)})
         return jsonify({'error': f'数据格式错误: {str(e)}'}), 400
     except Exception as e:
         db.session.rollback()
+        logger.log_error('record_add_failed', {'error': str(e)})
         return jsonify({'error': f'添加失败: {str(e)}'}), 500
 
 
 @api_blueprint.route('/records/<int:record_id>', methods=['GET'])
+@require_auth
+@rate_limit(max_requests=200, window=3600)
 def get_record(record_id):
-    """获取单个记账记录"""
+    """获取单个记账记录（仅当前用户）"""
     ensure_db_initialized()
     
-    expense = Expense.query.get_or_404(record_id)
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': '未登录'}), 401
+    
+    expense = Expense.query.filter_by(id=record_id, user_id=user_id).first_or_404()
     return jsonify({'record': expense.to_dict()})
 
 
 @api_blueprint.route('/records/<int:record_id>', methods=['PUT'])
+@require_auth
+@rate_limit(max_requests=100, window=3600)
 def update_record(record_id):
-    """更新记账记录"""
+    """更新记账记录（仅当前用户）"""
     ensure_db_initialized()
     
-    expense = Expense.query.get_or_404(record_id)
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': '未登录'}), 401
+    
+    expense = Expense.query.filter_by(id=record_id, user_id=user_id).first_or_404()
     data = request.get_json()
+    
+    # 输入验证
+    schema = {
+        'date': {'type': 'date', 'required': False},
+        'type': {'type': 'enum', 'required': False, 'allowed_values': ['income', 'expense']},
+        'category': {'type': 'string', 'required': False, 'max_length': 50, 'sanitize': True},
+        'account': {'type': 'string', 'required': False, 'max_length': 50, 'sanitize': True},
+        'amount': {'type': 'decimal', 'required': False, 'min_value': Decimal('0.01'), 'max_value': Decimal('999999999.99')},
+        'note': {'type': 'string', 'required': False, 'max_length': 200, 'sanitize': True}
+    }
+    
+    is_valid, error_msg, cleaned_data = InputValidator.validate_json_input(data or {}, schema)
+    if not is_valid:
+        logger.log_security_event('invalid_record_update_input', {'error': error_msg})
+        return jsonify({'error': error_msg}), 400
     
     try:
         if 'date' in data:
@@ -303,9 +452,12 @@ def update_record(record_id):
             expense.type = data['type']
         if 'category' in data:
             category = data['category']
-            # 验证分类是否存在（如果是ID，转换为名称）
+            # 验证分类是否存在（仅当前用户的分类）
             try:
-                cat_obj = Category.query.get(int(category)) if str(category).isdigit() else None
+                if str(category).isdigit():
+                    cat_obj = Category.query.filter_by(id=int(category), user_id=user_id).first()
+                else:
+                    cat_obj = Category.query.filter_by(name=category, type=expense.type, user_id=user_id).first()
                 if cat_obj:
                     category = cat_obj.name
             except:
@@ -333,24 +485,34 @@ def update_record(record_id):
 
 
 @api_blueprint.route('/records/<int:record_id>', methods=['DELETE'])
+@require_auth
+@rate_limit(max_requests=100, window=3600)
 def delete_record(record_id):
-    """删除记账记录"""
+    """删除记账记录（仅当前用户）"""
     ensure_db_initialized()
     
-    expense = Expense.query.get_or_404(record_id)
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': '未登录'}), 401
+    
+    expense = Expense.query.filter_by(id=record_id, user_id=user_id).first_or_404()
     
     try:
         db.session.delete(expense)
         db.session.commit()
         
+        logger.log_info('record_deleted', {'record_id': record_id})
         return jsonify({'success': True})
         
     except Exception as e:
         db.session.rollback()
+        logger.log_error('record_delete_failed', {'error': str(e)})
         return jsonify({'error': f'删除失败: {str(e)}'}), 500
 
 
 @api_blueprint.route('/statistics', methods=['GET'])
+@require_auth
+@rate_limit(max_requests=200, window=3600)
 def get_statistics():
     """获取统计数据"""
     try:
@@ -366,12 +528,16 @@ def get_statistics():
             'record_count': 0
         }), 500
     
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': '未登录'}), 401
+    
     # 获取查询参数
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
     
-    # 构建查询
-    query = Expense.query
+    # 构建查询（仅当前用户）
+    query = Expense.query.filter_by(user_id=user_id)
     
     if start_date:
         query = query.filter(Expense.date >= datetime.strptime(start_date, '%Y-%m-%d').date())
@@ -385,9 +551,14 @@ def get_statistics():
     total_expense = sum(float(r.amount) for r in records if r.type == 'expense')
     balance = total_income - total_expense
     
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': '未登录'}), 401
+    
     # 计算当日支出（始终返回今日支出，方便首页展示）
     today = datetime.now().date()
     today_records = Expense.query.filter(
+        Expense.user_id == user_id,
         Expense.date == today,
         Expense.type == 'expense'
     ).all()
@@ -479,8 +650,13 @@ def get_category_detail():
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
 
-    # 只统计支出类型，并限定分类
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': '未登录'}), 401
+    
+    # 只统计支出类型，并限定分类（仅当前用户）
     query = Expense.query.filter(
+        Expense.user_id == user_id,
         Expense.type == 'expense',
         Expense.category == category_key
     )
@@ -519,6 +695,7 @@ def get_category_detail():
     }
     try:
         cat_obj = Category.query.filter(
+            Category.user_id == user_id,
             Category.name == category_key,
             Category.type == 'expense'
         ).first()
@@ -553,6 +730,8 @@ def get_category_detail():
 
 
 @api_blueprint.route('/export', methods=['GET'])
+@require_auth
+@rate_limit(max_requests=50, window=3600)
 def export_data():
     """导出数据为CSV"""
     ensure_db_initialized()
@@ -560,7 +739,11 @@ def export_data():
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
     
-    query = Expense.query
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': '未登录'}), 401
+    
+    query = Expense.query.filter_by(user_id=user_id)
     if start_date:
         query = query.filter(Expense.date >= datetime.strptime(start_date, '%Y-%m-%d').date())
     if end_date:
@@ -606,9 +789,16 @@ def export_data():
 
 
 @api_blueprint.route('/import', methods=['POST'])
+@require_auth
+@rate_limit(max_requests=50, window=3600)
 def import_data():
-    """导入CSV数据"""
+    """导入CSV数据（仅当前用户）"""
     ensure_db_initialized()
+    
+    # 获取当前用户ID
+    import_user_id = get_current_user_id()
+    if not import_user_id:
+        return jsonify({'error': '未登录'}), 401
     
     if 'file' not in request.files:
         return jsonify({'error': '没有上传文件'}), 400
@@ -653,6 +843,11 @@ def import_data():
         imported_count = 0
         errors = []
         
+        # 获取当前用户ID（在循环外获取，避免重复查询）
+        import_user_id = get_current_user_id()
+        if not import_user_id:
+            return jsonify({'error': '未登录'}), 401
+        
         # 创建分类映射
         category_map = {}
         for cat in EXPENSE_CATEGORIES + INCOME_CATEGORIES:
@@ -694,15 +889,23 @@ def import_data():
                 account_name = (row.get('账户') or '').strip()
                 if not account_name:
                     account_name = '未关联'
-
-                # 尝试从数据库查找分类，如果不存在则使用默认分类
+                
+                # 尝试从数据库查找分类（仅当前用户），如果不存在则使用默认分类
                 try:
-                    cat = Category.query.filter_by(name=category_name, type=record_type).first()
+                    cat = Category.query.filter_by(
+                        user_id=import_user_id,
+                        name=category_name,
+                        type=record_type
+                    ).first()
                     if cat:
                         category_id = cat.name  # 使用分类名称
                     else:
-                        # 查找默认的"其他"分类
-                        default_cat = Category.query.filter_by(type=record_type, name='其他').first()
+                        # 查找默认的"其他"分类（仅当前用户）
+                        default_cat = Category.query.filter_by(
+                            user_id=import_user_id,
+                            type=record_type,
+                            name='其他'
+                        ).first()
                         category_id = default_cat.name if default_cat else category_name
                 except:
                     category_id = category_name
@@ -721,8 +924,9 @@ def import_data():
                     errors.append(f'第{row_num}行: 金额必须大于0')
                     continue
                 
-                # 创建记录
+                # 创建记录（添加user_id）
                 expense = Expense(
+                    user_id=import_user_id,
                     date=date,
                     type=record_type,
                     category=category_id,
