@@ -797,9 +797,13 @@ async function loadAnalysisData() {
             updateBarChart(data.category_stats)
         ]);
         
-        // 图表更新完成后，强制浏览器重新渲染
+        // 图表更新完成后，在下一帧按正确尺寸重绘（解决移动端首次进入时容器未布局导致模糊）
         requestAnimationFrame(() => {
-            // 确保所有图表都已渲染完成
+            requestAnimationFrame(() => {
+                if (lineChart) lineChart.resize();
+                if (pieChart) pieChart.resize();
+                if (barChart) barChart.resize();
+            });
             const chartContainers = document.querySelectorAll('.chart-container');
             chartContainers.forEach(container => {
                 container.style.transform = 'translateZ(0)';
@@ -859,7 +863,13 @@ function getCurrentAnalysisDateRange() {
     return { startDate, endDate };
 }
 
-// 设置Canvas高分辨率支持，防止模糊
+// 高 DPI 系数：移动端 Retina 至少 2x，保证图表与图标清晰
+function getChartDevicePixelRatio() {
+    if (typeof window === 'undefined') return 2;
+    return Math.max(2, window.devicePixelRatio || 1);
+}
+
+// 设置Canvas高分辨率支持，防止模糊（仅返回 context，Chart.js 通过 options.devicePixelRatio 缩放）
 function setupHighDPICanvas(canvas) {
     return canvas.getContext('2d');
 }
@@ -952,6 +962,7 @@ async function updateBarChart(categoryStats) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            devicePixelRatio: getChartDevicePixelRatio(),
             animation: { duration: 0 },
             interaction: { mode: 'index', intersect: false },
             onClick: (evt, elements) => {
@@ -1236,6 +1247,7 @@ async function renderCategoryDetailModal(detailData) {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                devicePixelRatio: getChartDevicePixelRatio(),
                 animation: {
                     duration: 0
                 },
@@ -2597,6 +2609,7 @@ async function updateLineChart(dailyStats) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            devicePixelRatio: getChartDevicePixelRatio(),
             animation: {
                 duration: 0  // 禁用动画，立即显示
             },
@@ -2712,6 +2725,7 @@ async function updatePieChart(categoryStats) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            devicePixelRatio: getChartDevicePixelRatio(),
             animation: { duration: 0 },
             onClick: (evt, elements) => {
                 if (!elements || elements.length === 0) return;
