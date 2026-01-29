@@ -6,7 +6,7 @@
 import jwt
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from typing import Optional
 from flask import request, jsonify, current_app, g
@@ -34,26 +34,48 @@ class AuthManager:
     def generate_token(user_id: int, username: str, is_admin: bool = False) -> str:
         """生成JWT令牌"""
         secret = SecurityConfig.get_jwt_secret()
+        if not secret:
+            logger.log_error('jwt_secret_missing_on_generate', {})
+            raise ValueError("JWT密钥未配置，无法生成令牌")
+        
+        # 使用 UTC 时间（JWT 标准要求）
+        now = datetime.now(timezone.utc)
         payload = {
             'user_id': user_id,
             'username': username,
             'is_admin': is_admin,
-            'exp': datetime.now() + timedelta(seconds=SecurityConfig.get_session_timeout()),
-            'iat': datetime.now(),
+            'exp': now + timedelta(seconds=SecurityConfig.get_session_timeout()),
+            'iat': now,
             'jti': secrets.token_urlsafe(16)  # JWT ID，用于撤销令牌
         }
-        return jwt.encode(payload, secret, algorithm='HS256')
+        try:
+            token = jwt.encode(payload, secret, algorithm='HS256')
+            # PyJWT 2.x 返回字符串，1.x 返回字节，统一转换为字符串
+            if isinstance(token, bytes):
+                token = token.decode('utf-8')
+            return token
+        except Exception as e:
+            logger.log_error('token_generation_failed', {'error': str(e)})
+            raise ValueError(f"令牌生成失败: {str(e)}")
     
     @staticmethod
     def verify_token(token: str) -> dict:
         """验证JWT令牌"""
         try:
             secret = SecurityConfig.get_jwt_secret()
+            if not secret:
+                logger.log_error('jwt_secret_missing', {})
+                raise ValueError("JWT密钥未配置")
+            
             payload = jwt.decode(token, secret, algorithms=['HS256'])
             return payload
         except jwt.ExpiredSignatureError:
             raise ValueError("令牌已过期")
-        except jwt.InvalidTokenError:
+        except jwt.DecodeError as e:
+            logger.log_warning('jwt_decode_error', {'error': str(e)})
+            raise ValueError("无效的令牌格式")
+        except jwt.InvalidTokenError as e:
+            logger.log_warning('jwt_invalid_token', {'error': str(e)})
             raise ValueError("无效的令牌")
     
     @staticmethod
@@ -61,20 +83,36 @@ class AuthManager:
         """获取当前用户信息（从数据库验证）"""
         token = request.headers.get('Authorization')
         if not token:
+            logger.log_info('no_auth_header', {'path': request.path})
             return None
         
         if token.startswith('Bearer '):
             token = token[7:]
+        else:
+            logger.log_info('invalid_auth_format', {'path': request.path, 'header': token[:20] if token else 'None'})
+            return None
         
         try:
             payload = AuthManager.verify_token(token)
             username = payload.get('username')
             
+            if not username:
+                logger.log_warning('token_missing_username', {'path': request.path})
+                return None
+            
             # 从数据库验证用户是否仍然有效
             from .models import UserManager
             user = UserManager.get_user_by_username(username)
             
-            if not user or not user.is_active:
+            if not user:
+                logger.log_warning('user_not_found', {'username': username, 'path': request.path})
+                return None
+            
+            if not user.is_active:
+                logger.log_security_event('inactive_user_access', {
+                    'username': username,
+                    'path': request.path
+                })
                 return None
             
             # 返回包含用户ID的完整信息
@@ -84,7 +122,20 @@ class AuthManager:
                 'is_admin': user.is_admin,
                 'is_active': user.is_active
             }
-        except:
+        except ValueError as e:
+            # JWT验证错误（过期、无效等）
+            logger.log_security_event('token_verification_failed', {
+                'error': str(e),
+                'path': request.path
+            })
+            return None
+        except Exception as e:
+            # 其他错误（数据库连接等）
+            logger.log_error('get_current_user_exception', {
+                'error': str(e),
+                'error_type': type(e).__name__,
+                'path': request.path
+            })
             return None
 
 
@@ -94,9 +145,12 @@ def require_auth(f):
     def decorated_function(*args, **kwargs):
         user = AuthManager.get_current_user()
         if not user:
+            # 检查是否有Authorization头，用于区分"未提供token"和"token无效"
+            has_auth_header = request.headers.get('Authorization') is not None
             logger.log_security_event('unauthorized_access', {
                 'path': request.path,
-                'ip': request.remote_addr
+                'ip': request.remote_addr,
+                'has_auth_header': has_auth_header
             })
             return jsonify({'error': '需要认证', 'code': 'UNAUTHORIZED'}), 401
         
