@@ -79,11 +79,6 @@ class SecurityConfig:
         """判断是否为生产环境"""
         return os.getenv('FLASK_ENV', 'development') == 'production'
     
-    @staticmethod
-    def get_rate_limit() -> str:
-        """获取速率限制配置"""
-        return os.getenv('RATE_LIMIT', '100 per hour')
-    
     # 登录一次持续 6 个月（180 天），单位：秒
     SESSION_TIMEOUT_SIX_MONTHS = 180 * 24 * 60 * 60  # 15552000
 

@@ -1,20 +1,15 @@
 """
 安全中间件
-提供CSRF保护、安全头部、速率限制等
+提供CSRF保护、安全头部等
 """
 
-from functools import wraps
 from flask import request, jsonify, g, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 import time
-from collections import defaultdict
 from .config import SecurityConfig
 from .logging import SecurityLogger
 
 logger = SecurityLogger()
-
-# 速率限制存储（生产环境应使用Redis）
-_rate_limit_store = defaultdict(list)
 
 
 def setup_security_headers(app):
@@ -48,29 +43,6 @@ def setup_security_headers(app):
         response.headers.pop('Server', None)
         
         return response
-
-
-def rate_limit(max_requests: int = 100, window: int = 3600):
-    """速率限制装饰器"""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            client_id = (g.current_user.get('username') if hasattr(g, 'current_user') and g.current_user 
-                         else request.remote_addr)
-            current_time = time.time()
-            requests = _rate_limit_store[client_id]
-            requests[:] = [t for t in requests if t > current_time - window]
-            
-            if len(requests) >= max_requests:
-                logger.log_security_event('rate_limit_exceeded', {
-                    'client_id': client_id, 'path': request.path, 'count': len(requests)
-                })
-                return jsonify({'error': '请求过于频繁，请稍后再试', 'code': 'RATE_LIMIT_EXCEEDED'}), 429
-            
-            requests.append(current_time)
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
 
 
 def setup_csrf_protection(app):

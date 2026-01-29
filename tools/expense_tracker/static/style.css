@@ -877,6 +877,34 @@ input, textarea {
     margin-bottom: 30px; /* 增加底部间距，避免被导航栏遮挡 */
 }
 
+/* 图表展示方式：前N项+其他 / 全部 */
+.chart-display-options {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    flex-wrap: wrap;
+}
+.chart-display-options label {
+    font-size: 13px;
+    color: #5a6578;
+    font-weight: 500;
+}
+.chart-display-select {
+    font-size: 13px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    color: #374151;
+    cursor: pointer;
+    min-width: 140px;
+}
+.chart-display-select:focus {
+    outline: none;
+    border-color: #93c5fd;
+}
+
 .chart-container {
     background: #fefefe; /* 柔和的白色 */
     border-radius: 16px;
@@ -1074,6 +1102,84 @@ input, textarea {
 .category-detail-pagination-info {
     font-size: 12px;
     color: #6b7280;
+}
+
+/* 「其他」分类明细弹窗 */
+.others-detail-content h2 {
+    font-size: 16px;
+    margin-bottom: 12px;
+    color: #374151;
+}
+.others-detail-total {
+    font-size: 14px;
+    font-weight: 600;
+    color: #059669;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e5e7eb;
+}
+.others-detail-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 320px;
+    overflow-y: auto;
+}
+.others-detail-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 13px;
+}
+.others-detail-item:last-child {
+    border-bottom: none;
+}
+.others-detail-icon {
+    flex-shrink: 0;
+    font-size: 16px;
+}
+.others-detail-name {
+    flex: 1;
+    color: #374151;
+    min-width: 0;
+}
+.others-detail-amount {
+    font-weight: 600;
+    color: #059669;
+    white-space: nowrap;
+}
+.others-detail-pct {
+    font-size: 12px;
+    color: #6b7280;
+    min-width: 36px;
+    text-align: right;
+}
+
+.others-detail-records-wrap {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.others-detail-records-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #4b5563;
+    margin-bottom: 8px;
+}
+
+.others-detail-records-wrap .category-detail-records {
+    margin-top: 0;
+    padding-top: 4px;
+}
+
+.others-detail-records-hint {
+    font-size: 13px;
+    color: #6b7280;
+    padding: 12px 0;
+    text-align: center;
 }
 
 /* 折线图悬浮提示框 */

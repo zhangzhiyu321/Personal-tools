@@ -19,8 +19,7 @@ from security.config import SecurityConfig
 from security.middleware import (
     setup_security_headers,
     setup_request_logging,
-    setup_error_handling,
-    rate_limit
+    setup_error_handling
 )
 from security.backup import BackupManager
 from security.logging import SecurityLogger
@@ -210,7 +209,6 @@ def register_common_routes(app: Flask) -> None:
         return render_template("portal/index.html", tools=tools)
 
     @app.route("/api/tools")
-    @rate_limit(max_requests=100, window=3600)
     def api_tools():
         """返回工具列表 JSON，供前端使用"""
         return jsonify(get_tools())

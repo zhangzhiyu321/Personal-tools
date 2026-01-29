@@ -9,7 +9,6 @@ from .database import db, Expense, Category
 from . import page_blueprint, api_blueprint
 from security.auth import require_auth
 from security.validation import InputValidator
-from security.middleware import rate_limit
 from security.logging import SecurityLogger
 import csv
 import io
@@ -92,7 +91,6 @@ def index():
 
 @api_blueprint.route('/categories', methods=['GET'])
 @require_auth
-@rate_limit(max_requests=200, window=3600)
 def get_categories():
     """获取分类列表（仅当前用户）"""
     user_id = get_current_user_id()
@@ -123,7 +121,6 @@ def get_categories():
 
 @api_blueprint.route('/categories', methods=['POST'])
 @require_auth
-@rate_limit(max_requests=50, window=3600)
 @handle_db_error
 def add_category():
     """添加分类"""
@@ -163,7 +160,6 @@ def add_category():
 
 @api_blueprint.route('/categories/<int:category_id>', methods=['PUT'])
 @require_auth
-@rate_limit(max_requests=50, window=3600)
 @handle_db_error
 def update_category(category_id):
     """更新分类（仅当前用户）"""
@@ -197,7 +193,6 @@ def update_category(category_id):
 
 @api_blueprint.route('/categories/<int:category_id>', methods=['DELETE'])
 @require_auth
-@rate_limit(max_requests=50, window=3600)
 @handle_db_error
 def delete_category(category_id):
     """删除分类（仅当前用户）"""
@@ -219,7 +214,6 @@ def delete_category(category_id):
 
 @api_blueprint.route('/records', methods=['GET'])
 @require_auth
-@rate_limit(max_requests=200, window=3600)
 def get_records():
     """获取记账记录列表"""
     user_id = get_current_user_id()
@@ -257,7 +251,6 @@ def get_records():
 
 @api_blueprint.route('/records', methods=['POST'])
 @require_auth
-@rate_limit(max_requests=200, window=3600)
 @handle_db_error
 def add_record():
     """添加记账记录"""
@@ -315,7 +308,6 @@ def add_record():
 
 @api_blueprint.route('/records/<int:record_id>', methods=['GET'])
 @require_auth
-@rate_limit(max_requests=200, window=3600)
 def get_record(record_id):
     """获取单个记账记录（仅当前用户）"""
     user_id = get_current_user_id()
@@ -328,7 +320,6 @@ def get_record(record_id):
 
 @api_blueprint.route('/records/<int:record_id>', methods=['PUT'])
 @require_auth
-@rate_limit(max_requests=100, window=3600)
 @handle_db_error
 def update_record(record_id):
     """更新记账记录（仅当前用户）"""
@@ -386,7 +377,6 @@ def update_record(record_id):
 
 @api_blueprint.route('/records/<int:record_id>', methods=['DELETE'])
 @require_auth
-@rate_limit(max_requests=100, window=3600)
 @handle_db_error
 def delete_record(record_id):
     """删除记账记录（仅当前用户）"""
@@ -404,7 +394,6 @@ def delete_record(record_id):
 
 @api_blueprint.route('/statistics', methods=['GET'])
 @require_auth
-@rate_limit(max_requests=200, window=3600)
 def get_statistics():
     """获取统计数据"""
     user_id = get_current_user_id()
@@ -464,7 +453,6 @@ def get_statistics():
 
 @api_blueprint.route('/statistics/category_detail', methods=['GET'])
 @require_auth
-@rate_limit(max_requests=200, window=3600)
 def get_category_detail():
     """获取指定分类在当前时间范围内的明细（趋势 + 记录列表）"""
     category_key = request.args.get('category')
@@ -518,9 +506,78 @@ def get_category_detail():
     })
 
 
+@api_blueprint.route('/statistics/others_detail', methods=['GET'], strict_slashes=False)
+@require_auth
+def get_others_detail():
+    """获取「其他」合并分类的明细：小分类汇总 + 具体记录列表（对比分析中点击「其他」时使用）"""
+    categories_param = request.args.get('categories')
+    if not categories_param or not categories_param.strip():
+        return jsonify({'error': '缺少参数 categories（多个分类名用英文逗号分隔）'}), 400
+
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': '需要认证', 'code': 'UNAUTHORIZED'}), 401
+
+    category_names = [c.strip() for c in categories_param.split(',') if c.strip()]
+    if not category_names:
+        return jsonify({'error': '参数 categories 为空'}), 400
+
+    start, end = parse_date_range(request.args.get('start_date'), request.args.get('end_date'))
+    query = Expense.query.filter_by(user_id=user_id, type='expense').filter(
+        Expense.category.in_(category_names)
+    )
+    if start:
+        query = query.filter(Expense.date >= start)
+    if end:
+        query = query.filter(Expense.date <= end)
+
+    records = query.order_by(Expense.date.asc(), Expense.created_at.asc()).all()
+    total_amount = sum(float(r.amount) for r in records)
+
+    # 按分类汇总（与统计接口结构一致）
+    cat_amount = defaultdict(float)
+    for r in records:
+        cat_amount[r.category] += float(r.amount)
+
+    all_categories = {cat.name: cat for cat in Category.query.filter_by(user_id=user_id, type='expense').all()}
+    category_breakdown = sorted([
+        {
+            'category': cat_name, 'amount': amount,
+            'name': all_categories[cat_name].name if cat_name in all_categories else cat_name,
+            'icon': all_categories[cat_name].icon if cat_name in all_categories else '📦',
+            'color': all_categories[cat_name].color if cat_name in all_categories else '#C7CEEA'
+        }
+        for cat_name, amount in cat_amount.items()
+    ], key=lambda x: x['amount'], reverse=True)
+
+    # 每条记录带上分类名称和图标，便于前端展示
+    def record_category_info(cat_key):
+        c = all_categories.get(cat_key)
+        return (c.name if c else cat_key, c.icon if c else '📦')
+
+    records_data = []
+    for r in records:
+        cat_name, cat_icon = record_category_info(r.category)
+        records_data.append({
+            'id': r.id,
+            'date': r.date.strftime('%Y-%m-%d') if r.date else None,
+            'amount': float(r.amount),
+            'note': r.note or '',
+            'category': r.category,
+            'category_name': cat_name,
+            'category_icon': cat_icon,
+            'created_at': r.created_at.strftime('%Y-%m-%d %H:%M:%S') if r.created_at else None
+        })
+
+    return jsonify({
+        'total_amount': total_amount,
+        'category_breakdown': category_breakdown,
+        'records': records_data
+    })
+
+
 @api_blueprint.route('/export', methods=['GET'])
 @require_auth
-@rate_limit(max_requests=50, window=3600)
 def export_data():
     """导出数据为CSV"""
     user_id = get_current_user_id()
@@ -557,7 +614,6 @@ def export_data():
 
 @api_blueprint.route('/import', methods=['POST'])
 @require_auth
-@rate_limit(max_requests=50, window=3600)
 @handle_db_error
 def import_data():
     """导入CSV数据（仅当前用户）"""
@@ -573,20 +629,26 @@ def import_data():
         return jsonify({'error': '文件名为空'}), 400
     
     file_content = file.stream.read()
-    encodings = ['utf-8-sig', 'utf-8', 'gbk', 'gb2312', 'gb18030']
+    # 按常见程度排序：UTF-8 系列、中文 Windows/Excel、其他
+    encodings = [
+        'utf-8-sig', 'utf-8',
+        'gbk', 'gb18030', 'gb2312', 'cp936',
+        'utf-16', 'utf-16-le', 'utf-16-be',
+        'big5', 'latin-1',
+    ]
     decoded_content = None
-    
     for encoding in encodings:
         try:
             decoded_content = file_content.decode(encoding)
             break
-        except (UnicodeDecodeError, UnicodeError):
+        except (UnicodeDecodeError, UnicodeError, LookupError):
             continue
-    
+
     if decoded_content is None:
-        return jsonify({'error': '无法识别文件编码'}), 400
-    
-    delimiter = '\t' if '\t' in decoded_content.split('\n')[0] else ','
+        return jsonify({'error': '无法识别文件编码，请用 Excel 或记事本将文件另存为 UTF-8 或 CSV(UTF-8) 后再导入'}), 400
+
+    first_line = (decoded_content.split('\n') or [''])[0]
+    delimiter = '\t' if '\t' in first_line else ','
     reader = csv.DictReader(io.StringIO(decoded_content), delimiter=delimiter)
     
     imported_count = 0

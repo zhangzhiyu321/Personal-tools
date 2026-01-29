@@ -248,6 +248,37 @@ let categoryDetailPageSize = 20; // 每页显示的记录数
 let currentTimeDimension = 'day'; // day, week, month
 let chartJsLoaded = false; // Chart.js是否已加载
 let currentDailyStats = null; // 保存当前的每日统计数据，用于图表点击
+// 图表展示：缓存原始分类数据，用于切换「展示方式」时重绘
+let lastCategoryStatsForCharts = null;
+// 图表中最多单独显示的分类数，超出部分合并为「其他」；设为很大则显示全部
+let chartDisplayMaxVisible = 6;
+
+/** 将分类统计聚合为「前 N 项 + 其他」，便于分类多时图表更清晰 */
+function aggregateCategoryStats(categoryStats, options) {
+    const maxVisible = options && options.maxVisible != null ? options.maxVisible : chartDisplayMaxVisible;
+    if (!categoryStats || categoryStats.length === 0) {
+        return { chartData: [], others: [], total: 0 };
+    }
+    const sorted = [...categoryStats].sort((a, b) => b.amount - a.amount);
+    const total = sorted.reduce((s, c) => s + c.amount, 0);
+    if (total <= 0) return { chartData: [], others: [], total: 0 };
+    if (sorted.length <= maxVisible) {
+        return { chartData: sorted, others: [], total };
+    }
+    const main = sorted.slice(0, maxVisible);
+    const rest = sorted.slice(maxVisible);
+    const otherAmount = rest.reduce((s, c) => s + c.amount, 0);
+    const otherItem = {
+        category: '__OTHER__',
+        name: '其他',
+        icon: '📋',
+        color: '#9E9E9E',
+        amount: otherAmount,
+        _isOther: true,
+        _others: rest
+    };
+    return { chartData: [...main, otherItem], others: rest, total };
+}
 
 // 获取日期所在周数（ISO周，周一开始）
 function getWeekNumber(date) {
@@ -506,7 +537,20 @@ function initTimeDimensionSelector() {
             switchTimeDimension(dimension);
         });
     });
-    
+    // 图表展示方式：前N项+其他 / 全部
+    const displayModeSelect = document.getElementById('chart-display-mode');
+    if (displayModeSelect) {
+        displayModeSelect.addEventListener('change', function() {
+            const val = parseInt(this.value, 10);
+            if (!isNaN(val)) {
+                chartDisplayMaxVisible = val;
+                if (lastCategoryStatsForCharts && lastCategoryStatsForCharts.length > 0) {
+                    updatePieChart(lastCategoryStatsForCharts).catch(() => {});
+                    updateBarChart(lastCategoryStatsForCharts).catch(() => {});
+                }
+            }
+        });
+    }
     // 初始化日期选择器
     initDatePicker();
 }
@@ -744,7 +788,7 @@ async function loadAnalysisData() {
         if (expenseEl) expenseEl.offsetHeight;
         if (balanceEl) balanceEl.offsetHeight;
         
-        // 更新所有图表
+        lastCategoryStatsForCharts = data.category_stats || null;
         await Promise.all([
             updateLineChart(data.daily_stats),
             updatePieChart(data.category_stats),
@@ -874,14 +918,14 @@ async function updateBarChart(categoryStats) {
         return;
     }
     
-    // 按金额排序，取前10个
-    const sortedStats = [...categoryStats].sort((a, b) => b.amount - a.amount).slice(0, 10);
+    const aggregated = aggregateCategoryStats(categoryStats, {});
+    const sortedStats = aggregated.chartData;
+    const total = aggregated.total;
     
-    // 创建渐变背景
     const barGradients = sortedStats.map(cat => {
         const gradient = chartCtx.createLinearGradient(0, 0, 0, 400);
         gradient.addColorStop(0, cat.color);
-        gradient.addColorStop(1, cat.color + '80'); // 添加透明度
+        gradient.addColorStop(1, cat.color + '80');
         return gradient;
     });
     
@@ -897,7 +941,7 @@ async function updateBarChart(categoryStats) {
                 backgroundColor: barGradients,
                 borderColor: sortedStats.map(c => c.color),
                 borderWidth: 2,
-                borderRadius: 8, // 圆角柱状图
+                borderRadius: 8,
                 borderSkipped: false,
                 barThickness: 'flex',
                 maxBarThickness: 50
@@ -906,20 +950,18 @@ async function updateBarChart(categoryStats) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            animation: {
-                duration: 0  // 禁用动画，立即显示
-            },
-            interaction: {
-                mode: 'index',
-                intersect: false
-            },
+            animation: { duration: 0 },
+            interaction: { mode: 'index', intersect: false },
             onClick: (evt, elements) => {
                 if (!elements || elements.length === 0) return;
-                const element = elements[0];
-                const index = element.index;
+                const index = elements[0].index;
                 const cat = sortedStats[index];
                 if (!cat) return;
-                openCategoryDetailFromBarChart(cat);
+                if (cat._isOther && cat._others && cat._others.length > 0) {
+                    openOthersDetailModal(cat._others, total);
+                } else {
+                    openCategoryDetailFromBarChart(cat);
+                }
             },
             plugins: {
                 legend: {
@@ -996,6 +1038,90 @@ async function openCategoryDetailFromBarChart(categoryStat) {
         console.error('加载分类明细失败:', error);
         customAlert('加载分类明细失败', '错误', 'error');
     }
+}
+
+/** 打开「其他」分类明细：请求后端获取小分类汇总 + 具体记录，再展示弹窗 */
+async function openOthersDetailModal(others, total) {
+    const { startDate, endDate } = getCurrentAnalysisDateRange();
+    const categoriesParam = others.map(c => c.category).filter(Boolean).join(',');
+    if (!categoriesParam) {
+        showOthersDetailModal(others, total, [], null, null);
+        return;
+    }
+    let url = `${API_BASE}/statistics/others_detail?categories=${encodeURIComponent(categoriesParam)}`;
+    if (startDate) url += `&start_date=${startDate}`;
+    if (endDate) url += `&end_date=${endDate}`;
+    try {
+        const response = await authFetch(url);
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && data) {
+            const breakdown = data.category_breakdown || others;
+            const records = Array.isArray(data.records) ? data.records : [];
+            showOthersDetailModal(breakdown, total, records, data.total_amount, null);
+            return;
+        }
+        // 404 等错误：仍展示分类汇总，仅提示详细记录需更新服务端
+        const recordsLoadHint = response.status === 404
+            ? '详细记录需要更新服务端后查看'
+            : (data.error || '详细记录加载失败');
+        showOthersDetailModal(others, total, [], null, recordsLoadHint);
+        return;
+    } catch (error) {
+        console.error('加载「其他」明细失败:', error);
+        showOthersDetailModal(others, total, [], null, '详细记录加载失败，请稍后重试');
+    }
+}
+
+/** 显示「其他」分类明细弹窗（小分类汇总 + 具体记录列表，风格与分类明细一致） */
+function showOthersDetailModal(others, total, records, totalAmount, recordsLoadHint) {
+    const modal = document.getElementById('others-detail-modal');
+    const totalEl = document.getElementById('others-detail-total');
+    const listEl = document.getElementById('others-detail-list');
+    const recordsWrap = document.getElementById('others-detail-records-wrap');
+    const recordsEl = document.getElementById('others-detail-records');
+    if (!modal || !listEl) return;
+
+    const recordList = Array.isArray(records) ? records : [];
+    const otherAmount = totalAmount != null ? Number(totalAmount) : (others && others.reduce) ? others.reduce((s, c) => s + c.amount, 0) : 0;
+    if (totalEl) totalEl.textContent = `合计: ¥${otherAmount.toFixed(2)}（占总支出的 ${total > 0 ? ((otherAmount / total) * 100).toFixed(1) : 0}%）`;
+    listEl.innerHTML = others.map(c => {
+        const pct = total > 0 ? ((c.amount / total) * 100).toFixed(1) : 0;
+        return `<li class="others-detail-item"><span class="others-detail-icon">${c.icon || '📦'}</span><span class="others-detail-name">${escapeHtml(c.name)}</span><span class="others-detail-amount">¥${Number(c.amount).toFixed(2)}</span><span class="others-detail-pct">${pct}%</span></li>`;
+    }).join('');
+
+    if (recordsWrap && recordsEl) {
+        if (recordList.length === 0) {
+            if (recordsLoadHint) {
+                recordsWrap.style.display = 'block';
+                recordsEl.innerHTML = `<div class="others-detail-records-hint">${escapeHtml(recordsLoadHint)}</div>`;
+            } else {
+                recordsWrap.style.display = 'none';
+                recordsEl.innerHTML = '';
+            }
+        } else {
+            recordsWrap.style.display = 'block';
+            recordsEl.innerHTML = recordList.map(r => {
+                const date = r.date || '';
+                const note = r.note || '';
+                const displayText = note || (r.category_name || '');
+                const amount = Number(r.amount || 0).toFixed(2);
+                const icon = r.category_icon || '📦';
+                return `
+                    <div class="category-detail-record">
+                        <div class="category-detail-record-left">
+                            <div class="category-detail-record-header">
+                                <span class="category-detail-record-icon">${icon}</span>
+                                <span class="category-detail-record-date">${date}</span>
+                            </div>
+                            <div class="category-detail-record-text">${escapeHtml(displayText)}</div>
+                        </div>
+                        <div class="category-detail-record-amount">¥${amount}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+    modal.classList.add('show');
 }
 
 // 渲染并展示分类明细模态框
@@ -1624,9 +1750,14 @@ function bindEvents() {
     const categoryDetailModal = document.getElementById('category-detail-modal');
     if (categoryDetailModal) {
         categoryDetailModal.addEventListener('click', (e) => {
-            if (e.target.id === 'category-detail-modal') {
-                closeModal();
-            }
+            if (e.target.id === 'category-detail-modal') closeModal();
+        });
+    }
+    // 「其他」明细弹窗：点击遮罩关闭
+    const othersDetailModal = document.getElementById('others-detail-modal');
+    if (othersDetailModal) {
+        othersDetailModal.addEventListener('click', (e) => {
+            if (e.target.id === 'others-detail-modal') closeModal();
         });
     }
     
@@ -1982,11 +2113,11 @@ async function loadStatistics() {
             todayExpenseEl.textContent = `¥${data.today_expense.toFixed(2)}`;
         }
         
-        // 延迟更新图表（非阻塞，提升初始加载速度）
-        // 图表只在数据分析页面显示，首页不需要立即加载
+        lastCategoryStatsForCharts = data.category_stats || null;
         setTimeout(() => {
             updateLineChart(data.daily_stats).catch(err => console.error('更新折线图失败:', err));
             updatePieChart(data.category_stats).catch(err => console.error('更新饼图失败:', err));
+            updateBarChart(data.category_stats).catch(err => console.error('更新柱状图失败:', err));
         }, 100);
     } catch (error) {
         console.error('加载统计数据失败:', error);
@@ -2557,28 +2688,36 @@ async function updatePieChart(categoryStats) {
         return;
     }
     
-    const total = categoryStats.reduce((sum, c) => sum + c.amount, 0);
+    const aggregated = aggregateCategoryStats(categoryStats, {});
+    const chartData = aggregated.chartData;
+    const total = aggregated.total;
     
     bindChartTouchDirection(canvas, 'pieChart');
     
     pieChart = new Chart(ctx, {
         type: 'pie',
         data: {
-            labels: categoryStats.map(c => `${c.icon} ${c.name}`),
+            labels: chartData.map(c => `${c.icon} ${c.name}`),
             datasets: [{
-                data: categoryStats.map(c => c.amount),
-                backgroundColor: categoryStats.map(c => c.color),
+                data: chartData.map(c => c.amount),
+                backgroundColor: chartData.map(c => c.color),
                 borderWidth: 3,
                 borderColor: '#fff',
-                hoverOffset: 8, // 悬停时偏移
+                hoverOffset: 8,
                 hoverBorderWidth: 4
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            animation: {
-                duration: 0  // 禁用动画，立即显示
+            animation: { duration: 0 },
+            onClick: (evt, elements) => {
+                if (!elements || elements.length === 0) return;
+                const idx = elements[0].index;
+                const item = chartData[idx];
+                if (item && item._isOther && item._others && item._others.length > 0) {
+                    openOthersDetailModal(item._others, total);
+                }
             },
             plugins: {
                 legend: {
@@ -2623,7 +2762,7 @@ async function updatePieChart(categoryStats) {
                             const percentage = ((value / total) * 100).toFixed(1);
                             return `${label}: ¥${value.toFixed(2)} (${percentage}%)`;
                         },
-                        footer: function(tooltipItems) {
+                        footer: function() {
                             return `总计: ¥${total.toFixed(2)}`;
                         }
                     }
@@ -3138,13 +3277,12 @@ async function openEditModal(recordId) {
 
 // 关闭模态框
 function closeModal() {
-    // 关闭所有键盘
     closeNumberKeyboard();
     document.getElementById('edit-modal').classList.remove('show');
     const categoryDetailModal = document.getElementById('category-detail-modal');
-    if (categoryDetailModal) {
-        categoryDetailModal.classList.remove('show');
-    }
+    if (categoryDetailModal) categoryDetailModal.classList.remove('show');
+    const othersDetailModal = document.getElementById('others-detail-modal');
+    if (othersDetailModal) othersDetailModal.classList.remove('show');
 }
 
 // 更新记录
@@ -3437,12 +3575,7 @@ async function handleImport(e) {
             loadStatistics();
             loadRecords();
         } else {
-            // 处理频率限制错误
-            if (response.status === 429) {
-                customAlert('请求过于频繁，请稍后再试（建议等待1分钟后重试）', '频率限制', 'warning');
-            } else {
-                customAlert(result.error || '导入失败', '导入失败', 'error');
-            }
+            customAlert(result.error || '导入失败', '导入失败', 'error');
         }
     } catch (error) {
         console.error('导入失败:', error);
