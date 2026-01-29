@@ -859,6 +859,40 @@ async function updateBarChart(categoryStats) {
         return gradient;
     });
     
+    // 添加触摸事件支持，防止页面滚动
+    let barChartTouching = false;
+    
+    // 移除旧的事件监听器（如果存在）
+    const oldTouchStart = canvas._barChartTouchStart;
+    const oldTouchMove = canvas._barChartTouchMove;
+    const oldTouchEnd = canvas._barChartTouchEnd;
+    
+    if (oldTouchStart) canvas.removeEventListener('touchstart', oldTouchStart);
+    if (oldTouchMove) canvas.removeEventListener('touchmove', oldTouchMove);
+    if (oldTouchEnd) canvas.removeEventListener('touchend', oldTouchEnd);
+    
+    // 创建新的事件处理函数
+    const touchStartHandler = (e) => {
+        barChartTouching = true;
+    };
+    const touchMoveHandler = (e) => {
+        if (barChartTouching) {
+            e.preventDefault();
+        }
+    };
+    const touchEndHandler = (e) => {
+        barChartTouching = false;
+    };
+    
+    // 保存引用以便后续移除
+    canvas._barChartTouchStart = touchStartHandler;
+    canvas._barChartTouchMove = touchMoveHandler;
+    canvas._barChartTouchEnd = touchEndHandler;
+    
+    canvas.addEventListener('touchstart', touchStartHandler, { passive: true });
+    canvas.addEventListener('touchmove', touchMoveHandler, { passive: false });
+    canvas.addEventListener('touchend', touchEndHandler, { passive: true });
+    
     barChart = new Chart(chartCtx, {
         type: 'bar',
         data: {
@@ -2514,6 +2548,40 @@ async function updatePieChart(categoryStats) {
     }
     
     const total = categoryStats.reduce((sum, c) => sum + c.amount, 0);
+    
+    // 添加触摸事件支持，防止页面滚动
+    let pieChartTouching = false;
+    
+    // 移除旧的事件监听器（如果存在）
+    const oldTouchStart = canvas._pieChartTouchStart;
+    const oldTouchMove = canvas._pieChartTouchMove;
+    const oldTouchEnd = canvas._pieChartTouchEnd;
+    
+    if (oldTouchStart) canvas.removeEventListener('touchstart', oldTouchStart);
+    if (oldTouchMove) canvas.removeEventListener('touchmove', oldTouchMove);
+    if (oldTouchEnd) canvas.removeEventListener('touchend', oldTouchEnd);
+    
+    // 创建新的事件处理函数
+    const touchStartHandler = (e) => {
+        pieChartTouching = true;
+    };
+    const touchMoveHandler = (e) => {
+        if (pieChartTouching) {
+            e.preventDefault();
+        }
+    };
+    const touchEndHandler = (e) => {
+        pieChartTouching = false;
+    };
+    
+    // 保存引用以便后续移除
+    canvas._pieChartTouchStart = touchStartHandler;
+    canvas._pieChartTouchMove = touchMoveHandler;
+    canvas._pieChartTouchEnd = touchEndHandler;
+    
+    canvas.addEventListener('touchstart', touchStartHandler, { passive: true });
+    canvas.addEventListener('touchmove', touchMoveHandler, { passive: false });
+    canvas.addEventListener('touchend', touchEndHandler, { passive: true });
     
     pieChart = new Chart(ctx, {
         type: 'pie',
