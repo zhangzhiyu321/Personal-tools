@@ -537,17 +537,19 @@ function initTimeDimensionSelector() {
             switchTimeDimension(dimension);
         });
     });
-    // 图表展示方式：前N项+其他 / 全部
+    // 图表展示方式：前N项+其他 / 全部（value 即 N：6 表示前6项+其他，999 表示全部）
     const displayModeSelect = document.getElementById('chart-display-mode');
     if (displayModeSelect) {
+        const syncFromSelect = () => {
+            const val = parseInt(displayModeSelect.value, 10);
+            if (!isNaN(val)) chartDisplayMaxVisible = val;
+        };
+        syncFromSelect(); // 初始化时与下拉框默认值一致（前6项 = 6）
         displayModeSelect.addEventListener('change', function() {
-            const val = parseInt(this.value, 10);
-            if (!isNaN(val)) {
-                chartDisplayMaxVisible = val;
-                if (lastCategoryStatsForCharts && lastCategoryStatsForCharts.length > 0) {
-                    updatePieChart(lastCategoryStatsForCharts).catch(() => {});
-                    updateBarChart(lastCategoryStatsForCharts).catch(() => {});
-                }
+            syncFromSelect();
+            if (lastCategoryStatsForCharts && lastCategoryStatsForCharts.length > 0) {
+                updatePieChart(lastCategoryStatsForCharts).catch(() => {});
+                updateBarChart(lastCategoryStatsForCharts).catch(() => {});
             }
         });
     }
