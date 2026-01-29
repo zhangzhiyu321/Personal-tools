@@ -891,26 +891,10 @@ input, textarea {
     overflow: hidden;
 }
 
-.chart-container::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: linear-gradient(90deg, #60a5fa, #86efac, #fca5a5); /* 柔和的渐变色 */
-    opacity: 0;
-    transition: opacity 0.3s ease;
-}
-
 .chart-container:hover {
     transform: translateY(-4px) scale(1.01);
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08); /* 更淡的阴影 */
     border-color: #93c5fd; /* 柔和的蓝色 */
-}
-
-.chart-container:hover::before {
-    opacity: 1;
 }
 
 /* 图表加载动画 */
@@ -927,6 +911,7 @@ input, textarea {
 
 .chart-container canvas {
     animation: chartFadeIn 0.6s ease-out;
+    max-height: 180px;
 }
 
 .chart-container h3 {
@@ -940,18 +925,6 @@ input, textarea {
     position: relative;
     padding-bottom: 8px;
     border-bottom: 1px solid #f0f1f3; /* 更淡的分隔线 */
-}
-
-.chart-container h3::before {
-    content: '';
-    width: 4px;
-    height: 16px;
-    background: linear-gradient(180deg, #1890ff, #52c41a);
-    border-radius: 2px;
-}
-
-.chart-container canvas {
-    max-height: 180px;
 }
 
 /* 折线图可点击提示 */
@@ -1693,24 +1666,6 @@ input, textarea {
 
 .record-amount.expense.editable:hover {
     background: #fff1f0;
-}
-
-/* 内联编辑输入框 */
-.inline-edit-input {
-    font-size: inherit;
-    font-weight: inherit;
-    color: inherit;
-    background: white;
-    border: 2px solid #1890ff;
-    border-radius: 6px;
-    padding: 2px 6px;
-    outline: none;
-    min-width: 80px;
-    font-family: inherit;
-}
-
-.inline-edit-input:focus {
-    box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.2);
 }
 
 .record-actions {

@@ -814,12 +814,38 @@ function getCurrentAnalysisDateRange() {
 }
 
 // 设置Canvas高分辨率支持，防止模糊
-// Chart.js会自动处理devicePixelRatio，这里主要用于确保Canvas上下文正确
 function setupHighDPICanvas(canvas) {
-    const ctx = canvas.getContext('2d');
-    // Chart.js会自动处理高DPI，我们只需要返回上下文
-    // 但可以确保Canvas在渲染前有正确的尺寸
-    return ctx;
+    return canvas.getContext('2d');
+}
+
+// 为图表绑定触摸方向判断：垂直滑动允许页面滚动，水平或小幅移动视为图表操作
+const CHART_TOUCH_THRESHOLD = 10;
+function bindChartTouchDirection(canvas, key) {
+    let touching = false, startX = 0, startY = 0, intent = null;
+    const startKey = '_' + key + 'TouchStart', moveKey = '_' + key + 'TouchMove', endKey = '_' + key + 'TouchEnd';
+    if (canvas[startKey]) canvas.removeEventListener('touchstart', canvas[startKey]);
+    if (canvas[moveKey]) canvas.removeEventListener('touchmove', canvas[moveKey]);
+    if (canvas[endKey]) canvas.removeEventListener('touchend', canvas[endKey]);
+    const onStart = (e) => {
+        touching = true;
+        intent = null;
+        if (e.touches.length) { startX = e.touches[0].clientX; startY = e.touches[0].clientY; }
+    };
+    const onMove = (e) => {
+        if (!touching || !e.touches.length) return;
+        const dx = e.touches[0].clientX - startX, dy = e.touches[0].clientY - startY;
+        if (intent === null && Math.abs(dx) + Math.abs(dy) >= CHART_TOUCH_THRESHOLD) {
+            intent = Math.abs(dy) > Math.abs(dx) ? 'scroll' : 'chart';
+        }
+        if (intent === 'chart') e.preventDefault();
+    };
+    const onEnd = () => { touching = false; intent = null; };
+    canvas[startKey] = onStart;
+    canvas[moveKey] = onMove;
+    canvas[endKey] = onEnd;
+    canvas.addEventListener('touchstart', onStart, { passive: true });
+    canvas.addEventListener('touchmove', onMove, { passive: false });
+    canvas.addEventListener('touchend', onEnd, { passive: true });
 }
 
 // 更新柱状图（对比分析）
@@ -859,39 +885,7 @@ async function updateBarChart(categoryStats) {
         return gradient;
     });
     
-    // 添加触摸事件支持，防止页面滚动
-    let barChartTouching = false;
-    
-    // 移除旧的事件监听器（如果存在）
-    const oldTouchStart = canvas._barChartTouchStart;
-    const oldTouchMove = canvas._barChartTouchMove;
-    const oldTouchEnd = canvas._barChartTouchEnd;
-    
-    if (oldTouchStart) canvas.removeEventListener('touchstart', oldTouchStart);
-    if (oldTouchMove) canvas.removeEventListener('touchmove', oldTouchMove);
-    if (oldTouchEnd) canvas.removeEventListener('touchend', oldTouchEnd);
-    
-    // 创建新的事件处理函数
-    const touchStartHandler = (e) => {
-        barChartTouching = true;
-    };
-    const touchMoveHandler = (e) => {
-        if (barChartTouching) {
-            e.preventDefault();
-        }
-    };
-    const touchEndHandler = (e) => {
-        barChartTouching = false;
-    };
-    
-    // 保存引用以便后续移除
-    canvas._barChartTouchStart = touchStartHandler;
-    canvas._barChartTouchMove = touchMoveHandler;
-    canvas._barChartTouchEnd = touchEndHandler;
-    
-    canvas.addEventListener('touchstart', touchStartHandler, { passive: true });
-    canvas.addEventListener('touchmove', touchMoveHandler, { passive: false });
-    canvas.addEventListener('touchend', touchEndHandler, { passive: true });
+    bindChartTouchDirection(canvas, 'barChart');
     
     barChart = new Chart(chartCtx, {
         type: 'bar',
@@ -2350,10 +2344,17 @@ async function updateLineChart(dailyStats) {
         showCategoryTooltip(date, categoryGroups, event);
     }, 16);
     
+    // 方向判断：垂直滑动允许页面滚动，水平滑动视为图表操作
+    let trendTouchStartX = 0, trendTouchStartY = 0;
+    let trendTouchIntent = null; // null | 'scroll' | 'chart'
+    
     canvas.addEventListener('touchstart', async (e) => {
         if (!lineChart) return;
         trendChartTouching = true;
+        trendTouchIntent = null;
         const touch = e.touches[0];
+        trendTouchStartX = touch.clientX;
+        trendTouchStartY = touch.clientY;
         
         const points = lineChart.getElementsAtEventForMode(
             { native: { clientX: touch.clientX, clientY: touch.clientY } },
@@ -2372,27 +2373,36 @@ async function updateLineChart(dailyStats) {
     
     canvas.addEventListener('touchmove', (e) => {
         if (!trendChartTouching || !lineChart) return;
-        e.preventDefault();
-        
         const touch = e.touches[0];
+        const deltaX = touch.clientX - trendTouchStartX;
+        const deltaY = touch.clientY - trendTouchStartY;
         
-        const points = lineChart.getElementsAtEventForMode(
-            { native: { clientX: touch.clientX, clientY: touch.clientY } },
-            'index',
-            { intersect: false }
-        );
-        
-        if (points && points.length > 0 && currentDailyStats) {
-            const dataIndex = points[0].index;
-            if (dataIndex >= 0 && dataIndex < currentDailyStats.length) {
-                const hoverDate = currentDailyStats[dataIndex].date;
-                optimizedHoverUpdate(hoverDate, { clientX: touch.clientX, clientY: touch.clientY });
+        if (trendTouchIntent === null) {
+            const dist = Math.abs(deltaX) + Math.abs(deltaY);
+            if (dist >= CHART_TOUCH_THRESHOLD) {
+                trendTouchIntent = Math.abs(deltaY) > Math.abs(deltaX) ? 'scroll' : 'chart';
+            }
+        }
+        if (trendTouchIntent === 'chart') {
+            e.preventDefault();
+            const points = lineChart.getElementsAtEventForMode(
+                { native: { clientX: touch.clientX, clientY: touch.clientY } },
+                'index',
+                { intersect: false }
+            );
+            if (points && points.length > 0 && currentDailyStats) {
+                const dataIndex = points[0].index;
+                if (dataIndex >= 0 && dataIndex < currentDailyStats.length) {
+                    const hoverDate = currentDailyStats[dataIndex].date;
+                    optimizedHoverUpdate(hoverDate, { clientX: touch.clientX, clientY: touch.clientY });
+                }
             }
         }
     }, { passive: false });
     
     canvas.addEventListener('touchend', (e) => {
         trendChartTouching = false;
+        trendTouchIntent = null;
         // 延迟隐藏，给用户时间点击tooltip
         setTimeout(() => {
             if (!trendChartTouching) {
@@ -2549,39 +2559,7 @@ async function updatePieChart(categoryStats) {
     
     const total = categoryStats.reduce((sum, c) => sum + c.amount, 0);
     
-    // 添加触摸事件支持，防止页面滚动
-    let pieChartTouching = false;
-    
-    // 移除旧的事件监听器（如果存在）
-    const oldTouchStart = canvas._pieChartTouchStart;
-    const oldTouchMove = canvas._pieChartTouchMove;
-    const oldTouchEnd = canvas._pieChartTouchEnd;
-    
-    if (oldTouchStart) canvas.removeEventListener('touchstart', oldTouchStart);
-    if (oldTouchMove) canvas.removeEventListener('touchmove', oldTouchMove);
-    if (oldTouchEnd) canvas.removeEventListener('touchend', oldTouchEnd);
-    
-    // 创建新的事件处理函数
-    const touchStartHandler = (e) => {
-        pieChartTouching = true;
-    };
-    const touchMoveHandler = (e) => {
-        if (pieChartTouching) {
-            e.preventDefault();
-        }
-    };
-    const touchEndHandler = (e) => {
-        pieChartTouching = false;
-    };
-    
-    // 保存引用以便后续移除
-    canvas._pieChartTouchStart = touchStartHandler;
-    canvas._pieChartTouchMove = touchMoveHandler;
-    canvas._pieChartTouchEnd = touchEndHandler;
-    
-    canvas.addEventListener('touchstart', touchStartHandler, { passive: true });
-    canvas.addEventListener('touchmove', touchMoveHandler, { passive: false });
-    canvas.addEventListener('touchend', touchEndHandler, { passive: true });
+    bindChartTouchDirection(canvas, 'pieChart');
     
     pieChart = new Chart(ctx, {
         type: 'pie',
