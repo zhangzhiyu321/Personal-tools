@@ -917,13 +917,13 @@ input, textarea {
 }
 
 .chart-container {
-    background: #fefefe; /* 柔和的白色 */
+    background: #fefefe;
     border-radius: 16px;
     padding: 16px;
     padding-bottom: 20px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); /* 更淡的阴影 */
-    border: 1px solid #f0f1f3; /* 更淡的边框 */
-    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); /* 弹性动画 */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    border: 1px solid #f0f1f3;
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
     width: 100%;
     margin-bottom: 12px;
     position: relative;
@@ -932,8 +932,8 @@ input, textarea {
 
 .chart-container:hover {
     transform: translateY(-4px) scale(1.01);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08); /* 更淡的阴影 */
-    border-color: #93c5fd; /* 柔和的蓝色 */
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+    border-color: #93c5fd;
 }
 
 /* 图表加载动画 */
@@ -948,9 +948,29 @@ input, textarea {
     }
 }
 
-.chart-container canvas {
+.chart-container .echarts-chart {
+    width: 100%;
+    height: 200px;
+    min-height: 180px;
     animation: chartFadeIn 0.2s ease-out;
-    max-height: 180px;
+}
+
+/* 图表占位：加载中 / 暂无数据 / 加载失败 */
+.chart-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    min-height: 160px;
+    color: #888;
+    font-size: 14px;
+    text-align: center;
+    padding: 16px;
+    box-sizing: border-box;
+}
+.chart-placeholder-error {
+    color: #c62828;
 }
 
 .chart-container h3 {
@@ -966,8 +986,10 @@ input, textarea {
     border-bottom: 1px solid #f0f1f3; /* 更淡的分隔线 */
 }
 
-/* 折线图可点击提示 */
-#line-chart {
+/* ECharts 图表容器可点击 */
+#line-chart,
+#pie-chart,
+#bar-chart {
     cursor: pointer;
 }
 
@@ -979,6 +1001,11 @@ input, textarea {
 .category-detail-chart-container {
     width: 100%;
     height: 160px;
+}
+
+.category-detail-chart-container .echarts-chart {
+    width: 100%;
+    height: 100%;
 }
 
 .category-detail-total {
@@ -1010,8 +1037,8 @@ input, textarea {
     border-top: 1px solid #f1f5f9;
     padding-top: 8px;
     margin-top: 4px;
-    overscroll-behavior: contain; /* 防止滚动穿透到背景页面 */
-    overscroll-behavior-y: contain; /* 防止垂直滚动穿透 */
+    overscroll-behavior: contain;
+    overscroll-behavior-y: contain;
 }
 
 .category-detail-records-list {

@@ -238,20 +238,27 @@ async function checkAuthStatus() {
 // 全局变量
 let categories = { expense: [], income: [] };
 let currentPage = 1;
-let lineChart = null;
-let pieChart = null;
-let barChart = null;
-let categoryDetailChart = null; // 分类明细中的趋势图
+let echartsLine = null;
+let echartsPie = null;
+let echartsBar = null;
+let echartsCategoryDetail = null; // 分类明细弹窗内趋势图
 let currentCategoryDetailData = null; // 当前分类明细的完整数据
 let categoryDetailCurrentPage = 1; // 分类明细记录列表当前页码
 let categoryDetailPageSize = 20; // 每页显示的记录数
 let currentTimeDimension = 'day'; // day, week, month
-let chartJsLoaded = false; // Chart.js是否已加载
 let currentDailyStats = null; // 保存当前的每日统计数据，用于图表点击
 // 图表展示：缓存原始分类数据，用于切换「展示方式」时重绘
 let lastCategoryStatsForCharts = null;
+let lastDailyStatsForCharts = null; // 缓存每日统计，供 ECharts 延迟加载后重绘
 // 图表中最多单独显示的分类数，超出部分合并为「其他」；设为很大则显示全部
 let chartDisplayMaxVisible = 6;
+
+// 图表占位提示（暂无数据 / 加载失败）
+function setChartPlaceholder(domId, message, isError) {
+    const dom = document.getElementById(domId);
+    if (!dom) return;
+    dom.innerHTML = '<div class="chart-placeholder' + (isError ? ' chart-placeholder-error' : '') + '">' + (message || '暂无数据') + '</div>';
+}
 
 /** 将分类统计聚合为「前 N 项 + 其他」，便于分类多时图表更清晰 */
 function aggregateCategoryStats(categoryStats, options) {
@@ -319,27 +326,14 @@ function getWeekDateRange(year, week) {
     return { startDate: targetMonday, endDate: targetSunday };
 }
 
-// 动态加载Chart.js（延迟加载，提升初始加载速度）
-async function loadChartJs() {
-    if (chartJsLoaded || typeof Chart !== 'undefined') {
-        chartJsLoaded = true;
-        return Promise.resolve();
-    }
-    
-    return new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = '/tools/expense_tracker/static/chart.umd.min.js';
-        script.async = true;
-        script.onload = () => {
-            chartJsLoaded = true;
-            resolve();
-        };
-        script.onerror = () => {
-            console.error('Chart.js加载失败');
-            reject(new Error('Chart.js加载失败'));
-        };
-        document.head.appendChild(script);
-    });
+// ECharts 初始化选项：SVG 渲染 + 高 DPI，移动端清晰
+function getEChartsInitOpts() {
+    const dpr = typeof window !== 'undefined' ? Math.max(2, window.devicePixelRatio || 1) : 2;
+    return { renderer: 'svg', devicePixelRatio: dpr };
+}
+function ensureECharts() {
+    if (typeof echarts !== 'undefined') return Promise.resolve();
+    return new Promise((_, reject) => reject(new Error('ECharts 未加载')));
 }
 
 // 初始化
@@ -508,13 +502,9 @@ async function switchMainTab(tabName) {
     // 滚动到页面顶部
     window.scrollTo({ top: 0, behavior: 'instant' });
     
-    // 如果切换到数据分析页面，确保Chart.js已加载
-    if (tabName === 'analysis' && !chartJsLoaded) {
-        try {
-            await loadChartJs();
-        } catch (error) {
-            console.error('加载Chart.js失败:', error);
-        }
+    // 切换到数据分析页面时确保 ECharts 可用（已通过 CDN 在 head 加载）
+    if (tabName === 'analysis') {
+        ensureECharts().catch(() => {});
     }
     
     // 根据标签页加载相应数据
@@ -791,6 +781,7 @@ async function loadAnalysisData() {
         if (balanceEl) balanceEl.offsetHeight;
         
         lastCategoryStatsForCharts = data.category_stats || null;
+        lastDailyStatsForCharts = data.daily_stats || null;
         await Promise.all([
             updateLineChart(data.daily_stats),
             updatePieChart(data.category_stats),
@@ -800,9 +791,9 @@ async function loadAnalysisData() {
         // 图表更新完成后，在下一帧按正确尺寸重绘（解决移动端首次进入时容器未布局导致模糊）
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-                if (lineChart) lineChart.resize();
-                if (pieChart) pieChart.resize();
-                if (barChart) barChart.resize();
+                if (echartsLine) echartsLine.resize();
+                if (echartsPie) echartsPie.resize();
+                if (echartsBar) echartsBar.resize();
             });
             const chartContainers = document.querySelectorAll('.chart-container');
             chartContainers.forEach(container => {
@@ -811,6 +802,9 @@ async function loadAnalysisData() {
         });
     } catch (error) {
         console.error('加载分析数据失败:', error);
+        setChartPlaceholder('line-chart', '数据加载失败，请刷新重试', true);
+        setChartPlaceholder('pie-chart', '数据加载失败，请刷新重试', true);
+        setChartPlaceholder('bar-chart', '数据加载失败，请刷新重试', true);
     }
 }
 
@@ -863,166 +857,60 @@ function getCurrentAnalysisDateRange() {
     return { startDate, endDate };
 }
 
-// 高 DPI 系数：移动端 Retina 至少 2x，保证图表与图标清晰
-function getChartDevicePixelRatio() {
-    if (typeof window === 'undefined') return 2;
-    return Math.max(2, window.devicePixelRatio || 1);
-}
-
-// 设置Canvas高分辨率支持，防止模糊（仅返回 context，Chart.js 通过 options.devicePixelRatio 缩放）
-function setupHighDPICanvas(canvas) {
-    return canvas.getContext('2d');
-}
-
-// 为图表绑定触摸方向判断：垂直滑动允许页面滚动，水平或小幅移动视为图表操作
-const CHART_TOUCH_THRESHOLD = 10;
-function bindChartTouchDirection(canvas, key) {
-    let touching = false, startX = 0, startY = 0, intent = null;
-    const startKey = '_' + key + 'TouchStart', moveKey = '_' + key + 'TouchMove', endKey = '_' + key + 'TouchEnd';
-    if (canvas[startKey]) canvas.removeEventListener('touchstart', canvas[startKey]);
-    if (canvas[moveKey]) canvas.removeEventListener('touchmove', canvas[moveKey]);
-    if (canvas[endKey]) canvas.removeEventListener('touchend', canvas[endKey]);
-    const onStart = (e) => {
-        touching = true;
-        intent = null;
-        if (e.touches.length) { startX = e.touches[0].clientX; startY = e.touches[0].clientY; }
-    };
-    const onMove = (e) => {
-        if (!touching || !e.touches.length) return;
-        const dx = e.touches[0].clientX - startX, dy = e.touches[0].clientY - startY;
-        if (intent === null && Math.abs(dx) + Math.abs(dy) >= CHART_TOUCH_THRESHOLD) {
-            intent = Math.abs(dy) > Math.abs(dx) ? 'scroll' : 'chart';
-        }
-        if (intent === 'chart') e.preventDefault();
-    };
-    const onEnd = () => { touching = false; intent = null; };
-    canvas[startKey] = onStart;
-    canvas[moveKey] = onMove;
-    canvas[endKey] = onEnd;
-    canvas.addEventListener('touchstart', onStart, { passive: true });
-    canvas.addEventListener('touchmove', onMove, { passive: false });
-    canvas.addEventListener('touchend', onEnd, { passive: true });
-}
-
-// 更新柱状图（对比分析）
+// 更新柱状图（对比分析）- ECharts SVG 渲染，移动端清晰
 async function updateBarChart(categoryStats) {
-    const canvas = document.getElementById('bar-chart');
-    if (!canvas) return;
-    
-    // 确保Chart.js已加载
-    if (!chartJsLoaded) {
-        try {
-            await loadChartJs();
-        } catch (error) {
-            console.error('Chart.js加载失败，无法显示图表:', error);
-            return;
-        }
-    }
-    
-    // 设置高分辨率支持
-    const chartCtx = setupHighDPICanvas(canvas);
-    
-    if (barChart) {
-        barChart.destroy();
-    }
-    
-    if (categoryStats.length === 0) {
+    const dom = document.getElementById('bar-chart');
+    if (!dom) return;
+    if (typeof echarts === 'undefined') {
+        setChartPlaceholder('bar-chart', '图表加载失败，请刷新页面', true);
         return;
     }
-    
+    if (!categoryStats || categoryStats.length === 0) {
+        if (echartsBar) { echartsBar.dispose(); echartsBar = null; }
+        setChartPlaceholder('bar-chart', '暂无数据');
+        return;
+    }
     const aggregated = aggregateCategoryStats(categoryStats, {});
     const sortedStats = aggregated.chartData;
     const total = aggregated.total;
-    
-    const barGradients = sortedStats.map(cat => {
-        const gradient = chartCtx.createLinearGradient(0, 0, 0, 400);
-        gradient.addColorStop(0, cat.color);
-        gradient.addColorStop(1, cat.color + '80');
-        return gradient;
-    });
-    
-    bindChartTouchDirection(canvas, 'barChart');
-    
-    barChart = new Chart(chartCtx, {
-        type: 'bar',
-        data: {
-            labels: sortedStats.map(c => `${c.icon} ${c.name}`),
-            datasets: [{
-                label: '支出金额',
-                data: sortedStats.map(c => c.amount),
-                backgroundColor: barGradients,
-                borderColor: sortedStats.map(c => c.color),
-                borderWidth: 2,
-                borderRadius: 8,
-                borderSkipped: false,
-                barThickness: 'flex',
-                maxBarThickness: 50
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            devicePixelRatio: getChartDevicePixelRatio(),
-            animation: { duration: 0 },
-            interaction: { mode: 'index', intersect: false },
-            onClick: (evt, elements) => {
-                if (!elements || elements.length === 0) return;
-                const index = elements[0].index;
-                const cat = sortedStats[index];
-                if (!cat) return;
-                if (cat._isOther && cat._others && cat._others.length > 0) {
-                    openOthersDetailModal(cat._others, total);
-                } else {
-                    openCategoryDetailFromBarChart(cat);
-                }
-            },
-            plugins: {
-                legend: {
-                    display: false
-                },
-                tooltip: {
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    padding: 12,
-                    titleFont: { size: 12, weight: '600' },
-                    bodyFont: { size: 13, weight: '500' },
-                    borderColor: 'rgba(255, 255, 255, 0.1)',
-                    borderWidth: 1,
-                    cornerRadius: 8,
-                    callbacks: {
-                        label: function(context) {
-                            const value = context.parsed.y;
-                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                            const percentage = ((value / total) * 100).toFixed(1);
-                            return `金额: ¥${value.toFixed(2)} (${percentage}%)`;
-                        }
-                    }
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: { 
-                        font: { size: 10 },
-                        callback: function(value) {
-                            return '¥' + value.toFixed(0);
-                        }
-                    },
-                    grid: {
-                        color: 'rgba(0, 0, 0, 0.05)',
-                        lineWidth: 1
-                    }
-                },
-                x: {
-                    ticks: { 
-                        font: { size: 10 },
-                        color: '#666'
-                    },
-                    grid: {
-                        display: false
-                    }
-                }
+    if (echartsBar) echartsBar.dispose();
+    dom.innerHTML = '';
+    echartsBar = echarts.init(dom, null, getEChartsInitOpts());
+    echartsBar.setOption({
+        animation: true,
+        animationDuration: 400,
+        animationEasing: 'cubicOut',
+        grid: { left: '8%', right: '4%', top: '8%', bottom: '15%', containLabel: true },
+        xAxis: { type: 'category', data: sortedStats.map(c => `${c.icon} ${c.name}`), axisLabel: { fontSize: 10, color: '#666', rotate: 25 }, axisTick: { show: false }, axisLine: { lineStyle: { color: '#e5e7eb' } } },
+        yAxis: { type: 'value', min: 0, axisLabel: { fontSize: 10, formatter: v => '¥' + v }, splitLine: { lineStyle: { color: 'rgba(0,0,0,0.05)' } }, axisLine: { show: false }, axisTick: { show: false } },
+        series: [{
+            type: 'bar',
+            data: sortedStats.map((c, i) => ({ value: c.amount, itemStyle: { color: c.color } })),
+            barMaxWidth: 44,
+            barBorderRadius: [10, 10, 0, 0],
+            emphasis: { focus: 'self', itemStyle: { borderColor: '#fff', borderWidth: 2 } }
+        }],
+        tooltip: {
+            trigger: 'axis',
+            backgroundColor: 'rgba(0,0,0,0.85)',
+            borderColor: 'rgba(255,255,255,0.1)',
+            textStyle: { fontSize: 12 },
+            formatter: function(params) {
+                if (!params || !params[0]) return '';
+                const idx = params[0].dataIndex;
+                const cat = sortedStats[idx];
+                const val = cat.amount;
+                const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+                return `金额: ¥${val.toFixed(2)} (${pct}%)`;
             }
         }
+    });
+    echartsBar.on('click', function(params) {
+        const idx = params.dataIndex;
+        const cat = sortedStats[idx];
+        if (!cat) return;
+        if (cat._isOther && cat._others && cat._others.length > 0) openOthersDetailModal(cat._others, total);
+        else openCategoryDetailFromBarChart(cat);
     });
 }
 
@@ -1167,178 +1055,74 @@ async function renderCategoryDetailModal(detailData) {
         renderCategoryDetailRecords();
     }
 
-    // 渲染分类趋势图
-    const canvas = document.getElementById('category-detail-chart');
-    if (canvas) {
-        // 确保 Chart.js 已加载
-        if (!chartJsLoaded && typeof Chart === 'undefined') {
-            try {
-                await loadChartJs();
-            } catch (error) {
-                console.error('Chart.js加载失败，无法显示分类趋势图:', error);
-            }
-        }
+    // 先显示模态框，等布局完成后再画图表（避免弹窗未显示时容器宽高为 0，图表挤成一团）
+    modal.classList.add('show');
 
-        // 设置高分辨率支持
-        const ctx = setupHighDPICanvas(canvas);
-        if (categoryDetailChart) {
-            categoryDetailChart.destroy();
-        }
-
-        // 准备数据
+    const chartDom = document.getElementById('category-detail-chart');
+    if (chartDom && typeof echarts !== 'undefined') {
         const trend = Array.isArray(detailData.daily_trend) ? detailData.daily_trend : [];
         const labels = trend.map(item => item.date);
         const values = trend.map(item => Number(item.amount || 0));
-
-        // 按日期分组记录，用于交互显示
         const recordsByDate = {};
         const records = Array.isArray(detailData.records) ? detailData.records : [];
         records.forEach(r => {
             const date = r.date || '';
-            if (!recordsByDate[date]) {
-                recordsByDate[date] = [];
-            }
+            if (!recordsByDate[date]) recordsByDate[date] = [];
             recordsByDate[date].push(r);
         });
-
-        // 添加触摸滑动支持（在创建图表之前）
-        canvas.addEventListener('touchmove', (e) => {
-            if (!categoryDetailChart) return;
-            e.preventDefault();
-            
-            const rect = canvas.getBoundingClientRect();
-            const touch = e.touches[0];
-            const x = touch.clientX - rect.left;
-            const y = touch.clientY - rect.top;
-            
-            // 使用 Chart.js 的方法获取当前触摸位置对应的数据点
-            const points = categoryDetailChart.getElementsAtEventForMode(
-                { native: { clientX: touch.clientX, clientY: touch.clientY } },
-                'index',
-                { intersect: false }
-            );
-            
-            if (points && points.length > 0) {
-                const index = points[0].index;
-                const date = labels[index];
-                if (date && recordsByDate[date]) {
-                    showDateRecordsInChart(date, recordsByDate[date], category, e);
-                }
-            }
-        }, { passive: false });
-
-        categoryDetailChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels,
-                datasets: [{
-                    label: `${name} - 支出趋势`,
+        function drawCategoryDetailChart() {
+            if (echartsCategoryDetail) echartsCategoryDetail.dispose();
+            echartsCategoryDetail = echarts.init(chartDom, null, getEChartsInitOpts());
+            // 横轴短日期（与收支趋势一致），避免重叠
+            const shortLabels = labels.map(l => {
+                const parts = String(l).split('-');
+                if (parts.length >= 3) return `${parseInt(parts[1], 10)}/${parseInt(parts[2], 10)}`;
+                return l;
+            });
+            const maxVal = values.length ? Math.max(...values) : 0;
+            const yMax = maxVal > 0 ? Math.ceil(maxVal * 1.05) : 100;
+            echartsCategoryDetail.setOption({
+                animation: true,
+                animationDuration: 400,
+                animationEasing: 'cubicOut',
+                grid: { left: '3%', right: '4%', top: '8%', bottom: '12%', containLabel: true },
+                xAxis: { type: 'category', boundaryGap: false, data: shortLabels, axisLabel: { fontSize: 10, color: '#666', interval: 'auto' }, axisLine: { lineStyle: { color: '#e5e7eb' } }, axisTick: { show: false } },
+                yAxis: { type: 'value', min: 0, max: yMax, axisLabel: { fontSize: 10, formatter: v => '¥' + v }, splitLine: { lineStyle: { color: 'rgba(0,0,0,0.05)' } }, axisLine: { show: false }, axisTick: { show: false } },
+                series: [{
+                    type: 'line',
                     data: values,
-                    borderColor: category.color || '#ef4444',
-                    backgroundColor: 'rgba(248, 113, 113, 0.15)',
-                    tension: 0.25,
-                    fill: true,
-                    borderWidth: 2,
-                    pointRadius: 4,
-                    pointHoverRadius: 6,
-                    pointHoverBorderWidth: 2
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                devicePixelRatio: getChartDevicePixelRatio(),
-                animation: {
-                    duration: 0
-                },
-                interaction: {
-                    intersect: false,
-                    mode: 'index'
-                },
-                onHover: (event, activeElements) => {
-                    if (activeElements && activeElements.length > 0) {
-                        const element = activeElements[0];
-                        const index = element.index;
-                        const date = labels[index];
-                        if (date && recordsByDate[date]) {
-                            showDateRecordsInChart(date, recordsByDate[date], category, event.native);
-                        } else {
-                            // 隐藏提示框
-                            const tooltipEl = document.getElementById('chart-date-tooltip');
-                            if (tooltipEl) {
-                                tooltipEl.style.display = 'none';
-                            }
-                        }
-                    } else {
-                        // 隐藏提示框
-                        const tooltipEl = document.getElementById('chart-date-tooltip');
-                        if (tooltipEl) {
-                            tooltipEl.style.display = 'none';
-                        }
-                    }
-                },
-                onClick: (event, activeElements) => {
-                    if (activeElements && activeElements.length > 0) {
-                        const element = activeElements[0];
-                        const index = element.index;
-                        const date = labels[index];
-                        if (date && recordsByDate[date]) {
-                            showDateRecordsInChart(date, recordsByDate[date], category, event.native);
-                        }
-                    }
-                },
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                        padding: 10,
-                        titleFont: { size: 11 },
-                        bodyFont: { size: 11 },
-                        callbacks: {
-                            afterBody: (context) => {
-                                const index = context[0].dataIndex;
-                                const date = labels[index];
-                                if (date && recordsByDate[date]) {
-                                    const dayRecords = recordsByDate[date];
-                                    return [`共 ${dayRecords.length} 条记录`];
-                                }
-                                return [];
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            font: { size: 10 },
-                            callback: function(value) {
-                                return '¥' + value.toFixed(0);
-                            }
-                        },
-                        grid: {
-                            color: 'rgba(148, 163, 184, 0.12)'
-                        }
-                    },
-                    x: {
-                        ticks: {
-                            font: { size: 9 },
-                            maxRotation: 45,
-                            minRotation: 0
-                        },
-                        grid: {
-                            display: false
-                        }
+                    smooth: 0.35,
+                    symbol: 'circle',
+                    symbolSize: 8,
+                    lineStyle: { width: 2.5, color: '#ef4444', cap: 'round', join: 'round' },
+                    itemStyle: { color: '#ef4444', borderColor: '#fff', borderWidth: 1 },
+                    areaStyle: { color: 'rgba(239,68,68,0.15)' },
+                    emphasis: { focus: 'self', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } }
+                }],
+                tooltip: {
+                    trigger: 'axis',
+                    backgroundColor: 'rgba(15,23,42,0.9)',
+                    textStyle: { fontSize: 11 },
+                    formatter: function(params) {
+                        if (!params || !params[0]) return '';
+                        const idx = params[0].dataIndex;
+                        const date = labels[idx];
+                        const dayRecords = date && recordsByDate[date] ? recordsByDate[date] : [];
+                        return date + (dayRecords.length ? `<br/>共 ${dayRecords.length} 条记录` : '');
                     }
                 }
-            }
+            });
+            echartsCategoryDetail.off('click');
+            echartsCategoryDetail.on('click', function(params) {
+                const idx = params.dataIndex;
+                const date = labels[idx];
+                if (date && recordsByDate[date]) showDateRecordsInChart(date, recordsByDate[date], category, params.event && params.event.event ? params.event.event : null);
+            });
+        }
+        requestAnimationFrame(function() {
+            requestAnimationFrame(drawCategoryDetailChart);
         });
     }
-
-    // 显示模态框
-    modal.classList.add('show');
 }
 
 // 渲染分类明细记录列表（支持分页）
@@ -2392,399 +2176,124 @@ function navigateToDateRecords(date) {
     hideCategoryTooltip();
 }
 
-// 更新折线图
+// 更新折线图（收支趋势）- ECharts SVG 渲染，移动端清晰
 async function updateLineChart(dailyStats) {
-    const canvas = document.getElementById('line-chart');
-    if (!canvas) return;
-    
-    // 确保Chart.js已加载
-    if (!chartJsLoaded) {
-        try {
-            await loadChartJs();
-        } catch (error) {
-            console.error('Chart.js加载失败，无法显示图表:', error);
-            return;
-        }
+    const dom = document.getElementById('line-chart');
+    if (!dom) return;
+    if (typeof echarts === 'undefined') {
+        setChartPlaceholder('line-chart', '图表加载失败，请刷新页面', true);
+        return;
     }
-    
-    // 设置高分辨率支持
-    const ctx = setupHighDPICanvas(canvas);
-    
-    if (lineChart) {
-        lineChart.destroy();
-    }
-    
-    // 保存当前统计数据，用于点击事件
-    currentDailyStats = dailyStats;
-    
-    // 清除旧的缓存
+    currentDailyStats = dailyStats || [];
     dailyRecordsCache = {};
-    
-    const labels = dailyStats.map(d => {
+    if (!dailyStats || dailyStats.length === 0) {
+        if (echartsLine) { echartsLine.dispose(); echartsLine = null; }
+        setChartPlaceholder('line-chart', '暂无数据');
+        return;
+    }
+    if (echartsLine) echartsLine.dispose();
+    dom.innerHTML = '';
+    echartsLine = echarts.init(dom, null, getEChartsInitOpts());
+    const labels = (dailyStats || []).map(d => {
         const date = new Date(d.date);
         return `${date.getMonth() + 1}/${date.getDate()}`;
     });
-    
-    // 创建渐变填充 - 使用更柔和的颜色
-    const incomeGradient = ctx.createLinearGradient(0, 0, 0, 400);
-    incomeGradient.addColorStop(0, 'rgba(22, 163, 74, 0.2)'); /* 柔和的绿色 */
-    incomeGradient.addColorStop(1, 'rgba(22, 163, 74, 0.03)');
-    
-    const expenseGradient = ctx.createLinearGradient(0, 0, 0, 400);
-    expenseGradient.addColorStop(0, 'rgba(220, 38, 38, 0.2)'); /* 柔和的红色 */
-    expenseGradient.addColorStop(1, 'rgba(220, 38, 38, 0.03)');
-    
-    // 添加触摸事件支持（移动端滑动）
-    let trendChartTouching = false;
-    let currentHoverDate = null; // 当前显示的日期
-    let hoverThrottleTimer = null; // 节流定时器
-    let pendingHoverUpdate = null; // 待处理的更新
-    
-    // 节流函数：限制更新频率
-    function throttleHoverUpdate(callback, delay = 16) { // 约60fps
-        return function(...args) {
-            if (hoverThrottleTimer) {
-                pendingHoverUpdate = { callback, args };
-                return;
-            }
-            
-            hoverThrottleTimer = setTimeout(() => {
-                hoverThrottleTimer = null;
-                callback.apply(null, args);
-                
-                // 执行待处理的更新
-                if (pendingHoverUpdate) {
-                    const { callback: pendingCallback, args: pendingArgs } = pendingHoverUpdate;
-                    pendingHoverUpdate = null;
-                    requestAnimationFrame(() => {
-                        pendingCallback.apply(null, pendingArgs);
-                    });
-                }
-            }, delay);
-        };
-    }
-    
-    // 优化的hover更新函数
-    const optimizedHoverUpdate = throttleHoverUpdate(async (date, event) => {
-        // 如果日期相同，只更新位置，不重新获取数据
-        if (date === currentHoverDate) {
-            const tooltipEl = document.getElementById('trend-chart-tooltip');
-            if (tooltipEl && tooltipEl.style.display !== 'none') {
-                // 只更新位置，使用requestAnimationFrame确保流畅
-                if (event) {
-                    requestAnimationFrame(() => {
-                        const x = event.clientX || (event.touches && event.touches[0]?.clientX) || 0;
-                        const y = event.clientY || (event.touches && event.touches[0]?.clientY) || 0;
-                        tooltipEl.style.left = `${x + 15}px`;
-                        tooltipEl.style.top = `${y + 15}px`;
-                    });
-                }
-                return;
-            }
-        }
-        
-        // 日期变化，获取新数据
-        currentHoverDate = date;
-        const categoryGroups = await getDailyRecordsByCategory(date);
-        showCategoryTooltip(date, categoryGroups, event);
-    }, 16);
-    
-    // 方向判断：垂直滑动允许页面滚动，水平滑动视为图表操作
-    let trendTouchStartX = 0, trendTouchStartY = 0;
-    let trendTouchIntent = null; // null | 'scroll' | 'chart'
-    
-    canvas.addEventListener('touchstart', async (e) => {
-        if (!lineChart) return;
-        trendChartTouching = true;
-        trendTouchIntent = null;
-        const touch = e.touches[0];
-        trendTouchStartX = touch.clientX;
-        trendTouchStartY = touch.clientY;
-        
-        const points = lineChart.getElementsAtEventForMode(
-            { native: { clientX: touch.clientX, clientY: touch.clientY } },
-            'index',
-            { intersect: false }
-        );
-        
-        if (points && points.length > 0 && currentDailyStats) {
-            const dataIndex = points[0].index;
-            if (dataIndex >= 0 && dataIndex < currentDailyStats.length) {
-                const hoverDate = currentDailyStats[dataIndex].date;
-                await optimizedHoverUpdate(hoverDate, { clientX: touch.clientX, clientY: touch.clientY });
-            }
-        }
-    }, { passive: true });
-    
-    canvas.addEventListener('touchmove', (e) => {
-        if (!trendChartTouching || !lineChart) return;
-        const touch = e.touches[0];
-        const deltaX = touch.clientX - trendTouchStartX;
-        const deltaY = touch.clientY - trendTouchStartY;
-        
-        if (trendTouchIntent === null) {
-            const dist = Math.abs(deltaX) + Math.abs(deltaY);
-            if (dist >= CHART_TOUCH_THRESHOLD) {
-                trendTouchIntent = Math.abs(deltaY) > Math.abs(deltaX) ? 'scroll' : 'chart';
-            }
-        }
-        if (trendTouchIntent === 'chart') {
-            e.preventDefault();
-            const points = lineChart.getElementsAtEventForMode(
-                { native: { clientX: touch.clientX, clientY: touch.clientY } },
-                'index',
-                { intersect: false }
-            );
-            if (points && points.length > 0 && currentDailyStats) {
-                const dataIndex = points[0].index;
-                if (dataIndex >= 0 && dataIndex < currentDailyStats.length) {
-                    const hoverDate = currentDailyStats[dataIndex].date;
-                    optimizedHoverUpdate(hoverDate, { clientX: touch.clientX, clientY: touch.clientY });
-                }
-            }
-        }
-    }, { passive: false });
-    
-    canvas.addEventListener('touchend', (e) => {
-        trendChartTouching = false;
-        trendTouchIntent = null;
-        // 延迟隐藏，给用户时间点击tooltip
-        setTimeout(() => {
-            if (!trendChartTouching) {
-                hideCategoryTooltip();
-                currentHoverDate = null;
-            }
-        }, 3000);
-    }, { passive: true });
-    
-    lineChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [
-                {
-                    label: '收入',
-                    data: dailyStats.map(d => d.income),
-                    borderColor: '#16a34a', /* 柔和的绿色 */
-                    backgroundColor: incomeGradient,
-                    tension: 0.5, // 更平滑的曲线
-                    fill: true,
-                    borderWidth: 3,
-                    pointRadius: 0, // 默认隐藏点
-                    pointHoverRadius: 8, // 悬停时显示大点
-                    pointHoverBorderWidth: 3,
-                    pointHoverBackgroundColor: '#16a34a',
-                    pointHoverBorderColor: '#fff',
-                    pointBackgroundColor: '#16a34a',
-                    pointBorderColor: '#fff',
-                    pointBorderWidth: 2,
-                    shadowOffsetX: 0,
-                    shadowOffsetY: 4,
-                    shadowBlur: 10,
-                    shadowColor: 'rgba(22, 163, 74, 0.2)' /* 更淡的阴影 */
-                },
-                {
-                    label: '支出',
-                    data: dailyStats.map(d => d.expense),
-                    borderColor: '#dc2626', /* 柔和的红色 */
-                    backgroundColor: expenseGradient,
-                    tension: 0.5,
-                    fill: true,
-                    borderWidth: 3,
-                    pointRadius: 0,
-                    pointHoverRadius: 8,
-                    pointHoverBorderWidth: 3,
-                    pointHoverBackgroundColor: '#dc2626',
-                    pointHoverBorderColor: '#fff',
-                    pointBackgroundColor: '#dc2626',
-                    pointBorderColor: '#fff',
-                    pointBorderWidth: 2,
-                    shadowOffsetX: 0,
-                    shadowOffsetY: 4,
-                    shadowBlur: 10,
-                    shadowColor: 'rgba(220, 38, 38, 0.2)' /* 更淡的阴影 */
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            devicePixelRatio: getChartDevicePixelRatio(),
-            animation: {
-                duration: 0  // 禁用动画，立即显示
-            },
-            interaction: {
-                intersect: false,
-                mode: 'index'
-            },
-            onHover: (event, activeElements) => {
-                // 悬停时显示分类信息（桌面端）- 使用节流优化
-                if (activeElements && activeElements.length > 0 && currentDailyStats) {
-                    const element = activeElements[0];
-                    const dataIndex = element.index;
-                    
-                    if (dataIndex >= 0 && dataIndex < currentDailyStats.length) {
-                        const hoverDate = currentDailyStats[dataIndex].date;
-                        optimizedHoverUpdate(hoverDate, event.native);
-                    } else {
-                        hideCategoryTooltip();
-                        currentHoverDate = null;
-                    }
-                } else {
-                    hideCategoryTooltip();
-                    currentHoverDate = null;
-                }
-            },
-            plugins: {
-                legend: {
-                    position: 'top',
-                    labels: {
-                        font: { size: 11, weight: '500' },
-                        padding: 12,
-                        usePointStyle: true,
-                        pointStyle: 'circle'
-                    }
-                },
-                tooltip: {
-                    enabled: false // 禁用默认tooltip，使用自定义tooltip
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: { 
-                        font: { size: 10 },
-                        callback: function(value) {
-                            return '¥' + value;
-                        }
-                    },
-                    grid: {
-                        color: 'rgba(0, 0, 0, 0.05)',
-                        lineWidth: 1
-                    }
-                },
-                x: {
-                    ticks: { 
-                        font: { size: 10 },
-                        color: '#666'
-                    },
-                    grid: {
-                        display: false
-                    }
-                }
+    const incomeData = (dailyStats || []).map(d => d.income);
+    const expenseData = (dailyStats || []).map(d => d.expense);
+    echartsLine.setOption({
+        animation: true,
+        animationDuration: 400,
+        animationEasing: 'cubicOut',
+        legend: { top: 0, left: 'center', data: ['收入', '支出'], textStyle: { fontSize: 11 }, itemWidth: 10, itemHeight: 10 },
+        grid: { left: '3%', right: '4%', top: '18%', bottom: '12%', containLabel: true },
+        xAxis: { type: 'category', boundaryGap: false, data: labels, axisLabel: { fontSize: 10, color: '#666' }, axisLine: { lineStyle: { color: '#e5e7eb' } }, axisTick: { show: false } },
+        yAxis: { type: 'value', min: 0, axisLabel: { fontSize: 10, formatter: v => '¥' + v }, splitLine: { lineStyle: { color: 'rgba(0,0,0,0.05)' } }, axisLine: { show: false }, axisTick: { show: false } },
+        series: [
+            { name: '收入', type: 'line', smooth: 0.35, data: incomeData, symbol: 'circle', symbolSize: 8, lineStyle: { width: 2.5, color: '#16a34a', cap: 'round', join: 'round' }, itemStyle: { color: '#16a34a', borderColor: '#fff', borderWidth: 1 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(22,163,74,0.2)' }, { offset: 1, color: 'rgba(22,163,74,0.03)' }] } }, emphasis: { focus: 'series', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } } },
+            { name: '支出', type: 'line', smooth: 0.35, data: expenseData, symbol: 'circle', symbolSize: 8, lineStyle: { width: 2.5, color: '#dc2626', cap: 'round', join: 'round' }, itemStyle: { color: '#dc2626', borderColor: '#fff', borderWidth: 1 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(220,38,38,0.2)' }, { offset: 1, color: 'rgba(220,38,38,0.03)' }] } }, emphasis: { focus: 'series', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } } }
+        ],
+        tooltip: {
+            trigger: 'axis',
+            backgroundColor: 'rgba(0,0,0,0.85)',
+            borderColor: 'rgba(255,255,255,0.1)',
+            textStyle: { fontSize: 12 },
+            formatter: function(params) {
+                if (!params || params.length === 0) return '';
+                const idx = params[0].dataIndex;
+                const day = currentDailyStats && currentDailyStats[idx];
+                if (!day) return '';
+                return `${day.date}<br/>收入: ¥${Number(day.income).toFixed(2)}<br/>支出: ¥${Number(day.expense).toFixed(2)}`;
             }
         }
     });
+    echartsLine.off('click');
+    echartsLine.on('click', async function(params) {
+        const idx = params.dataIndex;
+        if (!currentDailyStats || idx < 0 || idx >= currentDailyStats.length) return;
+        const date = currentDailyStats[idx].date;
+        const categoryGroups = await getDailyRecordsByCategory(date);
+        const ev = params.event && params.event.event ? params.event.event : null;
+        showCategoryTooltip(date, categoryGroups, ev);
+    });
 }
 
-// 更新饼图
+// 更新饼图（支出分类）- ECharts SVG 渲染，移动端清晰
 async function updatePieChart(categoryStats) {
-    const canvas = document.getElementById('pie-chart');
-    if (!canvas) return;
-    
-    // 确保Chart.js已加载
-    if (!chartJsLoaded) {
-        try {
-            await loadChartJs();
-        } catch (error) {
-            console.error('Chart.js加载失败，无法显示图表:', error);
-            return;
-        }
-    }
-    
-    // 设置高分辨率支持
-    const ctx = setupHighDPICanvas(canvas);
-    
-    if (pieChart) {
-        pieChart.destroy();
-    }
-    
-    if (categoryStats.length === 0) {
+    const dom = document.getElementById('pie-chart');
+    if (!dom) return;
+    if (typeof echarts === 'undefined') {
+        setChartPlaceholder('pie-chart', '图表加载失败，请刷新页面', true);
         return;
     }
-    
+    if (!categoryStats || categoryStats.length === 0) {
+        if (echartsPie) { echartsPie.dispose(); echartsPie = null; }
+        setChartPlaceholder('pie-chart', '暂无数据');
+        return;
+    }
     const aggregated = aggregateCategoryStats(categoryStats, {});
     const chartData = aggregated.chartData;
     const total = aggregated.total;
-    
-    bindChartTouchDirection(canvas, 'pieChart');
-    
-    pieChart = new Chart(ctx, {
-        type: 'pie',
-        data: {
-            labels: chartData.map(c => `${c.icon} ${c.name}`),
-            datasets: [{
-                data: chartData.map(c => c.amount),
-                backgroundColor: chartData.map(c => c.color),
-                borderWidth: 3,
-                borderColor: '#fff',
-                hoverOffset: 8,
-                hoverBorderWidth: 4
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            devicePixelRatio: getChartDevicePixelRatio(),
-            animation: { duration: 0 },
-            onClick: (evt, elements) => {
-                if (!elements || elements.length === 0) return;
-                const idx = elements[0].index;
-                const item = chartData[idx];
-                if (item && item._isOther && item._others && item._others.length > 0) {
-                    openOthersDetailModal(item._others, total);
-                }
-            },
-            plugins: {
-                legend: {
-                    position: 'right',
-                    labels: {
-                        font: { size: 11, weight: '500' },
-                        padding: 12,
-                        usePointStyle: true,
-                        pointStyle: 'circle',
-                        boxWidth: 12,
-                        boxHeight: 12,
-                        generateLabels: function(chart) {
-                            const data = chart.data;
-                            if (data.labels.length && data.datasets.length) {
-                                return data.labels.map((label, i) => {
-                                    const value = data.datasets[0].data[i];
-                                    const percentage = ((value / total) * 100).toFixed(1);
-                                    return {
-                                        text: `${label} ${percentage}%`,
-                                        fillStyle: data.datasets[0].backgroundColor[i],
-                                        hidden: false,
-                                        index: i
-                                    };
-                                });
-                            }
-                            return [];
-                        }
-                    }
-                },
-                tooltip: {
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    padding: 12,
-                    titleFont: { size: 12, weight: '600' },
-                    bodyFont: { size: 13, weight: '500' },
-                    borderColor: 'rgba(255, 255, 255, 0.1)',
-                    borderWidth: 1,
-                    cornerRadius: 8,
-                    callbacks: {
-                        label: function(context) {
-                            const label = context.label || '';
-                            const value = context.parsed || 0;
-                            const percentage = ((value / total) * 100).toFixed(1);
-                            return `${label}: ¥${value.toFixed(2)} (${percentage}%)`;
-                        },
-                        footer: function() {
-                            return `总计: ¥${total.toFixed(2)}`;
-                        }
-                    }
-                },
+    if (echartsPie) echartsPie.dispose();
+    dom.innerHTML = '';
+    echartsPie = echarts.init(dom, null, getEChartsInitOpts());
+    const pieData = chartData.map((c, i) => ({
+        name: `${c.icon} ${c.name} ${total > 0 ? ((c.amount / total) * 100).toFixed(1) : 0}%`,
+        value: c.amount,
+        itemStyle: { color: c.color },
+        _isOther: c._isOther,
+        _others: c._others
+    }));
+    echartsPie.setOption({
+        animation: true,
+        animationDuration: 400,
+        animationEasing: 'cubicOut',
+        legend: { orient: 'vertical', right: '8%', top: 'center', textStyle: { fontSize: 11 }, itemWidth: 10, itemHeight: 10, itemGap: 10 },
+        series: [{
+            type: 'pie',
+            radius: ['40%', '68%'],
+            center: ['38%', '50%'],
+            data: pieData,
+            label: { show: false },
+            labelLine: { show: false },
+            itemStyle: { borderColor: '#fff', borderWidth: 2 },
+            emphasis: { scale: true, scaleSize: 6, itemStyle: { borderColor: '#fff', borderWidth: 2, shadowBlur: 10, shadowOffsetY: 3 } }
+        }],
+        tooltip: {
+            trigger: 'item',
+            backgroundColor: 'rgba(0,0,0,0.85)',
+            borderColor: 'rgba(255,255,255,0.1)',
+            textStyle: { fontSize: 12 },
+            formatter: function(params) {
+                const val = params.value;
+                const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+                return `${params.name}<br/>金额: ¥${val.toFixed(2)} (${pct}%)<br/>总计: ¥${total.toFixed(2)}`;
             }
         }
+    });
+    echartsPie.off('click');
+    echartsPie.on('click', function(params) {
+        const item = params.data;
+        if (item && item._isOther && item._others && item._others.length > 0) openOthersDetailModal(item._others, total);
     });
 }
 

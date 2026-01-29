@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>记账工具</title>
     <link rel="stylesheet" href="{{ url_for('expense_tracker_page.static', filename='style.css') }}">
-    <!-- Chart.js 延迟加载，只在需要时加载（数据分析页面） -->
+    <!-- ECharts 5：本地静态文件，打开页面即可用，不依赖外网 -->
+    <script src="{{ url_for('expense_tracker_page.static', filename='echarts.min.js') }}"></script>
 </head>
 <body>
     {% set page_title = '记账工具' %}
@@ -174,15 +175,15 @@
                 </div>
             </div>
 
-            <!-- 图表区域 - 三个图表从上往下直接列出 -->
+            <!-- 图表区域 - ECharts SVG 渲染，移动端清晰 -->
             <div class="charts-section">
                 <div class="chart-container" id="chart-container-trend">
                     <h3>收支趋势</h3>
-                    <canvas id="line-chart"></canvas>
+                    <div id="line-chart" class="echarts-chart"></div>
                 </div>
                 <div class="chart-display-options">
                     <label for="chart-display-mode">图表展示：</label>
-                    <select id="chart-display-mode" class="chart-display-select" title="分类较多时建议选「前N项+其他」，主图更清晰">
+                    <select id="chart-display-mode" class="chart-display-select" title="分类较多时建议选「前N项+其他」">
                         <option value="5">前5项 + 其他</option>
                         <option value="6" selected>前6项 + 其他</option>
                         <option value="10">前10项 + 其他</option>
@@ -191,11 +192,11 @@
                 </div>
                 <div class="chart-container" id="chart-container-category">
                     <h3>支出分类</h3>
-                    <canvas id="pie-chart"></canvas>
+                    <div id="pie-chart" class="echarts-chart"></div>
                 </div>
                 <div class="chart-container" id="chart-container-comparison">
                     <h3>对比分析</h3>
-                    <canvas id="bar-chart"></canvas>
+                    <div id="bar-chart" class="echarts-chart"></div>
                 </div>
             </div>
         </div>
@@ -347,7 +348,7 @@
             <h2 id="category-detail-title">分类明细</h2>
             <div class="category-detail-summary">
                 <div class="category-detail-chart-container">
-                    <canvas id="category-detail-chart"></canvas>
+                    <div id="category-detail-chart" class="echarts-chart"></div>
                 </div>
                 <div class="category-detail-total">
                     <span class="label">当前时间范围内总支出</span>
