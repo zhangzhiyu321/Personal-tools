@@ -1499,18 +1499,21 @@ function bindEvents() {
     
     
     
-    // 通用日期选择器事件
-    document.getElementById('date-picker-modal').addEventListener('click', (e) => {
-        if (e.target.id === 'date-picker-modal') {
-            closeDatePicker();
-        }
-    });
+    // 日期选择器由 ensureDatePickerModal 在首次打开时创建并绑定，此处不绑定
     
-    document.querySelectorAll('#date-picker-modal .modal-close, #date-picker-cancel').forEach(btn => {
-        btn.addEventListener('click', closeDatePicker);
-    });
-    
-    document.getElementById('date-picker-confirm').addEventListener('click', confirmDateSelection);
+    // 记录列表：点击图标或空白 → 改日期；点击分类/金额 → 内联编辑；点击删除 → 删除
+    const recordsListEl = document.getElementById('records-list');
+    if (recordsListEl) {
+        recordsListEl.addEventListener('click', (e) => {
+            const recordItem = e.target.closest('.record-item');
+            if (!recordItem) return;
+            if (e.target.closest('.record-actions')) return;
+            if (e.target.closest('.editable')) return;
+            e.preventDefault();
+            e.stopPropagation();
+            editRecordDate(recordItem);
+        });
+    }
     
     // 导出导入
     document.getElementById('btn-export').addEventListener('click', handleExport);
@@ -2734,46 +2737,25 @@ function renderRecords(records) {
     bindInlineEditEvents();
 }
 
-// 绑定内联编辑事件
+// 绑定内联编辑事件（可编辑字段；改日期由 #records-list 事件委托处理）
 function bindInlineEditEvents() {
-    // 绑定可编辑字段的点击事件
     document.querySelectorAll('.editable').forEach(element => {
         element.addEventListener('click', function(e) {
             e.stopPropagation();
             startInlineEdit(this);
         });
     });
-    
-    // 绑定记录项空白区域的点击事件（用于编辑日期）
-    document.querySelectorAll('.record-item').forEach(item => {
-        item.addEventListener('click', function(e) {
-            // 如果点击的是可编辑元素、按钮、图标或输入框，不处理
-            if (e.target.closest('.editable') || 
-                e.target.closest('.record-actions') || 
-                e.target.closest('button') ||
-                e.target.closest('.record-icon') ||
-                e.target.closest('input') ||
-                e.target.closest('select')) {
-                return;
-            }
-            
-            // 点击空白区域，编辑日期
-            e.stopPropagation();
-            e.preventDefault();
-            editRecordDate(this);
-        });
-    });
 }
 
 // 编辑单条记录的日期
 function editRecordDate(recordItem) {
-    const recordId = parseInt(recordItem.dataset.id);
+    if (!recordItem || !recordItem.dataset) return;
+    const recordId = parseInt(recordItem.dataset.id, 10);
+    if (isNaN(recordId)) return;
     const dateHiddenInput = recordItem.querySelector('.record-date-hidden');
-    if (!dateHiddenInput) return;
+    if (!dateHiddenInput || !dateHiddenInput.dataset) return;
+    const oldDate = dateHiddenInput.dataset.value || '';
     
-    const oldDate = dateHiddenInput.dataset.value;
-    
-    // 使用统一的日期选择器
     openDatePicker({
         initialDate: oldDate,
         includeDay: true, // 包含日期选择
@@ -3216,469 +3198,111 @@ async function handleDeleteRecord(event, recordId) {
     }
 }
 
-// 通用日期时间选择器
+// 通用日期选择器（原生 input[type=date]，无滚轮）- 完全由 JS 创建，不依赖模板
+const DATE_PICKER_MODAL_ID = 'date-picker-modal-js';
+const DATE_PICKER_INPUT_ID = 'date-picker-input-js';
+
 let datePickerConfig = {
-    selectedYear: null,
-    selectedMonth: null,
-    selectedDay: null,
-    includeDay: false,
     onConfirm: null,
     onCancel: null
 };
 
-// 播放机械转动声音
-let audioContext = null;
-let lastSoundTime = 0;
+let datePickerModalCreated = false;
 
-function playPickerSound() {
-    try {
-        // 节流：避免声音过于频繁
-        const now = Date.now();
-        if (now - lastSoundTime < 50) {
-            return; // 50ms内只播放一次
-        }
-        lastSoundTime = now;
-        
-        // 创建或复用音频上下文
-        if (!audioContext) {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        
-        // 如果上下文被暂停，恢复它
-        if (audioContext.state === 'suspended') {
-            audioContext.resume();
-        }
-        
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        
-        // 设置音调（模拟机械转动的声音 - 低频率）
-        oscillator.frequency.value = 150; // 更低的频率，更像机械声
-        oscillator.type = 'sawtooth'; // 锯齿波，更像机械声
-        
-        // 设置音量包络（快速衰减，音量很小）
-        gainNode.gain.setValueAtTime(0.03, audioContext.currentTime); // 非常小的音量
-        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.08);
-        
-        oscillator.start(audioContext.currentTime);
-        oscillator.stop(audioContext.currentTime + 0.08);
-    } catch (error) {
-        // 如果音频API不支持，静默失败
-        // console.log('音频播放失败:', error);
+function ensureDatePickerModal() {
+    if (datePickerModalCreated) return;
+    const wrap = document.createElement('div');
+    wrap.id = DATE_PICKER_MODAL_ID;
+    wrap.className = 'modal';
+    wrap.innerHTML = `
+        <div class="modal-content" style="max-width: 500px;">
+            <span class="modal-close" data-date-picker-close>&times;</span>
+            <h2 id="date-picker-title-js">选择日期</h2>
+            <div class="date-picker-container">
+                <input type="date" id="${DATE_PICKER_INPUT_ID}" class="date-picker-input">
+                <div class="picker-actions">
+                    <button type="button" class="btn-secondary" data-date-picker-cancel>取消</button>
+                    <button type="button" class="btn-primary" data-date-picker-confirm>确定</button>
+                </div>
+            </div>
+        </div>`;
+    document.body.appendChild(wrap);
+
+    wrap.addEventListener('click', (e) => {
+        if (e.target === wrap) closeDatePicker();
+    });
+    wrap.querySelectorAll('[data-date-picker-close], [data-date-picker-cancel]').forEach(btn => {
+        btn.addEventListener('click', closeDatePicker);
+    });
+    const confirmBtn = wrap.querySelector('[data-date-picker-confirm]');
+    if (confirmBtn) confirmBtn.addEventListener('click', confirmDateSelection);
+    const input = wrap.querySelector(`#${DATE_PICKER_INPUT_ID}`);
+    if (input) {
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); confirmDateSelection(); }
+        });
     }
+    datePickerModalCreated = true;
 }
 
-// 打开通用日期选择器
 function openDatePicker(config) {
     const {
         initialDate = null,
-        includeDay = false,
         title = '选择日期',
         onConfirm = null,
         onCancel = null
     } = config || {};
     
-    // 保存配置
-    datePickerConfig.includeDay = includeDay;
     datePickerConfig.onConfirm = onConfirm;
     datePickerConfig.onCancel = onCancel;
     
-    // 解析初始日期
-    let year, month, day;
-    if (initialDate) {
-        const date = new Date(initialDate);
-        year = date.getFullYear();
-        month = date.getMonth() + 1;
-        day = date.getDate();
+    let initialValue = '';
+    if (initialDate && /^\d{4}-\d{2}-\d{2}$/.test(String(initialDate).trim())) {
+        initialValue = String(initialDate).trim();
+    } else if (initialDate) {
+        const d = new Date(initialDate);
+        initialValue = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     } else {
-        const now = new Date();
-        year = now.getFullYear();
-        month = now.getMonth() + 1;
-        day = now.getDate();
+        initialValue = new Date().toISOString().slice(0, 10);
     }
     
-    datePickerConfig.selectedYear = year;
-    datePickerConfig.selectedMonth = month;
-    datePickerConfig.selectedDay = day;
-    
-    // 设置标题
-    document.getElementById('date-picker-title').textContent = title;
-    
-    // 显示/隐藏日期滚轮
-    const dayWrapper = document.getElementById('picker-day-wrapper');
-    if (includeDay) {
-        dayWrapper.style.display = 'block';
-    } else {
-        dayWrapper.style.display = 'none';
+    ensureDatePickerModal();
+    const modal = document.getElementById(DATE_PICKER_MODAL_ID);
+    const input = document.getElementById(DATE_PICKER_INPUT_ID);
+    if (!modal || !input) {
+        if (typeof customAlert === 'function') customAlert('日期选择器初始化失败，请刷新后重试', '错误', 'error');
+        return;
     }
     
-    // 初始化滚轮
-    initDatePickerWheels(year, month, day, includeDay);
+    const titleEl = document.getElementById('date-picker-title-js');
+    if (titleEl) titleEl.textContent = title;
+    input.value = initialValue;
+    input.min = '1970-01-01';
+    input.max = '2099-12-31';
     
-    // 显示模态框
-    document.getElementById('date-picker-modal').classList.add('show');
-    
-    // 延迟滚动到选中位置
-    setTimeout(() => {
-        scrollToPickerOption('picker-year-wheel', year);
-        scrollToPickerOption('picker-month-wheel', month);
-        if (includeDay) {
-            scrollToPickerOption('picker-day-wheel', day);
-        }
-        
-        // 再次更新选中状态
-        setTimeout(() => {
-            updatePickerSelectedOption('picker-year-wheel', (value) => {
-                datePickerConfig.selectedYear = parseInt(value);
-            });
-            updatePickerSelectedOption('picker-month-wheel', (value) => {
-                datePickerConfig.selectedMonth = parseInt(value);
-                // 月份改变时，更新日期选项
-                if (includeDay) {
-                    updateDayWheel(datePickerConfig.selectedYear, datePickerConfig.selectedMonth);
-                }
-            });
-            if (includeDay) {
-                updatePickerSelectedOption('picker-day-wheel', (value) => {
-                    datePickerConfig.selectedDay = parseInt(value);
-                });
-            }
-        }, 100);
-    }, 100);
+    modal.classList.add('show');
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    setTimeout(() => input.focus(), 150);
 }
 
-// 初始化日期选择器滚轮
-function initDatePickerWheels(year, month, day, includeDay) {
-    const currentDate = new Date();
-    const currentYear = currentDate.getFullYear();
-    
-    // 生成年份选项（当前年份前后各10年，共21年）
-    const yearWheel = document.getElementById('picker-year-wheel');
-    const years = [];
-    for (let i = currentYear + 10; i >= currentYear - 10; i--) {
-        years.push(i);
-    }
-    yearWheel.innerHTML = years.map(y => `
-        <div class="picker-option" data-value="${y}">${y}年</div>
-    `).join('');
-    
-    // 生成月份选项
-    const monthWheel = document.getElementById('picker-month-wheel');
-    monthWheel.innerHTML = Array.from({ length: 12 }, (_, i) => i + 1).map(m => `
-        <div class="picker-option" data-value="${m}">${String(m).padStart(2, '0')}月</div>
-    `).join('');
-    
-    // 生成日期选项（如果需要）
-    if (includeDay) {
-        updateDayWheel(year, month);
-    }
-    
-    // 清除之前的事件监听器（通过克隆节点）
-    const yearWheelClone = yearWheel.cloneNode(true);
-    yearWheel.parentNode.replaceChild(yearWheelClone, yearWheel);
-    
-    const monthWheelClone = monthWheel.cloneNode(true);
-    monthWheel.parentNode.replaceChild(monthWheelClone, monthWheel);
-    
-    if (includeDay) {
-        const dayWheel = document.getElementById('picker-day-wheel');
-        if (dayWheel) {
-            const dayWheelClone = dayWheel.cloneNode(true);
-            dayWheel.parentNode.replaceChild(dayWheelClone, dayWheel);
-        }
-    }
-    
-    // 重新绑定滚动事件（使用新的节点）
-    setupPickerWheelWithSound('picker-year-wheel', (value) => {
-        datePickerConfig.selectedYear = parseInt(value);
-        if (includeDay) {
-            updateDayWheel(datePickerConfig.selectedYear, datePickerConfig.selectedMonth);
-        }
-    });
-    
-    setupPickerWheelWithSound('picker-month-wheel', (value) => {
-        datePickerConfig.selectedMonth = parseInt(value);
-        if (includeDay) {
-            updateDayWheel(datePickerConfig.selectedYear, datePickerConfig.selectedMonth);
-        }
-    });
-    
-    if (includeDay) {
-        setupPickerWheelWithSound('picker-day-wheel', (value) => {
-            datePickerConfig.selectedDay = parseInt(value);
-        });
-    }
-}
-
-// 更新日期滚轮（根据年月计算该月的天数）
-function updateDayWheel(year, month) {
-    const dayWheel = document.getElementById('picker-day-wheel');
-    const daysInMonth = new Date(year, month, 0).getDate();
-    const currentDay = datePickerConfig.selectedDay || 1;
-    const validDay = Math.min(currentDay, daysInMonth);
-    
-    dayWheel.innerHTML = Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => `
-        <div class="picker-option" data-value="${d}">${String(d).padStart(2, '0')}日</div>
-    `).join('');
-    
-    // 滚动到当前选中的日期
-    setTimeout(() => {
-        scrollToPickerOption('picker-day-wheel', validDay);
-        datePickerConfig.selectedDay = validDay;
-    }, 50);
-}
-
-// 带声音的滚轮设置（改进版 - 更稳定的滚动体验）
-function setupPickerWheelWithSound(wheelId, onSelect) {
-    const wheel = document.getElementById(wheelId);
-    if (!wheel) return;
-    
-    let isScrolling = false;
-    let scrollTimeout = null;
-    let lastScrollTop = wheel.scrollTop;
-    let lastSoundScrollTop = lastScrollTop;
-    let isUserScrolling = false; // 标记用户是否在主动滚动
-    let scrollVelocity = 0; // 滚动速度
-    let lastScrollTime = Date.now();
-    
-    // 滚动事件
-    wheel.addEventListener('scroll', () => {
-        const currentScrollTop = wheel.scrollTop;
-        const currentTime = Date.now();
-        const timeDelta = currentTime - lastScrollTime;
-        
-        // 计算滚动速度
-        if (timeDelta > 0) {
-            scrollVelocity = Math.abs(currentScrollTop - lastScrollTop) / timeDelta;
-        }
-        lastScrollTime = currentTime;
-        
-        // 检测滚动方向和距离，播放声音
-        const scrollDelta = Math.abs(currentScrollTop - lastSoundScrollTop);
-        
-        // 每滚动约20px播放一次声音
-        if (scrollDelta > 20) {
-            playPickerSound();
-            lastSoundScrollTop = currentScrollTop;
-        }
-        
-        lastScrollTop = currentScrollTop;
-        isUserScrolling = true;
-        
-        // 清除之前的定时器
-        if (scrollTimeout) {
-            clearTimeout(scrollTimeout);
-        }
-        
-        // 更新选中状态（实时，但不强制对齐）
-        updatePickerSelectedOption(wheelId, onSelect, false);
-        
-        // 滚动停止后对齐（延迟更长，让用户有足够时间滚动）
-        scrollTimeout = setTimeout(() => {
-            // 如果滚动速度很慢或已停止，才进行对齐
-            if (scrollVelocity < 0.5 || Math.abs(wheel.scrollTop - lastScrollTop) < 1) {
-                updatePickerSelectedOption(wheelId, onSelect, true);
-                isScrolling = false;
-                isUserScrolling = false;
-                scrollVelocity = 0;
-            } else {
-                // 如果还在滚动，继续等待
-                scrollTimeout = setTimeout(() => {
-                    updatePickerSelectedOption(wheelId, onSelect, true);
-                    isScrolling = false;
-                    isUserScrolling = false;
-                    scrollVelocity = 0;
-                }, 100);
-            }
-        }, 200); // 增加延迟到200ms，让滚动更自然
-        
-        isScrolling = true;
-    });
-    
-    // 触摸事件支持（移动端滑动）- 改进版
-    let touchStartY = 0;
-    let touchStartScrollTop = 0;
-    let isTouching = false;
-    let lastTouchY = 0;
-    let lastSoundTouchY = 0;
-    let touchVelocity = 0;
-    let lastTouchTime = Date.now();
-    let touchMoved = false;
-    
-    wheel.addEventListener('touchstart', (e) => {
-        isTouching = true;
-        touchMoved = false;
-        touchStartY = e.touches[0].clientY;
-        touchStartScrollTop = wheel.scrollTop;
-        lastTouchY = touchStartY;
-        lastSoundTouchY = touchStartY;
-        lastTouchTime = Date.now();
-        touchVelocity = 0;
-        isUserScrolling = true;
-        
-        // 停止任何正在进行的自动对齐
-        if (scrollTimeout) {
-            clearTimeout(scrollTimeout);
-        }
-    }, { passive: true });
-    
-    wheel.addEventListener('touchmove', (e) => {
-        if (!isTouching) return;
-        touchMoved = true;
-        const currentY = e.touches[0].clientY;
-        const currentTime = Date.now();
-        const timeDelta = currentTime - lastTouchTime;
-        
-        // 计算触摸速度
-        if (timeDelta > 0) {
-            touchVelocity = Math.abs(currentY - lastTouchY) / timeDelta;
-        }
-        lastTouchTime = currentTime;
-        
-        const deltaY = Math.abs(currentY - lastSoundTouchY);
-        
-        // 每移动约15px播放一次声音
-        if (deltaY > 15) {
-            playPickerSound();
-            lastSoundTouchY = currentY;
-        }
-        
-        const totalDeltaY = currentY - touchStartY;
-        wheel.scrollTop = touchStartScrollTop - totalDeltaY;
-        lastTouchY = currentY;
-    }, { passive: true });
-    
-    wheel.addEventListener('touchend', () => {
-        if (!isTouching) return;
-        isTouching = false;
-        
-        // 如果用户有滑动操作，延迟对齐，让惯性滚动完成
-        if (touchMoved) {
-            // 根据速度决定延迟时间
-            const delay = touchVelocity > 2 ? 300 : 150;
-            setTimeout(() => {
-                updatePickerSelectedOption(wheelId, onSelect, true);
-                isUserScrolling = false;
-            }, delay);
-        } else {
-            // 如果没有滑动，立即对齐
-            updatePickerSelectedOption(wheelId, onSelect, true);
-            isUserScrolling = false;
-        }
-    });
-}
-
-// 滚动到指定选项
-function scrollToPickerOption(wheelId, value) {
-    const wheel = document.getElementById(wheelId);
-    if (!wheel) return;
-    
-    const option = wheel.querySelector(`[data-value="${value}"]`);
-    if (option) {
-        const optionTop = option.offsetTop;
-        const wheelHeight = wheel.clientHeight;
-        const optionHeight = option.clientHeight;
-        const targetScroll = optionTop - (wheelHeight / 2) + (optionHeight / 2);
-        
-        wheel.scrollTop = targetScroll;
-        
-        // 标记为选中
-        wheel.querySelectorAll('.picker-option').forEach(opt => opt.classList.remove('selected'));
-        option.classList.add('selected');
-    }
-}
-
-// 更新选中选项（改进版 - 更稳定的对齐）
-function updatePickerSelectedOption(wheelId, onSelect, shouldAlign = true) {
-    const wheel = document.getElementById(wheelId);
-    if (!wheel) return;
-    
-    const wheelHeight = wheel.clientHeight;
-    const wheelCenter = wheel.scrollTop + (wheelHeight / 2);
-    
-    const options = Array.from(wheel.querySelectorAll('.picker-option'));
-    let closestOption = null;
-    let minDistance = Infinity;
-    
-    options.forEach(option => {
-        const optionTop = option.offsetTop;
-        const optionHeight = option.clientHeight;
-        const optionCenter = optionTop + (optionHeight / 2);
-        const distance = Math.abs(optionCenter - wheelCenter);
-        
-        if (distance < minDistance) {
-            minDistance = distance;
-            closestOption = option;
-        }
-    });
-    
-    if (closestOption) {
-        // 移除所有选中状态
-        options.forEach(opt => opt.classList.remove('selected'));
-        // 添加选中状态
-        closestOption.classList.add('selected');
-        
-        // 只有在需要对齐且距离中心较远时才自动对齐
-        if (shouldAlign) {
-            const optionTop = closestOption.offsetTop;
-            const optionHeight = closestOption.clientHeight;
-            const targetScroll = optionTop - (wheelHeight / 2) + (optionHeight / 2);
-            const currentScroll = wheel.scrollTop;
-            
-            // 增加阈值到10px，避免频繁对齐
-            if (Math.abs(targetScroll - currentScroll) > 10) {
-                // 使用更平滑的对齐方式
-                const distance = Math.abs(targetScroll - currentScroll);
-                const duration = Math.min(distance * 0.5, 300); // 根据距离调整动画时长
-                
-                wheel.scrollTo({
-                    top: targetScroll,
-                    behavior: 'smooth'
-                });
-            }
-        }
-        
-        if (onSelect) {
-            onSelect(closestOption.dataset.value);
-        }
-    }
-}
-
-// 关闭日期选择器
 function closeDatePicker() {
-    document.getElementById('date-picker-modal').classList.remove('show');
-    if (datePickerConfig.onCancel) {
-        datePickerConfig.onCancel();
+    const modal = document.getElementById(DATE_PICKER_MODAL_ID);
+    if (modal) {
+        modal.classList.remove('show');
+        modal.style.display = '';
     }
+    if (datePickerConfig.onCancel) datePickerConfig.onCancel();
 }
 
-// 确认日期选择
 function confirmDateSelection() {
-    const { selectedYear, selectedMonth, selectedDay, includeDay, onConfirm } = datePickerConfig;
-    
-    if (!selectedYear || !selectedMonth) {
-        return;
-    }
-    
-    if (includeDay && !selectedDay) {
-        return;
-    }
-    
-    let dateStr;
-    if (includeDay) {
-        dateStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`;
-    } else {
-        dateStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
-    }
-    
+    const { onConfirm } = datePickerConfig;
+    const input = document.getElementById(DATE_PICKER_INPUT_ID);
+    const dateStr = input && input.value ? input.value.trim() : '';
+    if (!dateStr) return;
     closeDatePicker();
-    
-    if (onConfirm) {
-        onConfirm(dateStr);
-    }
+    if (onConfirm) onConfirm(dateStr);
 }
 
 // 导出数据

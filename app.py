@@ -52,7 +52,7 @@ def create_app() -> Flask:
     app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB
     app.config["UPLOAD_FOLDER"] = tempfile.gettempdir()
     
-    # 会话配置
+    # 会话配置（与 JWT 过期一致：默认 6 个月）
     app.config['PERMANENT_SESSION_LIFETIME'] = SecurityConfig.get_session_timeout()
     app.config['SESSION_COOKIE_SECURE'] = SecurityConfig.is_production()  # HTTPS only in production
     app.config['SESSION_COOKIE_HTTPONLY'] = True

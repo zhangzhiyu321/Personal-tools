@@ -38,7 +38,7 @@ class AuthManager:
             logger.log_error('jwt_secret_missing_on_generate', {})
             raise ValueError("JWT密钥未配置，无法生成令牌")
         
-        # 使用 UTC 时间（JWT 标准要求）
+        # 使用 UTC 时间（JWT 标准要求）；过期时间与 get_session_timeout 一致，默认 6 个月
         now = datetime.now(timezone.utc)
         payload = {
             'user_id': user_id,

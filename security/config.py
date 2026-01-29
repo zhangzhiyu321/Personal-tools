@@ -84,13 +84,14 @@ class SecurityConfig:
         """获取速率限制配置"""
         return os.getenv('RATE_LIMIT', '100 per hour')
     
+    # 登录一次持续 6 个月（180 天），单位：秒
+    SESSION_TIMEOUT_SIX_MONTHS = 180 * 24 * 60 * 60  # 15552000
+
     @staticmethod
     def get_session_timeout() -> int:
-        """获取会话超时时间（秒）"""
-        # 默认6个月（180天），适合个人记账软件长期使用
-        # 可通过环境变量 SESSION_TIMEOUT 自定义（单位：秒）
-        default_timeout = 180 * 24 * 60 * 60  # 180天 = 15552000秒
-        return int(os.getenv('SESSION_TIMEOUT', str(default_timeout)))
+        """获取会话超时时间（秒）。默认 6 个月，JWT 与 Flask session 均使用此值。"""
+        default = SecurityConfig.SESSION_TIMEOUT_SIX_MONTHS
+        return int(os.getenv('SESSION_TIMEOUT', str(default)))
     
     @staticmethod
     def get_backup_enabled() -> bool:

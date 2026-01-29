@@ -351,30 +351,13 @@
         </div>
     </div>
 
-    <!-- 通用日期时间选择器模态框 -->
+    <!-- 通用日期选择器模态框（原生 date 输入，无滚轮） -->
     <div id="date-picker-modal" class="modal">
         <div class="modal-content" style="max-width: 500px;">
             <span class="modal-close">&times;</span>
             <h2 id="date-picker-title">选择日期</h2>
             <div class="date-picker-container">
-                <div class="picker-wheels">
-                    <div class="picker-wheel-wrapper">
-                        <div class="picker-wheel" id="picker-year-wheel">
-                            <!-- 动态生成年份选项 -->
-                        </div>
-                    </div>
-                    <div class="picker-wheel-wrapper">
-                        <div class="picker-wheel" id="picker-month-wheel">
-                            <!-- 动态生成月份选项 -->
-                        </div>
-                    </div>
-                    <div class="picker-wheel-wrapper" id="picker-day-wrapper" style="display: none;">
-                        <div class="picker-wheel" id="picker-day-wheel">
-                            <!-- 动态生成日期选项 -->
-                        </div>
-                    </div>
-                </div>
-                <div class="picker-selection-indicator"></div>
+                <input type="date" id="date-picker-input" class="date-picker-input">
                 <div class="picker-actions">
                     <button type="button" class="btn-secondary" id="date-picker-cancel">取消</button>
                     <button type="button" class="btn-primary" id="date-picker-confirm">确定</button>
