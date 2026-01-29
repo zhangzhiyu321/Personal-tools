@@ -6,13 +6,6 @@ venv/
 tools/stl_to_step/stltostp/build/
 # 忽略所有 markdown 文件，但允许重要的文档
 *.md
-!DEPLOYMENT.md
-!README.md
-!MIGRATION_GUIDE.md
-!USER_SYSTEM_SUMMARY.md
-!SECURITY_ANALYSIS.md
-!QUICK_FIX.md
-!QUICK_DEPLOY.md
 
 # 安全相关文件（不应提交）
 .env

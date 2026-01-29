@@ -37,7 +37,7 @@ class SecurityLogger:
     def _log_event(self, level: str, event_type: str, data: Dict[str, Any]):
         """记录事件"""
         log_data = {
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now().isoformat(),
             'event_type': event_type,
             'data': data
         }

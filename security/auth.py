@@ -38,8 +38,8 @@ class AuthManager:
             'user_id': user_id,
             'username': username,
             'is_admin': is_admin,
-            'exp': datetime.utcnow() + timedelta(seconds=SecurityConfig.get_session_timeout()),
-            'iat': datetime.utcnow(),
+            'exp': datetime.now() + timedelta(seconds=SecurityConfig.get_session_timeout()),
+            'iat': datetime.now(),
             'jti': secrets.token_urlsafe(16)  # JWT ID，用于撤销令牌
         }
         return jwt.encode(payload, secret, algorithm='HS256')

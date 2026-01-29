@@ -3,6 +3,17 @@
 const API_BASE = '/api/expense_tracker';
 const AUTH_API = '/api/auth';
 
+// ========== 日期工具函数 ==========
+// 获取本地日期字符串（格式：YYYY-MM-DD），避免时区问题
+// 使用本地时区而不是 UTC，确保时间一致
+function getLocalDateString(date = null) {
+    const d = date ? new Date(date) : new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 // ========== 认证功能 ==========
 // Token管理
 function getToken() {
@@ -333,7 +344,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // 初始化UI（未登录时）
 function initUI() {
     // 设置默认日期为今天（隐藏字段）
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     const dateInput = document.getElementById('record-date');
     if (dateInput) {
         dateInput.value = today;
@@ -369,7 +380,7 @@ function initUI() {
 // 初始化应用（已登录时）
 function initApp() {
     // 设置默认日期为今天（隐藏字段）
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     const dateInput = document.getElementById('record-date');
     if (dateInput) {
         dateInput.value = today;
@@ -799,8 +810,8 @@ function getCurrentAnalysisDateRange() {
         const startDateObj = new Date(thisWeekMonday);
         startDateObj.setDate(thisWeekMonday.getDate() - (count - 1) * 7);
         
-        startDate = startDateObj.toISOString().split('T')[0];
-        endDate = endDateObj.toISOString().split('T')[0];
+        startDate = getLocalDateString(startDateObj);
+        endDate = getLocalDateString(endDateObj);
     } else if (currentTimeDimension === 'month') {
         // 近N月：从N个月前的第一天到今天
         const count = state.count || 1;
@@ -811,8 +822,8 @@ function getCurrentAnalysisDateRange() {
         startDateObj.setDate(1); // 设置为该月第一天
         startDateObj.setHours(0, 0, 0, 0);
         
-        startDate = startDateObj.toISOString().split('T')[0];
-        endDate = endDateObj.toISOString().split('T')[0];
+        startDate = getLocalDateString(startDateObj);
+        endDate = getLocalDateString(endDateObj);
     }
     
     return { startDate, endDate };
@@ -1757,7 +1768,7 @@ async function handleAddRecord(e) {
     // 确保日期是今天（如果没有设置）
     const dateInput = document.getElementById('record-date');
     if (!dateInput.value) {
-        dateInput.value = new Date().toISOString().split('T')[0];
+        dateInput.value = getLocalDateString();
     }
     
     const categoryValue = document.getElementById('category-selected-value').value;
@@ -1819,7 +1830,7 @@ async function handleAddRecord(e) {
             // 重置表单
             document.getElementById('quick-add-form').reset();
             // 重置日期为今天
-            const today = new Date().toISOString().split('T')[0];
+            const today = getLocalDateString();
             document.getElementById('record-date').value = today;
             document.getElementById('record-amount').value = '';
             document.getElementById('record-note').value = '';
@@ -1867,7 +1878,7 @@ async function handleAddRecord(e) {
 // 加载今日记录
 async function loadTodayRecords() {
     try {
-        const today = new Date().toISOString().split('T')[0];
+        const today = getLocalDateString();
         const url = `${API_BASE}/records?start_date=${today}&end_date=${today}&per_page=100`;
         
         const response = await authFetch(url);
