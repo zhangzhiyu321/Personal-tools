@@ -2205,7 +2205,7 @@ async function updateLineChart(dailyStats) {
         animationDuration: 400,
         animationEasing: 'cubicOut',
         legend: { top: 0, left: 'center', data: ['收入', '支出'], textStyle: { fontSize: 11 }, itemWidth: 10, itemHeight: 10 },
-        grid: { left: '3%', right: '4%', top: '18%', bottom: '12%', containLabel: true },
+        grid: { left: '3%', right: '10%', top: '18%', bottom: '12%', containLabel: true },
         xAxis: { type: 'category', boundaryGap: false, data: labels, axisLabel: { fontSize: 10, color: '#666' }, axisLine: { lineStyle: { color: '#e5e7eb' } }, axisTick: { show: false } },
         yAxis: { type: 'value', min: 0, axisLabel: { fontSize: 10, formatter: v => '¥' + v }, splitLine: { lineStyle: { color: 'rgba(0,0,0,0.05)' } }, axisLine: { show: false }, axisTick: { show: false } },
         series: [

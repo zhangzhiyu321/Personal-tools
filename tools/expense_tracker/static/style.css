@@ -930,6 +930,13 @@ input, textarea {
     overflow: hidden;
 }
 
+#chart-container-trend {
+    overflow: visible;
+}
+#chart-container-trend .echarts-chart {
+    margin-right: 0;
+}
+
 .chart-container:hover {
     transform: translateY(-4px) scale(1.01);
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
