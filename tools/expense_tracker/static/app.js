@@ -1922,11 +1922,53 @@ async function loadStatistics() {
     }
 }
 
+
+// 更新折线图（收支趋势）- ECharts SVG 渲染，移动端清晰
 // 获取某日的记录并按分类分组
 let dailyRecordsCache = {}; // 缓存每日记录数据
-async function getDailyRecordsByCategory(date) {
+let preloadPromise = null; // 预加载Promise，避免重复预加载
+
+// 预加载所有日期的分类数据
+async function preloadDailyCategoryData(dailyStats) {
+    if (!dailyStats || dailyStats.length === 0) return;
+    
+    // 如果正在预加载，等待完成
+    if (preloadPromise) {
+        await preloadPromise;
+        return;
+    }
+    
+    // 开始预加载
+    preloadPromise = (async () => {
+        const dates = dailyStats.map(d => d.date);
+        const uncachedDates = dates.filter(date => !dailyRecordsCache[date]);
+        
+        if (uncachedDates.length === 0) {
+            preloadPromise = null;
+            return; // 所有数据都已缓存
+        }
+        
+        // 批量查询（每次查询一个日期，但并发执行）
+        const promises = uncachedDates.map(date => getDailyRecordsByCategory(date, false));
+        
+        try {
+            await Promise.all(promises);
+        } catch (error) {
+            console.error('预加载分类数据失败:', error);
+        }
+        
+        preloadPromise = null;
+    })();
+    
+    // 不等待预加载完成，让它在后台执行
+    preloadPromise.catch(() => {
+        preloadPromise = null;
+    });
+}
+
+async function getDailyRecordsByCategory(date, useCache = true) {
     // 检查缓存
-    if (dailyRecordsCache[date]) {
+    if (useCache && dailyRecordsCache[date]) {
         return dailyRecordsCache[date];
     }
     
@@ -1977,22 +2019,36 @@ async function getDailyRecordsByCategory(date) {
     }
 }
 
-// 显示分类tooltip
-function showCategoryTooltip(date, categoryGroups, event) {
+// 显示日期详情 tooltip
+let currentTooltipData = null;
+let hideOnOutsideClickHandler = null;
+let tooltipAnimationFrame = null;
+function showDateDetailTooltip(date, categoryGroups, event) {
     if (!categoryGroups || categoryGroups.length === 0) {
-        hideCategoryTooltip();
+        hideDateDetailTooltip();
         return;
     }
     
-    // 创建或获取tooltip元素
-    let tooltipEl = document.getElementById('trend-chart-tooltip');
+    // 取消之前的动画
+    if (tooltipAnimationFrame) {
+        cancelAnimationFrame(tooltipAnimationFrame);
+    }
+    
+    // 创建或获取 tooltip 元素
+    let tooltipEl = document.getElementById('date-detail-tooltip');
+    const isNewTooltip = !tooltipEl;
     if (!tooltipEl) {
         tooltipEl = document.createElement('div');
-        tooltipEl.id = 'trend-chart-tooltip';
-        tooltipEl.className = 'trend-chart-tooltip';
+        tooltipEl.id = 'date-detail-tooltip';
+        tooltipEl.className = 'date-detail-tooltip';
         document.body.appendChild(tooltipEl);
     }
     
+    // 保存数据
+    currentTooltipData = {
+        date: date,
+        categoryGroups: categoryGroups
+    };
     // 计算总收入和总支出
     let totalIncome = 0;
     let totalExpense = 0;
@@ -2010,154 +2066,247 @@ function showCategoryTooltip(date, categoryGroups, event) {
     const day = dateObj.getDate();
     const dateStr = `${month}月${day}日`;
     
-    // 生成分类列表HTML
-    const categoryHtml = categoryGroups.map(group => {
-        const typeLabel = group.type === 'income' ? '收入' : '支出';
+    // 先移除旧的事件监听器（通过克隆节点）
+    const oldTooltipEl = tooltipEl;
+    const newTooltipEl = tooltipEl.cloneNode(false); // 只克隆节点本身，不克隆内容
+    oldTooltipEl.parentNode.replaceChild(newTooltipEl, oldTooltipEl);
+    tooltipEl = newTooltipEl;
+    
+    // 渲染 tooltip 内容
+    renderTooltipContent(tooltipEl, dateStr, totalIncome, totalExpense, categoryGroups);
+    
+    // 定位 tooltip（带平滑动画）
+    if (event) {
+        const x = event.clientX || (event.touches && event.touches[0]?.clientX) || 0;
+        const y = event.clientY || (event.touches && event.touches[0]?.clientY) || 0;
+        if (x > 0 && y > 0) {
+            positionTooltipSmooth(tooltipEl, x, y, isNewTooltip);
+        } else {
+            // 如果坐标无效，使用默认位置
+            showTooltipSmooth(tooltipEl, '50%', '50%', 'translate(-50%, -50%)', isNewTooltip);
+        }
+    } else {
+        showTooltipSmooth(tooltipEl, '50%', '50%', 'translate(-50%, -50%)', isNewTooltip);
+    }
+    
+    // 绑定点击事件
+    tooltipEl.addEventListener('click', handleTooltipClick);
+    
+    // 点击外部区域隐藏 tooltip
+    if (hideOnOutsideClickHandler) {
+        document.removeEventListener('click', hideOnOutsideClickHandler);
+        document.removeEventListener('touchstart', hideOnOutsideClickHandler);
+    }
+    
+    hideOnOutsideClickHandler = (e) => {
+        if (tooltipEl && !tooltipEl.contains(e.target)) {
+            // 检查是否点击的是图表区域
+            const chartDom = document.getElementById('line-chart');
+            if (chartDom && chartDom.contains(e.target)) {
+                return; // 点击图表区域不隐藏
+            }
+            hideDateDetailTooltip();
+        }
+    };
+    
+    // 延迟绑定，避免立即触发
+    setTimeout(() => {
+        document.addEventListener('click', hideOnOutsideClickHandler);
+        document.addEventListener('touchstart', hideOnOutsideClickHandler);
+    }, 100);
+    
+    // 清除之前的自动隐藏定时器
+    clearTimeout(window.dateDetailTooltipTimeout);
+    window.dateDetailTooltipTimeout = setTimeout(() => {
+        hideDateDetailTooltip();
+    }, 8000);
+}
+
+// 渲染 tooltip 内容 - 显示所有分类（带平滑动画）
+function renderTooltipContent(tooltipEl, dateStr, totalIncome, totalExpense, categoryGroups) {
+    // 检查是否是内容更新（tooltip已存在且有内容）
+    const isUpdate = tooltipEl.innerHTML.trim().length > 0;
+    
+    // 生成所有分类的HTML
+    const categoriesHtml = categoryGroups.map((category, index) => {
+        const typeLabel = category.type === 'income' ? '收入' : '支出';
+        const delay = isUpdate ? 0 : index * 0.02; // 更新时不延迟，新显示时错开
         return `
-            <div class="trend-tooltip-category-item" style="border-left-color: ${group.color}">
-                <span class="trend-tooltip-category-icon">${group.icon}</span>
-                <span class="trend-tooltip-category-name">${group.name}</span>
-                <span class="trend-tooltip-category-type">${typeLabel}</span>
-                <span class="trend-tooltip-category-amount">¥${group.amount.toFixed(2)}</span>
-                <span class="trend-tooltip-category-count">(${group.count}条)</span>
+            <div class="date-detail-tooltip-category-item" style="border-left-color: ${category.color}; animation-delay: ${delay}s;">
+                <span class="date-detail-tooltip-category-icon">${category.icon}</span>
+                <span class="date-detail-tooltip-category-name">${category.name}</span>
+                <span class="date-detail-tooltip-category-type">${typeLabel}</span>
+                <span class="date-detail-tooltip-category-amount">¥${category.amount.toFixed(2)}</span>
+                <span class="date-detail-tooltip-category-count">(${category.count}条)</span>
             </div>
         `;
     }).join('');
     
-    tooltipEl.innerHTML = `
-        <div class="trend-tooltip-header">
-            <span class="trend-tooltip-date">${dateStr}</span>
-            ${totalIncome > 0 ? `<span class="trend-tooltip-total income">收入: ¥${totalIncome.toFixed(2)}</span>` : ''}
-            ${totalExpense > 0 ? `<span class="trend-tooltip-total expense">支出: ¥${totalExpense.toFixed(2)}</span>` : ''}
-        </div>
-        <div class="trend-tooltip-categories">
-            ${categoryHtml}
-        </div>
-        <div class="trend-tooltip-footer">
-            <span class="trend-tooltip-hint">点击查看详细记录</span>
-        </div>
-    `;
-    
-    // 保存日期到data属性，用于点击事件
-    tooltipEl.setAttribute('data-date', date);
-    
-    // 移除旧的事件监听器
-    const newTooltipEl = tooltipEl.cloneNode(true);
-    tooltipEl.parentNode.replaceChild(newTooltipEl, tooltipEl);
-    tooltipEl = newTooltipEl;
-    
-    // 添加点击事件 - 使用捕获阶段，确保先处理
-    tooltipEl.addEventListener('click', function(e) {
-        e.stopPropagation();
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        const dateValue = this.getAttribute('data-date');
-        if (dateValue) {
-            navigateToDateRecords(dateValue);
-        }
-        return false;
-    }, true);
-    
-    // 也添加mousedown和touchstart事件，确保移动端也能响应
-    tooltipEl.addEventListener('mousedown', function(e) {
-        e.stopPropagation();
-    }, true);
-    
-    tooltipEl.addEventListener('touchstart', function(e) {
-        e.stopPropagation();
-    }, true);
-    
-    // 先显示tooltip以便计算尺寸
-    tooltipEl.style.display = 'block';
-    tooltipEl.style.visibility = 'hidden';
-    tooltipEl.style.pointerEvents = 'auto';
-    
-    // 定位tooltip - 使用requestAnimationFrame优化性能
-    if (event) {
-        const x = event.clientX || (event.touches && event.touches[0]?.clientX) || 0;
-        const y = event.clientY || (event.touches && event.touches[0]?.clientY) || 0;
+    // 如果是在更新内容，先淡出再淡入
+    if (isUpdate) {
+        tooltipEl.style.transition = 'opacity 0.1s ease';
+        tooltipEl.style.opacity = '0.7';
         
-        // 先设置一个临时位置
-        tooltipEl.style.left = `${x + 15}px`;
-        tooltipEl.style.top = `${y + 15}px`;
-        
-        // 使用requestAnimationFrame优化DOM更新
         requestAnimationFrame(() => {
-            const tooltipWidth = tooltipEl.offsetWidth || 320;
-            const tooltipHeight = tooltipEl.offsetHeight || 300;
-            const windowWidth = window.innerWidth;
-            const windowHeight = window.innerHeight;
+            tooltipEl.innerHTML = `
+                <div class="date-detail-tooltip-header">
+                    <span class="date-detail-tooltip-date">${dateStr}</span>
+                    <div class="date-detail-tooltip-totals">
+                        ${totalIncome > 0 ? `<span class="date-detail-tooltip-total income">收入: ¥${totalIncome.toFixed(2)}</span>` : ''}
+                        ${totalExpense > 0 ? `<span class="date-detail-tooltip-total expense">支出: ¥${totalExpense.toFixed(2)}</span>` : ''}
+                    </div>
+                </div>
+                <div class="date-detail-tooltip-categories">
+                    ${categoriesHtml}
+                </div>
+                <div class="date-detail-tooltip-footer">
+                    <span class="date-detail-tooltip-click-hint">点击查看详细记录</span>
+                </div>
+            `;
             
-            let left = x + 15;
-            let top = y + 15;
-            
-            // 防止超出右边界
-            if (left + tooltipWidth > windowWidth) {
-                left = x - tooltipWidth - 15;
-            }
-            // 防止超出下边界
-            if (top + tooltipHeight > windowHeight) {
-                top = y - tooltipHeight - 15;
-            }
-            // 防止超出左边界
-            if (left < 10) {
-                left = 10;
-            }
-            // 防止超出上边界
-            if (top < 10) {
-                top = 10;
-            }
-            
-            tooltipEl.style.left = `${left}px`;
-            tooltipEl.style.top = `${top}px`;
-            tooltipEl.style.visibility = 'visible';
+            requestAnimationFrame(() => {
+                tooltipEl.style.opacity = '1';
+            });
         });
     } else {
-        tooltipEl.style.visibility = 'visible';
+        // 新内容直接设置
+        tooltipEl.innerHTML = `
+            <div class="date-detail-tooltip-header">
+                <span class="date-detail-tooltip-date">${dateStr}</span>
+                <div class="date-detail-tooltip-totals">
+                    ${totalIncome > 0 ? `<span class="date-detail-tooltip-total income">收入: ¥${totalIncome.toFixed(2)}</span>` : ''}
+                    ${totalExpense > 0 ? `<span class="date-detail-tooltip-total expense">支出: ¥${totalExpense.toFixed(2)}</span>` : ''}
+                </div>
+            </div>
+            <div class="date-detail-tooltip-categories">
+                ${categoriesHtml}
+            </div>
+            <div class="date-detail-tooltip-footer">
+                <span class="date-detail-tooltip-click-hint">点击查看详细记录</span>
+            </div>
+        `;
+    }
+}
+
+// 平滑显示 tooltip
+function showTooltipSmooth(tooltipEl, left, top, transform, isNew) {
+    // 先设置位置但不显示
+    tooltipEl.style.left = left;
+    tooltipEl.style.top = top;
+    tooltipEl.style.transform = transform || 'none';
+    tooltipEl.style.display = 'block';
+    tooltipEl.style.opacity = '0';
+    tooltipEl.style.visibility = 'visible';
+    
+    // 如果是新 tooltip，添加缩放效果
+    if (isNew) {
+        tooltipEl.style.transform = `${transform || 'none'} scale(0.9)`;
     }
     
-    // 清除之前的自动隐藏定时器
-    clearTimeout(window.trendTooltipTimeout);
-    window.trendTooltipTimeout = setTimeout(() => {
-        hideCategoryTooltip();
-    }, 5000);
-}
-
-// 隐藏分类tooltip
-function hideCategoryTooltip() {
-    const tooltipEl = document.getElementById('trend-chart-tooltip');
-    if (tooltipEl) {
-        tooltipEl.style.display = 'none';
-    }
-    clearTimeout(window.trendTooltipTimeout);
-}
-
-// 跳转到指定日期的记录列表
-function navigateToDateRecords(date) {
-    // 确保日期格式正确（YYYY-MM-DD）
-    let dateStr = date;
-    if (date instanceof Date) {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        dateStr = `${year}-${month}-${day}`;
-    } else if (typeof date === 'string') {
-        // 如果已经是字符串，确保格式正确
-        const dateObj = new Date(date);
-        if (!isNaN(dateObj.getTime())) {
-            const year = dateObj.getFullYear();
-            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-            const day = String(dateObj.getDate()).padStart(2, '0');
-            dateStr = `${year}-${month}-${day}`;
+    // 使用 requestAnimationFrame 确保样式已应用
+    tooltipAnimationFrame = requestAnimationFrame(() => {
+        // 触发重排
+        tooltipEl.offsetHeight;
+        
+        // 平滑显示
+        tooltipEl.style.transition = 'opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
+        tooltipEl.style.opacity = '1';
+        if (isNew) {
+            tooltipEl.style.transform = transform || 'none';
         }
+    });
+}
+
+// 平滑定位 tooltip
+function positionTooltipSmooth(tooltipEl, x, y, isNew) {
+    // 先显示以便计算尺寸
+    tooltipEl.style.visibility = 'hidden';
+    tooltipEl.style.display = 'block';
+    tooltipEl.style.opacity = '0';
+    tooltipEl.style.left = `${x + 15}px`;
+    tooltipEl.style.top = `${y + 15}px`;
+    
+    // 如果是新 tooltip，添加缩放效果
+    if (isNew) {
+        tooltipEl.style.transform = 'scale(0.9)';
     }
     
-    // 设置日期筛选器为该日期
+    tooltipAnimationFrame = requestAnimationFrame(() => {
+        const tooltipWidth = tooltipEl.offsetWidth || 240;
+        const tooltipHeight = tooltipEl.offsetHeight || 200;
+        const windowWidth = window.innerWidth;
+        const windowHeight = window.innerHeight;
+        
+        let left = x + 15;
+        let top = y + 15;
+        
+        // 防止超出右边界
+        if (left + tooltipWidth > windowWidth - 10) {
+            left = x - tooltipWidth - 15;
+        }
+        // 防止超出下边界
+        if (top + tooltipHeight > windowHeight - 10) {
+            top = y - tooltipHeight - 15;
+        }
+        // 防止超出左边界
+        if (left < 10) {
+            left = 10;
+        }
+        // 防止超出上边界
+        if (top < 10) {
+            top = 10;
+        }
+        
+        // 获取当前位置（如果已存在）
+        const currentLeft = tooltipEl.style.left ? parseFloat(tooltipEl.style.left) : left;
+        const currentTop = tooltipEl.style.top ? parseFloat(tooltipEl.style.top) : top;
+        
+        // 设置新位置
+        tooltipEl.style.left = `${left}px`;
+        tooltipEl.style.top = `${top}px`;
+        tooltipEl.style.transform = 'none';
+        tooltipEl.style.visibility = 'visible';
+        
+        // 如果位置变化较大，使用平滑过渡
+        const deltaX = Math.abs(left - currentLeft);
+        const deltaY = Math.abs(top - currentTop);
+        
+        // 根据移动距离调整过渡时间
+        const maxDelta = Math.max(deltaX, deltaY);
+        let transitionDuration = '0.15s';
+        if (maxDelta > 50) {
+            transitionDuration = '0.2s';
+        } else if (maxDelta > 20) {
+            transitionDuration = '0.18s';
+        } else if (maxDelta > 5) {
+            transitionDuration = '0.15s';
+        } else {
+            transitionDuration = '0.12s';
+        }
+        
+        // 添加平滑过渡
+        tooltipEl.style.transition = `opacity ${transitionDuration} cubic-bezier(0.4, 0, 0.2, 1), transform ${transitionDuration} cubic-bezier(0.4, 0, 0.2, 1), left ${transitionDuration} cubic-bezier(0.4, 0, 0.2, 1), top ${transitionDuration} cubic-bezier(0.4, 0, 0.2, 1)`;
+        
+        // 触发重排后显示
+        requestAnimationFrame(() => {
+            tooltipEl.style.opacity = '1';
+            if (isNew) {
+                tooltipEl.style.transform = 'scale(1)';
+            }
+        });
+    });
+}
+
+// 处理 tooltip 点击事件
+function handleTooltipClick(e) {
+    if (!currentTooltipData) return;
+    
+    // 跳转到记录列表并筛选日期
     const startDateInput = document.getElementById('records-start-date');
     const endDateInput = document.getElementById('records-end-date');
     if (startDateInput && endDateInput) {
-        startDateInput.value = dateStr;
-        endDateInput.value = dateStr;
+        startDateInput.value = currentTooltipData.date;
+        endDateInput.value = currentTooltipData.date;
     }
     
     // 切换到记录列表标签页
@@ -2167,16 +2316,48 @@ function navigateToDateRecords(date) {
     loadRecords(1);
     
     // 格式化日期显示
-    const dateObj = new Date(dateStr);
+    const dateObj = new Date(currentTooltipData.date);
     const month = dateObj.getMonth() + 1;
     const day = dateObj.getDate();
     showMessage(`已筛选 ${month}月${day}日 的记录`, 'info');
     
-    // 隐藏tooltip
-    hideCategoryTooltip();
+    // 隐藏 tooltip
+    hideDateDetailTooltip();
 }
 
-// 更新折线图（收支趋势）- ECharts SVG 渲染，移动端清晰
+// 隐藏日期详情 tooltip（平滑隐藏）
+function hideDateDetailTooltip() {
+    const tooltipEl = document.getElementById('date-detail-tooltip');
+    if (tooltipEl) {
+        // 取消之前的动画
+        if (tooltipAnimationFrame) {
+            cancelAnimationFrame(tooltipAnimationFrame);
+        }
+        
+        // 平滑隐藏
+        tooltipEl.style.transition = 'opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), transform 0.15s cubic-bezier(0.4, 0, 0.2, 1)';
+        tooltipEl.style.opacity = '0';
+        tooltipEl.style.transform = 'scale(0.95)';
+        
+        // 动画完成后隐藏
+        setTimeout(() => {
+            if (tooltipEl && tooltipEl.style.opacity === '0') {
+                tooltipEl.style.display = 'none';
+                tooltipEl.style.transition = '';
+            }
+        }, 150);
+    }
+    currentTooltipData = null;
+    clearTimeout(window.dateDetailTooltipTimeout);
+    
+    // 移除外部点击监听器
+    if (hideOnOutsideClickHandler) {
+        document.removeEventListener('click', hideOnOutsideClickHandler);
+        document.removeEventListener('touchstart', hideOnOutsideClickHandler);
+        hideOnOutsideClickHandler = null;
+    }
+}
+
 async function updateLineChart(dailyStats) {
     const dom = document.getElementById('line-chart');
     if (!dom) return;
@@ -2186,11 +2367,16 @@ async function updateLineChart(dailyStats) {
     }
     currentDailyStats = dailyStats || [];
     dailyRecordsCache = {};
+    
     if (!dailyStats || dailyStats.length === 0) {
         if (echartsLine) { echartsLine.dispose(); echartsLine = null; }
         setChartPlaceholder('line-chart', '暂无数据');
         return;
     }
+    
+    // 提前预加载所有日期的分类数据
+    preloadDailyCategoryData(dailyStats);
+    
     if (echartsLine) echartsLine.dispose();
     dom.innerHTML = '';
     echartsLine = echarts.init(dom, null, getEChartsInitOpts());
@@ -2213,27 +2399,241 @@ async function updateLineChart(dailyStats) {
             { name: '支出', type: 'line', smooth: 0.35, data: expenseData, symbol: 'circle', symbolSize: 8, lineStyle: { width: 2.5, color: '#dc2626', cap: 'round', join: 'round' }, itemStyle: { color: '#dc2626', borderColor: '#fff', borderWidth: 1 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(220,38,38,0.2)' }, { offset: 1, color: 'rgba(220,38,38,0.03)' }] } }, emphasis: { focus: 'series', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } } }
         ],
         tooltip: {
-            trigger: 'axis',
-            backgroundColor: 'rgba(0,0,0,0.85)',
-            borderColor: 'rgba(255,255,255,0.1)',
-            textStyle: { fontSize: 12 },
-            formatter: function(params) {
-                if (!params || params.length === 0) return '';
-                const idx = params[0].dataIndex;
-                const day = currentDailyStats && currentDailyStats[idx];
-                if (!day) return '';
-                return `${day.date}<br/>收入: ¥${Number(day.income).toFixed(2)}<br/>支出: ¥${Number(day.expense).toFixed(2)}`;
-            }
+            show: false // 禁用默认 tooltip
         }
     });
+    
+    // 添加鼠标移动事件（桌面端）- 精确计算每一天
+    let lastMouseIndex = -1;
+    let mouseMoveTimer = null;
+    
+    // 根据鼠标X坐标精确计算日期索引
+    function getDataIndexFromMouseX(x, chartDom) {
+        if (!chartDom || !currentDailyStats || currentDailyStats.length === 0) return -1;
+        
+        try {
+            // 使用 ECharts 的 convertFromPixel 方法
+            const point = echartsLine.convertFromPixel({ seriesIndex: 0 }, [x, 0]);
+            if (point && point[0] !== undefined) {
+                const idx = Math.round(point[0]);
+                if (idx >= 0 && idx < currentDailyStats.length) {
+                    return idx;
+                }
+            }
+        } catch (e) {
+            // 如果转换失败，根据图表宽度和X坐标计算
+            const rect = chartDom.getBoundingClientRect();
+            const relativeX = x - rect.left;
+            const chartWidth = rect.width;
+            const dataLength = currentDailyStats.length;
+            
+            if (dataLength > 0 && chartWidth > 0) {
+                // 考虑图表的 padding，grid 配置是 left: '3%', right: '10%'
+                const effectiveWidth = chartWidth * 0.87; // 减去左右边距
+                const effectiveX = relativeX - chartWidth * 0.03; // 减去左边距
+                const ratio = Math.max(0, Math.min(1, effectiveX / effectiveWidth));
+                const idx = Math.round(ratio * (dataLength - 1));
+                if (idx >= 0 && idx < dataLength) {
+                    return idx;
+                }
+            }
+        }
+        return -1;
+    }
+    
+    echartsLine.off('mousemove');
+    echartsLine.on('mousemove', async function(params) {
+        if (!params || !params.event) {
+            hideDateDetailTooltip();
+            return;
+        }
+        
+        // 获取鼠标的实际X坐标
+        let mouseX = 0;
+        if (params.event.event) {
+            mouseX = params.event.event.clientX;
+        } else if (params.event.originalEvent) {
+            mouseX = params.event.originalEvent.clientX;
+        } else if (params.event.clientX !== undefined) {
+            mouseX = params.event.clientX;
+        }
+        
+        // 如果无法获取X坐标，尝试使用 dataIndex
+        let idx = -1;
+        if (mouseX > 0) {
+            idx = getDataIndexFromMouseX(mouseX, dom);
+        }
+        
+        // 如果还是无法获取，使用 params.dataIndex（可能为 undefined）
+        if (idx < 0 && params.dataIndex !== undefined) {
+            idx = params.dataIndex;
+        }
+        
+        if (idx < 0 || idx >= currentDailyStats.length) {
+            hideDateDetailTooltip();
+            return;
+        }
+        
+        // 如果索引没变化，不重复加载
+        if (lastMouseIndex === idx) return;
+        lastMouseIndex = idx;
+        
+        // 防抖，避免频繁更新
+        if (mouseMoveTimer) {
+            clearTimeout(mouseMoveTimer);
+        }
+        
+        mouseMoveTimer = setTimeout(() => {
+            const date = currentDailyStats[idx].date;
+            // 直接从缓存获取，不需要等待
+            const categoryGroups = dailyRecordsCache[date] || [];
+            // 获取鼠标事件对象
+            let ev = null;
+            if (params.event) {
+                if (params.event.event) {
+                    ev = params.event.event;
+                } else if (params.event.originalEvent) {
+                    ev = params.event.originalEvent;
+                } else {
+                    ev = params.event;
+                }
+            }
+            showDateDetailTooltip(date, categoryGroups, ev);
+        }, 30); // 进一步减少防抖时间，让响应更灵敏
+    });
+    
+    // 鼠标离开图表时隐藏 tooltip
+    echartsLine.off('mouseout');
+    echartsLine.on('mouseout', function() {
+        hideDateDetailTooltip();
+        lastMouseIndex = -1;
+    });
+    
+    // 添加触摸移动事件（移动端）
+    let touchMoveTimer = null;
+    let lastTouchIndex = -1;
+    
+    // 获取触摸点对应的数据索引（精确计算每一天）
+    function getTouchDataIndex(touch) {
+        const rect = dom.getBoundingClientRect();
+        const x = touch.clientX - rect.left;
+        const y = touch.clientY - rect.top;
+        
+        // 使用 ECharts 的 convertFromPixel 方法
+        try {
+            const point = echartsLine.convertFromPixel({ seriesIndex: 0 }, [x, y]);
+            if (point && point[0] !== undefined) {
+                const idx = Math.round(point[0]);
+                if (idx >= 0 && idx < currentDailyStats.length) {
+                    return idx;
+                }
+            }
+        } catch (e) {
+            // 如果转换失败，根据图表宽度和X坐标精确计算
+            const chartWidth = rect.width;
+            const dataLength = currentDailyStats.length;
+            if (dataLength > 0 && chartWidth > 0) {
+                // 考虑图表的 padding，grid 配置是 left: '3%', right: '10%'
+                const effectiveWidth = chartWidth * 0.87; // 减去左右边距
+                const effectiveX = x - chartWidth * 0.03; // 减去左边距
+                const ratio = Math.max(0, Math.min(1, effectiveX / effectiveWidth));
+                const idx = Math.round(ratio * (dataLength - 1));
+                if (idx >= 0 && idx < dataLength) {
+                    return idx;
+                }
+            }
+        }
+        return -1;
+    }
+    
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let isHorizontalSwipe = false;
+    
+    dom.addEventListener('touchstart', function(e) {
+        const touch = e.touches[0];
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+        isHorizontalSwipe = false;
+        
+        const idx = getTouchDataIndex(touch);
+        if (idx >= 0) {
+            lastTouchIndex = idx;
+            // 立即显示，因为数据已经在缓存中
+            const date = currentDailyStats[idx].date;
+            const categoryGroups = dailyRecordsCache[date] || [];
+            if (categoryGroups.length > 0) {
+                showDateDetailTooltip(date, categoryGroups, e);
+            }
+        }
+    }, { passive: true });
+    
+    dom.addEventListener('touchmove', function(e) {
+        const touch = e.touches[0];
+        const deltaX = Math.abs(touch.clientX - touchStartX);
+        const deltaY = Math.abs(touch.clientY - touchStartY);
+        
+        // 判断是否为水平滑动（水平距离大于垂直距离的1.5倍）
+        if (deltaX > deltaY * 1.5 && deltaX > 10) {
+            isHorizontalSwipe = true;
+            e.preventDefault(); // 只阻止水平滑动的默认行为
+            
+            const idx = getTouchDataIndex(touch);
+            if (idx >= 0 && idx !== lastTouchIndex) {
+                lastTouchIndex = idx;
+                
+                // 立即更新，因为数据已经在缓存中
+                const date = currentDailyStats[idx].date;
+                const categoryGroups = dailyRecordsCache[date] || [];
+                if (categoryGroups.length > 0) {
+                    showDateDetailTooltip(date, categoryGroups, e);
+                }
+            }
+        }
+        // 如果是垂直滑动，不阻止默认行为，允许页面滚动
+    }, { passive: false });
+    
+    dom.addEventListener('touchend', function() {
+        if (touchMoveTimer) {
+            clearTimeout(touchMoveTimer);
+            touchMoveTimer = null;
+        }
+        lastTouchIndex = -1;
+        // 延迟隐藏，给用户时间查看
+        setTimeout(() => {
+            hideDateDetailTooltip();
+        }, 3000);
+    }, { passive: true });
+    
+    // 添加点击事件（跳转到详细记录）
     echartsLine.off('click');
     echartsLine.on('click', async function(params) {
         const idx = params.dataIndex;
         if (!currentDailyStats || idx < 0 || idx >= currentDailyStats.length) return;
         const date = currentDailyStats[idx].date;
-        const categoryGroups = await getDailyRecordsByCategory(date);
-        const ev = params.event && params.event.event ? params.event.event : null;
-        showCategoryTooltip(date, categoryGroups, ev);
+        
+        // 跳转到记录列表并筛选日期
+        const startDateInput = document.getElementById('records-start-date');
+        const endDateInput = document.getElementById('records-end-date');
+        if (startDateInput && endDateInput) {
+            startDateInput.value = date;
+            endDateInput.value = date;
+        }
+        
+        // 切换到记录列表标签页
+        switchMainTab('records');
+        
+        // 加载该日期的记录
+        loadRecords(1);
+        
+        // 格式化日期显示
+        const dateObj = new Date(date);
+        const month = dateObj.getMonth() + 1;
+        const day = dateObj.getDate();
+        showMessage(`已筛选 ${month}月${day}日 的记录`, 'info');
+        
+        // 隐藏 tooltip
+        hideDateDetailTooltip();
     });
 }
 
