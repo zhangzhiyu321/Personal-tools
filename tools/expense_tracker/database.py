@@ -79,126 +79,67 @@ class Expense(db.Model):
 
 def init_db(app: Flask):
     """初始化数据库"""
-    # MySQL 配置（优先使用环境变量，其次使用app配置）
     import os
     from security.config import SecurityConfig
     from security.encryption import EncryptionManager
     
-    db_uri = SecurityConfig.get_db_uri()
-    
+    db_uri = SecurityConfig.get_db_uri() or app.config.get('EXPENSE_TRACKER_DB_URI')
     if not db_uri:
-        # 尝试从app配置获取
-        db_uri = app.config.get('EXPENSE_TRACKER_DB_URI')
+        raise ValueError("数据库连接未配置！请设置环境变量 EXPENSE_TRACKER_DB_URI")
     
-    if not db_uri:
-        error_msg = "数据库连接未配置！请设置环境变量 EXPENSE_TRACKER_DB_URI 或 在 Flask app.config 中设置 EXPENSE_TRACKER_DB_URI。\n格式: mysql+pymysql://用户名:密码@主机:端口/数据库名?charset=utf8mb4\n示例: mysql+pymysql://user:password@localhost:3306/expense_tracker?charset=utf8mb4"
-        print(f"❌ 数据库配置错误: {error_msg}")
-        raise ValueError(error_msg)
-    
-    # 如果URI是加密的，尝试解密
     if db_uri.startswith('encrypted:'):
-        try:
-            enc_manager = EncryptionManager()
-            encrypted_part = db_uri[10:]  # 移除 'encrypted:' 前缀
-            db_uri = enc_manager.decrypt(encrypted_part)
-        except Exception as e:
-            print(f"⚠️ 数据库URI解密失败: {e}")
-            raise ValueError(f"数据库URI解密失败: {e}")
+        db_uri = EncryptionManager().decrypt(db_uri[10:])
     
-    # 配置SQLAlchemy
     app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'pool_pre_ping': True,  # 连接前ping，自动重连
-        'pool_recycle': 3600,   # 1小时后回收连接
-        'pool_size': 10,        # 连接池大小
-        'max_overflow': 20,      # 最大溢出连接数
-        'echo': False            # 不打印SQL（生产环境）
+        'pool_pre_ping': True, 'pool_recycle': 3600,
+        'pool_size': 10, 'max_overflow': 20, 'echo': False
     }
     
-    # 尝试初始化，如果已经注册过则忽略错误
     try:
         db.init_app(app)
     except Exception as e:
-        if 'already been registered' in str(e):
-            # 已经注册过了，视为成功
-            pass
-        else:
+        if 'already been registered' not in str(e):
             raise
     
     with app.app_context():
-        # 导入用户模型，确保用户表也被创建
-        from security.models import User, UserManager
-        
-        # 创建表
+        from security.models import UserManager
         try:
             db.create_all()
-            print(f"✓ 数据库表创建成功（如果表已存在则跳过）")
-            
-            # 初始化默认管理员并为其创建默认分类
-            try:
-                admin_user = UserManager.init_default_admin()
-                if admin_user:
-                    init_default_categories_for_user(admin_user.id)
-            except Exception as e:
-                print(f"⚠️ 默认管理员初始化警告: {e}")
+            admin_user = UserManager.init_default_admin()
+            if admin_user:
+                init_default_categories_for_user(admin_user.id)
         except Exception as e:
             print(f"数据库初始化警告: {e}")
-            print("请确保MySQL服务已启动，并且数据库连接配置正确。")
-            print(f"当前数据库URI: {db_uri}")
 
 
 def init_default_categories_for_user(user_id: int):
     """为用户初始化默认分类"""
-    # 检查该用户是否已有分类
     if Category.query.filter_by(user_id=user_id).count() > 0:
-        return  # 已有分类，跳过
+        return
     
-    # 默认支出分类
-    default_expense_categories = [
-        {'name': '餐饮', 'icon': '🍔', 'color': '#FF6B6B', 'sort_order': 1},
-        {'name': '交通', 'icon': '🚗', 'color': '#4ECDC4', 'sort_order': 2},
-        {'name': '购物', 'icon': '🛍️', 'color': '#FFE66D', 'sort_order': 3},
-        {'name': '娱乐', 'icon': '🎬', 'color': '#A8E6CF', 'sort_order': 4},
-        {'name': '医疗', 'icon': '🏥', 'color': '#FF8B94', 'sort_order': 5},
-        {'name': '教育', 'icon': '📚', 'color': '#95E1D3', 'sort_order': 6},
-        {'name': '住房', 'icon': '🏠', 'color': '#F38181', 'sort_order': 7},
-        {'name': '水电', 'icon': '💡', 'color': '#AA96DA', 'sort_order': 8},
-        {'name': '其他', 'icon': '📦', 'color': '#C7CEEA', 'sort_order': 9},
+    default_categories = [
+        ('expense', '餐饮', '🍔', '#FF6B6B', 1),
+        ('expense', '交通', '🚗', '#4ECDC4', 2),
+        ('expense', '购物', '🛍️', '#FFE66D', 3),
+        ('expense', '娱乐', '🎬', '#A8E6CF', 4),
+        ('expense', '医疗', '🏥', '#FF8B94', 5),
+        ('expense', '教育', '📚', '#95E1D3', 6),
+        ('expense', '住房', '🏠', '#F38181', 7),
+        ('expense', '水电', '💡', '#AA96DA', 8),
+        ('expense', '其他', '📦', '#C7CEEA', 9),
+        ('income', '工资', '💰', '#51CF66', 1),
+        ('income', '奖金', '🎁', '#FFD43B', 2),
+        ('income', '投资', '📈', '#74C0FC', 3),
+        ('income', '其他', '💵', '#FF8787', 4),
     ]
     
-    # 默认收入分类
-    default_income_categories = [
-        {'name': '工资', 'icon': '💰', 'color': '#51CF66', 'sort_order': 1},
-        {'name': '奖金', 'icon': '🎁', 'color': '#FFD43B', 'sort_order': 2},
-        {'name': '投资', 'icon': '📈', 'color': '#74C0FC', 'sort_order': 3},
-        {'name': '其他', 'icon': '💵', 'color': '#FF8787', 'sort_order': 4},
-    ]
-    
-    # 为该用户创建默认分类
-    for cat_data in default_expense_categories:
-        category = Category(
-            user_id=user_id,
-            type='expense',
-            name=cat_data['name'],
-            icon=cat_data['icon'],
-            color=cat_data['color'],
-            sort_order=cat_data['sort_order'],
-            is_default=True
-        )
-        db.session.add(category)
-    
-    for cat_data in default_income_categories:
-        category = Category(
-            user_id=user_id,
-            type='income',
-            name=cat_data['name'],
-            icon=cat_data['icon'],
-            color=cat_data['color'],
-            sort_order=cat_data['sort_order'],
-            is_default=True
-        )
-        db.session.add(category)
+    for cat_type, name, icon, color, sort_order in default_categories:
+        db.session.add(Category(
+            user_id=user_id, type=cat_type, name=name, icon=icon,
+            color=color, sort_order=sort_order, is_default=True
+        ))
     
     try:
         db.session.commit()

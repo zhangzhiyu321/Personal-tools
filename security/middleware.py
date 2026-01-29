@@ -55,34 +55,19 @@ def rate_limit(max_requests: int = 100, window: int = 3600):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            # 获取客户端标识
-            client_id = request.remote_addr
-            if hasattr(g, 'current_user') and g.current_user:
-                client_id = g.current_user.get('username', client_id)
-            
-            # 获取当前时间窗口
+            client_id = (g.current_user.get('username') if hasattr(g, 'current_user') and g.current_user 
+                         else request.remote_addr)
             current_time = time.time()
-            window_start = current_time - window
-            
-            # 清理过期记录
             requests = _rate_limit_store[client_id]
-            requests[:] = [req_time for req_time in requests if req_time > window_start]
+            requests[:] = [t for t in requests if t > current_time - window]
             
-            # 检查是否超过限制
             if len(requests) >= max_requests:
                 logger.log_security_event('rate_limit_exceeded', {
-                    'client_id': client_id,
-                    'path': request.path,
-                    'count': len(requests)
+                    'client_id': client_id, 'path': request.path, 'count': len(requests)
                 })
-                return jsonify({
-                    'error': '请求过于频繁，请稍后再试',
-                    'code': 'RATE_LIMIT_EXCEEDED'
-                }), 429
+                return jsonify({'error': '请求过于频繁，请稍后再试', 'code': 'RATE_LIMIT_EXCEEDED'}), 429
             
-            # 记录本次请求
             requests.append(current_time)
-            
             return f(*args, **kwargs)
         return decorated_function
     return decorator
@@ -116,26 +101,16 @@ def setup_request_logging(app):
     """设置请求日志"""
     @app.before_request
     def log_request():
-        """记录请求"""
         g.start_time = time.time()
     
     @app.after_request
     def log_response(response):
-        """记录响应"""
         if hasattr(g, 'start_time'):
-            duration = time.time() - g.start_time
-            user = None
-            if hasattr(g, 'current_user') and g.current_user:
-                user = g.current_user.get('username')
-            
+            user = (g.current_user.get('username') if hasattr(g, 'current_user') and g.current_user else None)
             logger.log_access(
-                method=request.method,
-                path=request.path,
-                ip=request.remote_addr,
-                user=user,
-                status_code=response.status_code
+                method=request.method, path=request.path, ip=request.remote_addr,
+                user=user, status_code=response.status_code
             )
-        
         return response
 
 
@@ -143,27 +118,17 @@ def setup_error_handling(app):
     """设置错误处理"""
     @app.errorhandler(404)
     def not_found(error):
-        logger.log_security_event('404_error', {
-            'path': request.path,
-            'ip': request.remote_addr
-        })
+        logger.log_security_event('404_error', {'path': request.path, 'ip': request.remote_addr})
         return jsonify({'error': '资源不存在', 'code': 'NOT_FOUND'}), 404
     
     @app.errorhandler(500)
     def internal_error(error):
-        logger.log_error('500_error', {
-            'path': request.path,
-            'ip': request.remote_addr,
-            'error': str(error)
-        })
+        logger.log_error('500_error', {'path': request.path, 'ip': request.remote_addr, 'error': str(error)})
         return jsonify({'error': '服务器内部错误', 'code': 'INTERNAL_ERROR'}), 500
     
     @app.errorhandler(403)
     def forbidden(error):
-        logger.log_security_event('403_error', {
-            'path': request.path,
-            'ip': request.remote_addr
-        })
+        logger.log_security_event('403_error', {'path': request.path, 'ip': request.remote_addr})
         return jsonify({'error': '访问被拒绝', 'code': 'FORBIDDEN'}), 403
     
     @app.errorhandler(401)

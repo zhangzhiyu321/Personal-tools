@@ -4,34 +4,18 @@ const API_BASE = '/api/expense_tracker';
 const AUTH_API = '/api/auth';
 
 // ========== 日期工具函数 ==========
-// 获取本地日期字符串（格式：YYYY-MM-DD），避免时区问题
-// 使用本地时区而不是 UTC，确保时间一致
-function getLocalDateString(date = null) {
+const getLocalDateString = (date = null) => {
     const d = date ? new Date(date) : new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 // ========== 认证功能 ==========
-// Token管理
-function getToken() {
-    return localStorage.getItem('auth_token');
-}
-
-function setToken(token) {
-    if (token) {
-        localStorage.setItem('auth_token', token);
-    } else {
-        localStorage.removeItem('auth_token');
-    }
-}
-
-function clearAuth() {
+const getToken = () => localStorage.getItem('auth_token');
+const setToken = (token) => token ? localStorage.setItem('auth_token', token) : localStorage.removeItem('auth_token');
+const clearAuth = () => {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('username');
-}
+};
 
 // 带认证的fetch函数（自动添加token）
 async function authFetch(url, options = {}) {
@@ -3800,35 +3784,23 @@ async function handleImport(e) {
 }
 
 // 工具函数
-function escapeHtml(text) {
+const escapeHtml = (text) => {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
-}
+};
 
-function showMessage(message, type = 'info') {
-    // 简单的消息提示（可以后续改进为更美观的提示）
-    const msgDiv = document.createElement('div');
-    msgDiv.style.cssText = `
-        position: fixed;
-        top: 80px;
-        right: 20px;
-        padding: 12px 24px;
-        background: ${type === 'success' ? '#51CF66' : '#FF6B6B'};
-        color: white;
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        z-index: 3000;
-        animation: slideIn 0.3s ease;
-    `;
-    msgDiv.textContent = message;
+const showMessage = (message, type = 'info') => {
+    const msgDiv = Object.assign(document.createElement('div'), {
+        textContent: message,
+        style: `position:fixed;top:80px;right:20px;padding:12px 24px;background:${type === 'success' ? '#51CF66' : '#FF6B6B'};color:white;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:3000;animation:slideIn 0.3s ease;`
+    });
     document.body.appendChild(msgDiv);
-    
     setTimeout(() => {
         msgDiv.style.animation = 'slideOut 0.3s ease';
         setTimeout(() => msgDiv.remove(), 300);
     }, 2000);
-}
+};
 
 // 自定义对话框
 function showDialog(options) {
@@ -3899,37 +3871,22 @@ function showDialog(options) {
     });
 }
 
-// 替换 alert
-function customAlert(message, title = '提示', type = 'info') {
-    return showDialog({
-        title,
-        message,
-        type,
-        showCancel: false
-    });
-}
+// 替换 alert 和 confirm
+const customAlert = (message, title = '提示', type = 'info') => 
+    showDialog({ title, message, type, showCancel: false });
 
-// 替换 confirm
-function customConfirm(message, title = '确认') {
-    return showDialog({
-        title,
-        message,
-        type: 'warning',
-        confirmText: '确定',
-        cancelText: '取消',
-        showCancel: true
-    });
-}
+const customConfirm = (message, title = '确认') => 
+    showDialog({ title, message, type: 'warning', confirmText: '确定', cancelText: '取消', showCancel: true });
 
 // 分类管理功能
-function openCategoryModal() {
+const openCategoryModal = () => {
     document.getElementById('category-modal').classList.add('show');
     loadCategoryList('expense');
-}
+};
 
-function closeCategoryModal() {
+const closeCategoryModal = () => {
     document.getElementById('category-modal').classList.remove('show');
-}
+};
 
 async function loadCategoryList(type) {
     const container = document.getElementById(`category-list-${type}`);
@@ -4103,18 +4060,18 @@ async function deleteCategory(categoryId) {
 }
 
 
-// 图标库
+// 图标库（去重）
 const ICON_LIBRARY = {
-    food: ['🍔', '🍕', '🍜', '🍱', '🍝', '🍲', '🥘', '🍳', '🥗', '🍞', '🥐', '🥖', '🥨', '🥯', '🥞', '🧇', '🍗', '🍖', '🥩', '🥓', '🍟', '🍿', '🌮', '🌯', '🥙', '🥪', '🌭', '🍔', '🍕', '🍰', '🎂', '🧁', '🍮', '🍭', '🍬', '🍫', '🍪', '🍩', '🥤', '☕', '🍵', '🧃', '🥛', '🍼', '🍺', '🍻', '🍷', '🍸', '🍹'],
-    transport: ['🚗', '🚕', '🚙', '🚌', '🚎', '🏎️', '🚓', '🚑', '🚒', '🚐', '🛻', '🚚', '🚛', '🚜', '🛴', '🚲', '🛵', '🏍️', '🛺', '🚨', '🚔', '🚍', '🚘', '🚖', '✈️', '🛫', '🛬', '🛩️', '💺', '🚀', '🚁', '🚟', '🚠', '🚡', '🛰️', '🚂', '🚃', '🚄', '🚅', '🚆', '🚇', '🚈', '🚉', '🚊', '🚝', '🚞', '🚋', '🚌', '🚍', '🚎', '🚐', '🚑', '🚒', '🚓', '🚔', '🚕', '🚖', '🚗', '🚘', '🚙', '🚚', '🚛', '🚜', '🏎️', '🏍️', '🛵', '🛴', '🚲', '🛺', '🚨', '🚔', '🚍', '🚘', '🚖', '✈️', '🛫', '🛬', '🛩️', '💺', '🚀', '🚁', '🚟', '🚠', '🚡', '🛰️'],
-    shopping: ['🛍️', '🛒', '🛎️', '🛏️', '🛋️', '🪑', '🚪', '🪟', '🪞', '🖼️', '🛢️', '🛠️', '🛠️', '⚙️', '🔧', '🔨', '⚒️', '🛠️', '⛏️', '🔩', '⚙️', '🧰', '🧲', '🪚', '🔫', '💣', '🧨', '🪓', '🔪', '🗡️', '⚔️', '🛡️', '🚬', '⚰️', '🪦', '⚱️', '🏺', '🔮', '📿', '🧿', '💈', '⚗️', '🔭', '🔬', '🕳️', '🩹', '🩺', '💊', '💉', '🩸', '🧬', '🦠', '🧫', '🧪', '🌡️', '🧹', '🪠', '🧺', '🧻', '🚽', '🚿', '🛁', '🛀', '🧼', '🪥', '🪒', '🧽', '🪣', '🧴', '🛎️', '🔑', '🗝️', '🚪', '🪑', '🛋️', '🛏️', '🛌', '🖼️', '🪞', '🪟', '🛍️', '🛒'],
+    food: [...new Set(['🍔', '🍕', '🍜', '🍱', '🍝', '🍲', '🥘', '🍳', '🥗', '🍞', '🥐', '🥖', '🥨', '🥯', '🥞', '🧇', '🍗', '🍖', '🥩', '🥓', '🍟', '🍿', '🌮', '🌯', '🥙', '🥪', '🌭', '🍰', '🎂', '🧁', '🍮', '🍭', '🍬', '🍫', '🍪', '🍩', '🥤', '☕', '🍵', '🧃', '🥛', '🍼', '🍺', '🍻', '🍷', '🍸', '🍹'])],
+    transport: [...new Set(['🚗', '🚕', '🚙', '🚌', '🚎', '🏎️', '🚓', '🚑', '🚒', '🚐', '🛻', '🚚', '🚛', '🚜', '🛴', '🚲', '🛵', '🏍️', '🛺', '🚨', '🚔', '🚍', '🚘', '🚖', '✈️', '🛫', '🛬', '🛩️', '💺', '🚀', '🚁', '🚟', '🚠', '🚡', '🛰️', '🚂', '🚃', '🚄', '🚅', '🚆', '🚇', '🚈', '🚉', '🚊', '🚝', '🚞', '🚋'])],
+    shopping: [...new Set(['🛍️', '🛒', '🛎️', '🛏️', '🛋️', '🪑', '🚪', '🪟', '🪞', '🖼️', '🛢️', '🛠️', '⚙️', '🔧', '🔨', '⚒️', '⛏️', '🔩', '🧰', '🧲', '🪚', '🔫', '💣', '🧨', '🪓', '🔪', '🗡️', '⚔️', '🛡️', '🚬', '⚰️', '🪦', '⚱️', '🏺', '🔮', '📿', '🧿', '💈', '⚗️', '🔭', '🔬', '🕳️', '🩹', '🩺', '💊', '💉', '🩸', '🧬', '🦠', '🧫', '🧪', '🌡️', '🧹', '🪠', '🧺', '🧻', '🚽', '🚿', '🛁', '🛀', '🧼', '🪥', '🪒', '🧽', '🪣', '🧴', '🔑', '🗝️', '🛌'])],
     entertainment: ['🎬', '🎭', '🎨', '🎪', '🎤', '🎧', '🎼', '🎹', '🥁', '🎷', '🎺', '🎸', '🪗', '🎻', '🎲', '🎯', '🎳', '🎮', '🎰', '🃏', '🀄', '🎴', '🎭', '🖼️', '🎨', '🧩', '♟️', '🎯', '🎳', '🎮', '🎰', '🃏', '🀄', '🎴', '🎭', '🖼️', '🎨', '🧩', '♟️', '🎯', '🎳', '🎮', '🎰', '🃏', '🀄', '🎴', '🎭', '🖼️', '🎨', '🧩', '♟️', '🎯', '🎳', '🎮', '🎰', '🃏', '🀄', '🎴', '🎭', '🖼️', '🎨', '🧩', '♟️', '🎯', '🎳', '🎮', '🎰', '🃏', '🀄', '🎴', '🎭', '🖼️', '🎨', '🧩', '♟️'],
     medical: ['🏥', '⚕️', '🩺', '💊', '💉', '🩸', '🧬', '🦠', '🧫', '🧪', '🌡️', '🩹', '🩺', '💊', '💉', '🩸', '🧬', '🦠', '🧫', '🧪', '🌡️', '🩹', '🏥', '⚕️', '🩺', '💊', '💉', '🩸', '🧬', '🦠', '🧫', '🧪', '🌡️', '🩹'],
     education: ['📚', '📖', '📕', '📗', '📘', '📙', '📓', '📔', '📒', '📃', '📜', '📄', '📰', '🗞️', '📑', '🔖', '🏷️', '💰', '💴', '💵', '💶', '💷', '💸', '💳', '🧾', '💹', '✏️', '✒️', '🖊️', '🖋️', '🖌️', '🖍️', '📝', '💼', '📁', '📂', '🗂️', '📅', '📆', '🗒️', '🗓️', '📇', '📈', '📉', '📊', '📋', '📌', '📍', '📎', '🖇️', '📏', '📐', '✂️', '🗃️', '🗄️', '🗑️', '📚', '📖', '📕', '📗', '📘', '📙', '📓', '📔', '📒', '📃', '📜', '📄', '📰', '🗞️', '📑', '🔖', '🏷️'],
-    housing: ['🏠', '🏡', '🏘️', '🏚️', '🏗️', '🏭', '🏢', '🏬', '🏣', '🏤', '🏥', '🏦', '🏨', '🏪', '🏫', '🏩', '💒', '🏛️', '⛪', '🕌', '🕍', '🛕', '🕋', '⛩️', '🛤️', '🛣️', '🗾', '🎑', '🏞️', '🌅', '🌄', '🌠', '🎇', '🎆', '🌇', '🌆', '🏙️', '🌃', '🌌', '🌉', '🌁', '🏠', '🏡', '🏘️', '🏚️', '🏗️', '🏭', '🏢', '🏬', '🏣', '🏤', '🏥', '🏦', '🏨', '🏪', '🏫', '🏩', '💒', '🏛️', '⛪', '🕌', '🕍', '🛕', '🕋', '⛩️'],
-    utilities: ['💡', '🔦', '🕯️', '🪔', '🧯', '🛢️', '💸', '💵', '💴', '💶', '💷', '💰', '💳', '🧾', '💹', '⚡', '🔥', '💧', '🌊', '💨', '❄️', '☀️', '🌤️', '⛅', '🌥️', '☁️', '🌦️', '🌧️', '⛈️', '🌩️', '⚡', '☔', '💧', '❄️', '☀️', '🌤️', '⛅', '🌥️', '☁️', '🌦️', '🌧️', '⛈️', '🌩️', '⚡', '☔', '💧', '❄️'],
-    other: ['📦', '📮', '📯', '📪', '📫', '📬', '📭', '📤', '📥', '🗳️', '✉️', '📧', '📨', '📩', '📰', '🗞️', '📑', '🔖', '🏷️', '💰', '💴', '💵', '💶', '💷', '💸', '💳', '🧾', '💹', '✏️', '✒️', '🖊️', '🖋️', '🖌️', '🖍️', '📝', '💼', '📁', '📂', '🗂️', '📅', '📆', '🗒️', '🗓️', '📇', '📈', '📉', '📊', '📋', '📌', '📍', '📎', '🖇️', '📏', '📐', '✂️', '🗃️', '🗄️', '🗑️', '🔒', '🔓', '🔐', '🔑', '🗝️', '🔨', '🪓', '⛏️', '🪚', '🔧', '🪛', '🔩', '⚙️', '🧰', '🧲', '🪜', '⚗️', '🧪', '🧫', '🧬', '🔬', '🔭', '📡', '💉', '🩸', '💊', '🩹', '🩺', '🩻', '🧿', '⚱️', '🪦', '⚰️', '🪧', '🪪', '🏷️', '📦', '📮', '📯', '📪', '📫', '📬', '📭', '📤', '📥', '🗳️', '✉️', '📧', '📨', '📩', '📰', '🗞️', '📑', '🔖', '🏷️'],
-    income: ['💰', '💴', '💵', '💶', '💷', '💸', '💳', '🧾', '💹', '📈', '📊', '📉', '💼', '🎁', '🎉', '🎊', '🏆', '🥇', '🥈', '🥉', '🏅', '🎖️', '🎗️', '🎫', '🎟️', '🎪', '🎭', '🎨', '🎬', '🎤', '🎧', '🎼', '🎹', '🥁', '🎷', '🎺', '🎸', '🪗', '🎻', '🎲', '🎯', '🎳', '🎮', '🎰', '🃏', '🀄', '🎴', '🎭', '🖼️', '🎨', '🧩', '♟️', '🎯', '🎳', '🎮', '🎰', '🃏', '🀄', '🎴', '🎭', '🖼️', '🎨', '🧩', '♟️']
+    housing: [...new Set(['🏠', '🏡', '🏘️', '🏚️', '🏗️', '🏭', '🏢', '🏬', '🏣', '🏤', '🏦', '🏨', '🏪', '🏫', '🏩', '💒', '🏛️', '⛪', '🕌', '🕍', '🛕', '🕋', '⛩️', '🛤️', '🛣️', '🗾', '🎑', '🏞️', '🌅', '🌄', '🌠', '🎇', '🎆', '🌇', '🌆', '🏙️', '🌃', '🌌', '🌉', '🌁'])],
+    utilities: [...new Set(['💡', '🔦', '🕯️', '🪔', '🧯', '🛢️', '💸', '💵', '💴', '💶', '💷', '💰', '💳', '🧾', '💹', '⚡', '🔥', '💧', '🌊', '💨', '❄️', '☀️', '🌤️', '⛅', '🌥️', '☁️', '🌦️', '🌧️', '⛈️', '🌩️', '☔'])],
+    other: [...new Set(['📦', '📮', '📯', '📪', '📫', '📬', '📭', '📤', '📥', '🗳️', '✉️', '📧', '📨', '📩', '📰', '🗞️', '📑', '🔖', '🏷️', '🔒', '🔓', '🔐', '🔑', '🗝️', '🔨', '🪓', '⛏️', '🪚', '🔧', '🪛', '🔩', '⚙️', '🧰', '🧲', '🪜', '⚗️', '🧪', '🧫', '🧬', '🔬', '🔭', '📡', '💉', '🩸', '💊', '🩹', '🩺', '🩻', '🧿', '⚱️', '🪦', '⚰️', '🪧', '🪪'])],
+    income: [...new Set(['💰', '💴', '💵', '💶', '💷', '💸', '💳', '🧾', '💹', '📈', '📊', '📉', '💼', '🎁', '🎉', '🎊', '🏆', '🥇', '🥈', '🥉', '🏅', '🎖️', '🎗️', '🎫', '🎟️', '🎪', '🎭', '🎨', '🎬', '🎤', '🎧', '🎼', '🎹', '🥁', '🎷', '🎺', '🎸', '🪗', '🎻', '🎲', '🎯', '🎳', '🎮', '🎰', '🃏', '🀄', '🎴', '🧩', '♟️'])]
 };
 
 // 初始化图标选择器
@@ -4481,28 +4438,11 @@ function handleNumberKeyPress(key) {
 }
 
 
-// 添加动画样式
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes slideIn {
-        from {
-            transform: translateX(100%);
-            opacity: 0;
-        }
-        to {
-            transform: translateX(0);
-            opacity: 1;
-        }
-    }
-    @keyframes slideOut {
-        from {
-            transform: translateX(0);
-            opacity: 1;
-        }
-        to {
-            transform: translateX(100%);
-            opacity: 0;
-        }
-    }
-`;
-document.head.appendChild(style);
+// 添加动画样式（如果不存在）
+if (!document.getElementById('expense-tracker-animations')) {
+    const style = Object.assign(document.createElement('style'), {
+        id: 'expense-tracker-animations',
+        textContent: `@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes slideOut{from{transform:translateX(0);opacity:1}to{transform:translateX(100%);opacity:0}}`
+    });
+    document.head.appendChild(style);
+}

@@ -81,58 +81,46 @@ class AuthManager:
     @staticmethod
     def get_current_user() -> Optional[dict]:
         """获取当前用户信息（从数据库验证）"""
-        token = request.headers.get('Authorization')
+        token = request.headers.get('Authorization', '')
         if not token:
-            logger.log_info('no_auth_header', {'path': request.path})
+            logger.log_warning('no_authorization_header', {'path': request.path})
             return None
         
-        if token.startswith('Bearer '):
-            token = token[7:]
-        else:
-            logger.log_info('invalid_auth_format', {'path': request.path, 'header': token[:20] if token else 'None'})
+        if not token.startswith('Bearer '):
+            logger.log_warning('invalid_authorization_format', {'path': request.path, 'header': token[:20]})
             return None
         
+        token = token[7:]
         try:
             payload = AuthManager.verify_token(token)
             username = payload.get('username')
-            
             if not username:
                 logger.log_warning('token_missing_username', {'path': request.path})
                 return None
             
-            # 从数据库验证用户是否仍然有效
             from .models import UserManager
             user = UserManager.get_user_by_username(username)
-            
             if not user:
                 logger.log_warning('user_not_found', {'username': username, 'path': request.path})
                 return None
             
             if not user.is_active:
-                logger.log_security_event('inactive_user_access', {
-                    'username': username,
-                    'path': request.path
-                })
+                logger.log_warning('user_inactive', {'username': username, 'path': request.path})
                 return None
             
-            # 返回包含用户ID的完整信息
-            return {
-                'id': user.id,
-                'username': user.username,
-                'is_admin': user.is_admin,
-                'is_active': user.is_active
+            user_info = {
+                'id': user.id, 'username': user.username,
+                'is_admin': user.is_admin, 'is_active': user.is_active
             }
-        except ValueError as e:
-            # JWT验证错误（过期、无效等）
+            # 确保id字段存在
+            if not user_info.get('id'):
+                logger.log_error('user_info_missing_id', {'user_info': user_info, 'path': request.path})
+                return None
+            
+            return user_info
+        except (ValueError, Exception) as e:
             logger.log_security_event('token_verification_failed', {
-                'error': str(e),
-                'path': request.path
-            })
-            return None
-        except Exception as e:
-            # 其他错误（数据库连接等）
-            logger.log_error('get_current_user_exception', {
-                'error': str(e),
+                'error': str(e), 
                 'error_type': type(e).__name__,
                 'path': request.path
             })
@@ -145,16 +133,16 @@ def require_auth(f):
     def decorated_function(*args, **kwargs):
         user = AuthManager.get_current_user()
         if not user:
-            # 检查是否有Authorization头，用于区分"未提供token"和"token无效"
-            has_auth_header = request.headers.get('Authorization') is not None
             logger.log_security_event('unauthorized_access', {
-                'path': request.path,
-                'ip': request.remote_addr,
-                'has_auth_header': has_auth_header
+                'path': request.path, 'ip': request.remote_addr
             })
             return jsonify({'error': '需要认证', 'code': 'UNAUTHORIZED'}), 401
-        
+        # 确保g.current_user被正确设置，包含id字段
         g.current_user = user
+        # 验证user包含id字段
+        if 'id' not in user or not user.get('id'):
+            logger.log_error('user_missing_id', {'user': user, 'path': request.path})
+            return jsonify({'error': '用户信息不完整', 'code': 'UNAUTHORIZED'}), 401
         return f(*args, **kwargs)
     return decorated_function
 
@@ -179,23 +167,14 @@ def authenticate_user(username: str, password: str) -> Optional[dict]:
     """验证用户登录（从数据库）"""
     try:
         from .models import UserManager
-        
         user = UserManager.authenticate(username, password)
-        
         if not user:
-            logger.log_security_event('failed_login', {
-                'username': username,
-                'reason': '用户名或密码错误'
-            })
+            logger.log_security_event('failed_login', {'username': username})
             return None
-        
         logger.log_info('successful_login', {'username': username, 'user_id': user.id})
-        
         return {
-            'id': user.id,
-            'username': user.username,
-            'is_admin': user.is_admin,
-            'is_active': user.is_active
+            'id': user.id, 'username': user.username,
+            'is_admin': user.is_admin, 'is_active': user.is_active
         }
     except Exception as e:
         logger.log_error('auth_exception', {'error': str(e)})
