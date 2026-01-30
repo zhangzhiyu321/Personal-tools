@@ -1487,7 +1487,7 @@ function bindEvents() {
     
     // 日期选择器由 ensureDatePickerModal 在首次打开时创建并绑定，此处不绑定
     
-    // 记录列表：点击图标或空白 → 改日期；点击分类/金额 → 内联编辑；点击删除 → 删除
+    // 记录列表：点击图标 → 改分类；点击名字 → 改备注；点击金额 → 改金额；点击空白 → 改日期；点击删除 → 删除
     const recordsListEl = document.getElementById('records-list');
     if (recordsListEl) {
         recordsListEl.addEventListener('click', (e) => {
@@ -1618,8 +1618,18 @@ function updateCategorySelector() {
     
     if (!container) return;
     
+    // 按 sort_order 降序排序（置顶的显示在前面）
+    const sortedList = [...categoryList].sort((a, b) => {
+        const orderA = a.sort_order || 0;
+        const orderB = b.sort_order || 0;
+        if (orderA !== orderB) {
+            return orderB - orderA; // 降序
+        }
+        return (a.id || 0) - (b.id || 0); // 如果 sort_order 相同，按 id 升序
+    });
+    
     // 生成所有分类按钮（不限制数量，通过CSS限制可视区域）
-    container.innerHTML = categoryList.map(cat => {
+    container.innerHTML = sortedList.map(cat => {
         const isOther = cat.name === '其他';
         return `
             <button type="button" class="category-btn ${isOther ? 'category-other' : ''}" 
@@ -3003,10 +3013,10 @@ function renderRecords(records) {
             
             html += `
                 <div class="record-item" data-id="${record.id}">
-                    <div class="record-icon">${icon}</div>
+                    <div class="record-icon editable" data-field="category" data-record-id="${record.id}" data-value="${record.category}">${icon}</div>
                     <div class="record-info">
                         <div class="record-header">
-                            <span class="record-category editable" data-field="category" data-record-id="${record.id}" data-value="${record.category}">${displayName}</span>
+                            <span class="record-category editable" data-field="note" data-record-id="${record.id}" data-value="${record.note || ''}">${displayName}</span>
                         </div>
                     </div>
                     <div class="record-amount ${typeClass} editable" data-field="amount" data-record-id="${record.id}" data-value="${record.amount}">
@@ -3151,6 +3161,13 @@ function startInlineEdit(element) {
         // 移除符号和¥，只保留数字
         const amountValue = originalText.replace(/[+\-¥]/g, '').trim();
         input.value = amountValue;
+    } else if (field === 'note') {
+        // 备注：使用文本输入
+        input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'inline-edit-input';
+        input.value = currentValue || '';
+        input.placeholder = '输入备注...';
     }
     
     // 保存原始内容
@@ -3218,23 +3235,37 @@ async function updateRecordField(recordId, field, newValue, element) {
         // 更新对应字段
         if (field === 'category') {
             // 检查新分类是否属于当前类型
+            // newValue 可能是分类名称或ID（因为选择器使用 cat.name || cat.id）
             const categoryList = [...categories.expense, ...categories.income];
-            const newCategory = categoryList.find(c => c.id === newValue);
+            const newCategory = categoryList.find(c => 
+                c.id === newValue || 
+                c.name === newValue || 
+                (c.id && c.id.toString() === newValue)
+            );
             if (!newCategory) {
                 customAlert('无效的分类', '输入错误', 'warning');
                 element.innerHTML = element.dataset.value;
                 return;
             }
             // 如果分类类型与记录类型不匹配，需要同时更新类型
-            const isIncomeCategory = categories.income.some(c => c.id === newValue);
-            const isExpenseCategory = categories.expense.some(c => c.id === newValue);
+            const isIncomeCategory = categories.income.some(c => 
+                c.id === newValue || 
+                c.name === newValue || 
+                (c.id && c.id.toString() === newValue)
+            );
+            const isExpenseCategory = categories.expense.some(c => 
+                c.id === newValue || 
+                c.name === newValue || 
+                (c.id && c.id.toString() === newValue)
+            );
             
             if (isIncomeCategory && record.type !== 'income') {
                 updateData.type = 'income';
             } else if (isExpenseCategory && record.type !== 'expense') {
                 updateData.type = 'expense';
             }
-            updateData.category = newValue;
+            // 使用分类名称作为值（因为数据库存储的是名称）
+            updateData.category = newCategory.name || newCategory.id;
         } else if (field === 'date') {
             updateData.date = newValue;
         } else if (field === 'amount') {
@@ -3245,6 +3276,9 @@ async function updateRecordField(recordId, field, newValue, element) {
                 return;
             }
             updateData.amount = amount;
+        } else if (field === 'note') {
+            // 备注：直接更新
+            updateData.note = newValue || '';
         }
         
         // 发送更新请求
@@ -3286,7 +3320,9 @@ function getRecordFromDOM(recordId) {
     const isIncome = amountText.startsWith('+') || amountElement.classList.contains('income');
     const amount = parseFloat(amountText.replace(/[+\-¥]/g, '').trim());
     
-    const categoryElement = recordItem.querySelector('.record-category.editable');
+    // 优先从 record-icon 获取分类（因为现在分类编辑在 icon 上）
+    const categoryElement = recordItem.querySelector('.record-icon.editable[data-field="category"]') || 
+                           recordItem.querySelector('.record-category.editable[data-field="category"]');
     const category = categoryElement?.dataset.value || '';
     
     const dateElement = recordItem.querySelector('.record-date.editable');
@@ -3808,7 +3844,17 @@ async function loadCategoryList(type) {
         const data = await response.json();
         const categoryList = data[type] || [];
         
-        container.innerHTML = categoryList.map(cat => `
+        // 按 sort_order 降序排序（置顶的显示在前面）
+        const sortedList = [...categoryList].sort((a, b) => {
+            const orderA = a.sort_order || 0;
+            const orderB = b.sort_order || 0;
+            if (orderA !== orderB) {
+                return orderB - orderA; // 降序
+            }
+            return (a.id || 0) - (b.id || 0); // 如果 sort_order 相同，按 id 升序
+        });
+        
+        container.innerHTML = sortedList.map(cat => `
             <div class="category-item" data-id="${cat.id}">
                 <div class="category-item-icon" style="background: ${cat.color}20; color: ${cat.color}">
                     ${cat.icon}
@@ -3817,6 +3863,7 @@ async function loadCategoryList(type) {
                     <div class="category-item-name">${escapeHtml(cat.name)}</div>
                 </div>
                 <div class="category-item-actions">
+                    <button class="btn-top-small" onclick="pinCategoryToTop(${cat.id}, '${type}')" title="置顶">置顶</button>
                     <button class="btn-edit-small" onclick="editCategory(${cat.id}, '${type}')">编辑</button>
                     <button class="btn-danger-small" onclick="deleteCategory(${cat.id})">删除</button>
                 </div>
@@ -3969,6 +4016,46 @@ async function deleteCategory(categoryId) {
     } catch (error) {
         console.error('删除分类失败:', error);
         customAlert('删除失败，请重试', '错误', 'error');
+    }
+}
+
+// 置顶分类
+async function pinCategoryToTop(categoryId, type) {
+    try {
+        // 先获取当前类型下所有分类，找到最大的 sort_order
+        const response = await authFetch(`${API_BASE}/categories`);
+        const data = await response.json();
+        const categoryList = data[type] || [];
+        
+        // 找到当前最大的 sort_order
+        const maxSortOrder = categoryList.length > 0 
+            ? Math.max(...categoryList.map(cat => cat.sort_order || 0))
+            : 0;
+        
+        // 将目标分类的 sort_order 设置为最大值 + 1
+        const newSortOrder = maxSortOrder + 1;
+        
+        // 更新分类的 sort_order
+        const updateResponse = await authFetch(`${API_BASE}/categories/${categoryId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sort_order: newSortOrder })
+        });
+        
+        const result = await updateResponse.json();
+        
+        if (updateResponse.ok) {
+            // 重新加载分类列表和分类选择器
+            const currentTab = document.querySelector('.tab-btn.active')?.dataset.tab || type;
+            loadCategoryList(currentTab);
+            loadCategories();
+            showMessage('置顶成功！', 'success');
+        } else {
+            customAlert(result.error || '置顶失败', '置顶失败', 'error');
+        }
+    } catch (error) {
+        console.error('置顶分类失败:', error);
+        customAlert('置顶失败，请重试', '错误', 'error');
     }
 }
 

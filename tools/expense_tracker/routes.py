@@ -98,7 +98,7 @@ def get_categories():
         return jsonify({'error': '未登录'}), 401
     
     def get_cats(cat_type):
-        return Category.query.filter_by(user_id=user_id, type=cat_type).order_by(Category.sort_order, Category.id).all()
+        return Category.query.filter_by(user_id=user_id, type=cat_type).order_by(Category.sort_order.desc(), Category.id).all()
     
     try:
         expense_categories, income_categories = get_cats('expense'), get_cats('income')
@@ -183,7 +183,7 @@ def update_category(category_id):
         return jsonify({'error': error_msg}), 400
     
     for field in ['name', 'icon', 'color', 'sort_order']:
-        if field in cleaned_data:
+        if field in cleaned_data and cleaned_data[field] is not None:
             setattr(category, field, cleaned_data[field])
     
     db.session.commit()

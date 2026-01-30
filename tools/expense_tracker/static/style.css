@@ -176,43 +176,32 @@ input, textarea {
 
 /* 日期选择器包装器 */
 .date-picker-wrapper {
-    margin-bottom: 12px;
+    margin-bottom: 6px;
     background: #fefefe;
-    padding: 12px;
+    padding: 3px;
     border-radius: 8px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
     border: 1px solid #f0f1f3;
 }
 
-/* 日期选择器容器 */
-.date-picker-container {
+/* 日期选择器容器（数据分析页面的滑动选择器） */
+.date-picker-wrapper .date-picker-container {
     position: relative;
-    overflow: hidden;
-    user-select: none;
-    touch-action: pan-y;
-    cursor: grab;
+    padding: 4px 0;
 }
 
-.date-picker-container:active {
-    cursor: grabbing;
-}
-
-/* 日期选择器滑块 */
 .date-picker-slider {
     display: flex;
     gap: 20px;
     align-items: center;
     justify-content: center;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    will-change: transform;
 }
 
-/* 日期选择器项 */
 .date-picker-item {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: 1px;
     min-width: 80px;
 }
 
@@ -225,24 +214,9 @@ input, textarea {
 }
 
 .date-picker-value {
-    font-size: 18px;
+    font-size: 15px;
     font-weight: 600;
     color: #2563eb;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.date-picker-container:active .date-picker-value {
-    color: #1d4ed8;
-    transform: scale(0.95);
-}
-
-/* 滑动时的视觉反馈 */
-.date-picker-container.swiping {
-    opacity: 0.8;
-}
-
-.date-picker-container.swiping .date-picker-value {
-    transform: scale(0.95);
 }
 
 .date-range-inputs,
@@ -1672,6 +1646,84 @@ input, textarea {
     gap: 6px;
     flex-wrap: wrap;
     font-size: 11px;
+    flex: 1;
+    justify-content: flex-end;
+}
+
+/* 内联日期筛选功能 */
+.date-filter-inline {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-right: 8px;
+    padding: 3px 5px;
+    background: #f8f9fa;
+    border-radius: 5px;
+    border: 1px solid #e9ecef;
+    flex-shrink: 0;
+}
+
+.date-input-inline {
+    padding: 3px 5px;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    font-size: 11px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background: #fff;
+    height: 22px;
+    width: 85px;
+    min-width: 75px;
+    max-width: 100px;
+}
+
+.date-input-inline:focus {
+    outline: none;
+    border-color: #1890ff;
+    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
+}
+
+.date-separator {
+    color: #999;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 0 1px;
+    flex-shrink: 0;
+}
+
+.btn-filter-inline {
+    padding: 3px 6px;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background: #fff;
+    color: #666;
+    height: 22px;
+    min-width: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.btn-filter-inline:hover {
+    border-color: #1890ff;
+    color: #1890ff;
+    background: #f0f8ff;
+}
+
+.btn-filter-inline.btn-filter-primary {
+    background: #1890ff;
+    color: #fff;
+    border-color: #1890ff;
+}
+
+.btn-filter-inline.btn-filter-primary:hover {
+    background: #40a9ff;
+    border-color: #40a9ff;
 }
 
 /* 年月选择器（使用普通date input） */
@@ -1683,10 +1735,9 @@ input, textarea {
     min-width: 150px;
 }
 
-/* 通用日期选择器容器（原生 date 输入，无滚轮） */
-.date-picker-container,
-.month-picker-container {
-    padding: 20px 0;
+/* 模态框中的日期选择器容器 */
+.modal-content .date-picker-container {
+    padding: 10px 0;
 }
 
 .date-picker-input {
@@ -1789,6 +1840,19 @@ input, textarea {
     font-size: 20px;
     margin-right: 10px;
     flex-shrink: 0;
+}
+
+.record-icon.editable {
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    display: inline-block;
+}
+
+.record-icon.editable:hover {
+    background: #e6f7ff;
+    transform: scale(1.1);
 }
 
 .record-info {
@@ -2128,15 +2192,62 @@ input, textarea {
         padding: 6px 10px;
     }
     
+    /* 内联日期筛选在移动端的响应式样式 - 保持一行显示 */
+    .date-filter-inline {
+        flex-wrap: nowrap;
+        width: auto;
+        margin-right: 4px;
+        margin-bottom: 0;
+        padding: 2px 4px;
+        flex-shrink: 1;
+        min-width: 0;
+    }
+    
+    .date-input-inline {
+        flex: 0 0 auto;
+        min-width: 65px;
+        max-width: 80px;
+        width: 70px;
+        height: 24px;
+        font-size: 10px;
+        padding: 2px 3px;
+    }
+    
+    .date-separator {
+        font-size: 9px;
+        padding: 0;
+    }
+    
+    .btn-filter-inline {
+        height: 24px;
+        min-width: 22px;
+        padding: 2px 5px;
+        font-size: 10px;
+    }
+    
     .section-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 10px;
+        flex-direction: row;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+    
+    .section-header h2 {
+        flex-shrink: 0;
+        font-size: 13px;
     }
     
     .section-actions {
-        width: 100%;
-        justify-content: flex-start;
+        flex: 1;
+        justify-content: flex-end;
+        flex-wrap: nowrap;
+        min-width: 0;
+    }
+    
+    .section-actions .btn-secondary {
+        font-size: 10px;
+        padding: 4px 8px;
+        white-space: nowrap;
     }
     
 }
@@ -2456,7 +2567,8 @@ input, textarea {
 }
 
 .btn-edit-small,
-.btn-danger-small {
+.btn-danger-small,
+.btn-top-small {
     padding: 4px 8px;
     border: none;
     border-radius: 4px;
@@ -2464,6 +2576,17 @@ input, textarea {
     cursor: pointer;
     transition: all 0.2s ease;
     white-space: nowrap;
+}
+
+.btn-top-small {
+    background: #FFD43B;
+    color: #333;
+    font-weight: 500;
+}
+
+.btn-top-small:hover {
+    background: #FCC419;
+    transform: translateY(-1px);
 }
 
 .btn-edit-small {
