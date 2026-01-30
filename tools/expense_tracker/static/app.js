@@ -467,12 +467,32 @@ function initApp() {
 
 // 初始化记录列表日期筛选
 function initRecordsDateFilter() {
+    const startDateInput = document.getElementById('records-start-date');
+    const endDateInput = document.getElementById('records-end-date');
+    
+    // 保存原始值，用于取消时恢复
+    let originalStartDate = '';
+    let originalEndDate = '';
+    
+    // 输入框获得焦点时保存原始值
+    if (startDateInput) {
+        startDateInput.addEventListener('focus', function() {
+            originalStartDate = this.value || '';
+        });
+    }
+    
+    if (endDateInput) {
+        endDateInput.addEventListener('focus', function() {
+            originalEndDate = this.value || '';
+        });
+    }
+    
     // 应用按钮
     const applyBtn = document.getElementById('apply-records-filter');
     if (applyBtn) {
         applyBtn.addEventListener('click', function() {
-            const startDate = document.getElementById('records-start-date').value;
-            const endDate = document.getElementById('records-end-date').value;
+            const startDate = startDateInput ? startDateInput.value : '';
+            const endDate = endDateInput ? endDateInput.value : '';
             
             // 如果两个日期都选择了，验证日期范围
             if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
@@ -495,11 +515,63 @@ function initRecordsDateFilter() {
                 this.classList.remove('bounce');
             }, 600);
             
-            document.getElementById('records-start-date').value = '';
-            document.getElementById('records-end-date').value = '';
+            if (startDateInput) startDateInput.value = '';
+            if (endDateInput) endDateInput.value = '';
             // 清除后也要查询（显示所有数据）
             loadRecords(1);
         });
+    }
+    
+    // 标记是否点击了应用按钮
+    let applyClicked = false;
+    let clearClicked = false;
+    
+    if (applyBtn) {
+        applyBtn.addEventListener('mousedown', function() {
+            applyClicked = true;
+        });
+    }
+    
+    if (clearBtn) {
+        clearBtn.addEventListener('mousedown', function() {
+            clearClicked = true;
+        });
+    }
+    
+    // 检查是否应该清空输入框
+    const checkAndReset = () => {
+        setTimeout(() => {
+            // 如果点击了应用或清除按钮，不执行清空操作
+            if (applyClicked || clearClicked) {
+                applyClicked = false;
+                clearClicked = false;
+                return;
+            }
+            
+            // 如果两个输入框都失去焦点，且没有点击应用按钮，则清空
+            const startFocused = document.activeElement === startDateInput;
+            const endFocused = document.activeElement === endDateInput;
+            
+            if (!startFocused && !endFocused) {
+                if (startDateInput && startDateInput.value !== originalStartDate) {
+                    startDateInput.value = '';
+                }
+                if (endDateInput && endDateInput.value !== originalEndDate) {
+                    endDateInput.value = '';
+                }
+            }
+            
+            applyClicked = false;
+            clearClicked = false;
+        }, 200);
+    };
+    
+    if (startDateInput) {
+        startDateInput.addEventListener('blur', checkAndReset);
+    }
+    
+    if (endDateInput) {
+        endDateInput.addEventListener('blur', checkAndReset);
     }
 }
 
@@ -4060,18 +4132,55 @@ async function pinCategoryToTop(categoryId, type) {
 }
 
 
-// 图标库（去重）
+// 图标库（重新整理，去除无用图标，增加记账常用场景）
 const ICON_LIBRARY = {
-    food: [...new Set(['🍔', '🍕', '🍜', '🍱', '🍝', '🍲', '🥘', '🍳', '🥗', '🍞', '🥐', '🥖', '🥨', '🥯', '🥞', '🧇', '🍗', '🍖', '🥩', '🥓', '🍟', '🍿', '🌮', '🌯', '🥙', '🥪', '🌭', '🍰', '🎂', '🧁', '🍮', '🍭', '🍬', '🍫', '🍪', '🍩', '🥤', '☕', '🍵', '🧃', '🥛', '🍼', '🍺', '🍻', '🍷', '🍸', '🍹'])],
-    transport: [...new Set(['🚗', '🚕', '🚙', '🚌', '🚎', '🏎️', '🚓', '🚑', '🚒', '🚐', '🛻', '🚚', '🚛', '🚜', '🛴', '🚲', '🛵', '🏍️', '🛺', '🚨', '🚔', '🚍', '🚘', '🚖', '✈️', '🛫', '🛬', '🛩️', '💺', '🚀', '🚁', '🚟', '🚠', '🚡', '🛰️', '🚂', '🚃', '🚄', '🚅', '🚆', '🚇', '🚈', '🚉', '🚊', '🚝', '🚞', '🚋'])],
-    shopping: [...new Set(['🛍️', '🛒', '🛎️', '🛏️', '🛋️', '🪑', '🚪', '🪟', '🪞', '🖼️', '🛢️', '🛠️', '⚙️', '🔧', '🔨', '⚒️', '⛏️', '🔩', '🧰', '🧲', '🪚', '🔫', '💣', '🧨', '🪓', '🔪', '🗡️', '⚔️', '🛡️', '🚬', '⚰️', '🪦', '⚱️', '🏺', '🔮', '📿', '🧿', '💈', '⚗️', '🔭', '🔬', '🕳️', '🩹', '🩺', '💊', '💉', '🩸', '🧬', '🦠', '🧫', '🧪', '🌡️', '🧹', '🪠', '🧺', '🧻', '🚽', '🚿', '🛁', '🛀', '🧼', '🪥', '🪒', '🧽', '🪣', '🧴', '🔑', '🗝️', '🛌'])],
-    entertainment: ['🎬', '🎭', '🎨', '🎪', '🎤', '🎧', '🎼', '🎹', '🥁', '🎷', '🎺', '🎸', '🪗', '🎻', '🎲', '🎯', '🎳', '🎮', '🎰', '🃏', '🀄', '🎴', '🎭', '🖼️', '🎨', '🧩', '♟️', '🎯', '🎳', '🎮', '🎰', '🃏', '🀄', '🎴', '🎭', '🖼️', '🎨', '🧩', '♟️', '🎯', '🎳', '🎮', '🎰', '🃏', '🀄', '🎴', '🎭', '🖼️', '🎨', '🧩', '♟️', '🎯', '🎳', '🎮', '🎰', '🃏', '🀄', '🎴', '🎭', '🖼️', '🎨', '🧩', '♟️', '🎯', '🎳', '🎮', '🎰', '🃏', '🀄', '🎴', '🎭', '🖼️', '🎨', '🧩', '♟️'],
-    medical: ['🏥', '⚕️', '🩺', '💊', '💉', '🩸', '🧬', '🦠', '🧫', '🧪', '🌡️', '🩹', '🩺', '💊', '💉', '🩸', '🧬', '🦠', '🧫', '🧪', '🌡️', '🩹', '🏥', '⚕️', '🩺', '💊', '💉', '🩸', '🧬', '🦠', '🧫', '🧪', '🌡️', '🩹'],
-    education: ['📚', '📖', '📕', '📗', '📘', '📙', '📓', '📔', '📒', '📃', '📜', '📄', '📰', '🗞️', '📑', '🔖', '🏷️', '💰', '💴', '💵', '💶', '💷', '💸', '💳', '🧾', '💹', '✏️', '✒️', '🖊️', '🖋️', '🖌️', '🖍️', '📝', '💼', '📁', '📂', '🗂️', '📅', '📆', '🗒️', '🗓️', '📇', '📈', '📉', '📊', '📋', '📌', '📍', '📎', '🖇️', '📏', '📐', '✂️', '🗃️', '🗄️', '🗑️', '📚', '📖', '📕', '📗', '📘', '📙', '📓', '📔', '📒', '📃', '📜', '📄', '📰', '🗞️', '📑', '🔖', '🏷️'],
-    housing: [...new Set(['🏠', '🏡', '🏘️', '🏚️', '🏗️', '🏭', '🏢', '🏬', '🏣', '🏤', '🏦', '🏨', '🏪', '🏫', '🏩', '💒', '🏛️', '⛪', '🕌', '🕍', '🛕', '🕋', '⛩️', '🛤️', '🛣️', '🗾', '🎑', '🏞️', '🌅', '🌄', '🌠', '🎇', '🎆', '🌇', '🌆', '🏙️', '🌃', '🌌', '🌉', '🌁'])],
-    utilities: [...new Set(['💡', '🔦', '🕯️', '🪔', '🧯', '🛢️', '💸', '💵', '💴', '💶', '💷', '💰', '💳', '🧾', '💹', '⚡', '🔥', '💧', '🌊', '💨', '❄️', '☀️', '🌤️', '⛅', '🌥️', '☁️', '🌦️', '🌧️', '⛈️', '🌩️', '☔'])],
-    other: [...new Set(['📦', '📮', '📯', '📪', '📫', '📬', '📭', '📤', '📥', '🗳️', '✉️', '📧', '📨', '📩', '📰', '🗞️', '📑', '🔖', '🏷️', '🔒', '🔓', '🔐', '🔑', '🗝️', '🔨', '🪓', '⛏️', '🪚', '🔧', '🪛', '🔩', '⚙️', '🧰', '🧲', '🪜', '⚗️', '🧪', '🧫', '🧬', '🔬', '🔭', '📡', '💉', '🩸', '💊', '🩹', '🩺', '🩻', '🧿', '⚱️', '🪦', '⚰️', '🪧', '🪪'])],
-    income: [...new Set(['💰', '💴', '💵', '💶', '💷', '💸', '💳', '🧾', '💹', '📈', '📊', '📉', '💼', '🎁', '🎉', '🎊', '🏆', '🥇', '🥈', '🥉', '🏅', '🎖️', '🎗️', '🎫', '🎟️', '🎪', '🎭', '🎨', '🎬', '🎤', '🎧', '🎼', '🎹', '🥁', '🎷', '🎺', '🎸', '🪗', '🎻', '🎲', '🎯', '🎳', '🎮', '🎰', '🃏', '🀄', '🎴', '🧩', '♟️'])]
+    // 餐饮美食
+    food: ['🍔', '🍕', '🍜', '🍱', '🍝', '🍲', '🥘', '🍳', '🥗', '🍞', '🥐', '🥖', '🥨', '🥯', '🥞', '🧇', '🍗', '🍖', '🥩', '🥓', '🍟', '🍿', '🌮', '🌯', '🥙', '🥪', '🌭', '🍰', '🎂', '🧁', '🍮', '🍭', '🍬', '🍫', '🍪', '🍩', '🥤', '☕', '🍵', '🧃', '🥛', '🍼', '🍺', '🍻', '🍷', '🍸', '🍹', '🥢', '🍴', '🥄'],
+    
+    // 交通出行
+    transport: ['🚗', '🚕', '🚙', '🚌', '🚎', '🚓', '🚐', '🚚', '🚛', '🛴', '🚲', '🛵', '🏍️', '🛺', '✈️', '🛫', '🛬', '💺', '🚁', '🚂', '🚃', '🚄', '🚅', '🚆', '🚇', '🚈', '🚉', '🚊', '🚝', '🚞', '🚋', '⛴️', '🚤', '🛥️', '🛳️', '🚢', '⛽', '🅿️'],
+    
+    // 购物消费
+    shopping: ['🛍️', '🛒', '🛏️', '🛋️', '🪑', '🚪', '🪟', '🪞', '🖼️', '🛠️', '⚙️', '🔧', '🔨', '🔩', '🧰', '🧹', '🪠', '🧺', '🧻', '🚽', '🚿', '🛁', '🛀', '🧼', '🪥', '🪒', '🧽', '🪣', '🧴', '🔑', '🗝️', '🛌', '🛎️', '💳', '🧾'],
+    
+    // 娱乐休闲
+    entertainment: ['🎬', '🎭', '🎨', '🎪', '🎤', '🎧', '🎼', '🎹', '🥁', '🎷', '🎺', '🎸', '🪗', '🎻', '🎲', '🎯', '🎳', '🎮', '🎰', '🃏', '🀄', '🎴', '🧩', '♟️', '🎡', '🎢', '🎠', '🎟️', '🎫'],
+    
+    // 医疗健康
+    medical: ['🏥', '⚕️', '🩺', '💊', '💉', '🩸', '🩹', '🧬', '🧪', '🌡️', '🦷', '👁️', '👂', '👃', '🫀', '🫁', '🧠', '💪', '🦵', '🦶'],
+    
+    // 教育学习
+    education: ['📚', '📖', '📕', '📗', '📘', '📙', '📓', '📔', '📒', '📃', '📜', '📄', '📰', '🗞️', '📑', '🔖', '🏷️', '✏️', '✒️', '🖊️', '🖋️', '🖌️', '🖍️', '📝', '💼', '📁', '📂', '🗂️', '📅', '📆', '🗒️', '🗓️', '📇', '📈', '📉', '📊', '📋', '📌', '📍', '📎', '🖇️', '📏', '📐', '✂️', '🗃️', '🗄️', '🗑️', '🎓'],
+    
+    // 住房物业
+    housing: ['🏠', '🏡', '🏘️', '🏚️', '🏗️', '🏭', '🏢', '🏬', '🏣', '🏤', '🏦', '🏨', '🏪', '🏫', '🏩', '💒', '🏛️', '⛪', '🕌', '🕍', '🛕'],
+    
+    // 水电通讯
+    utilities: ['💡', '🔦', '🕯️', '🪔', '🧯', '⚡', '🔥', '💧', '🌊', '💨', '❄️', '☀️', '🌤️', '⛅', '🌥️', '☁️', '🌦️', '🌧️', '⛈️', '🌩️', '☔', '📱', '☎️', '📞', '📟', '📠', '💻', '🖥️', '🖨️', '⌨️', '🖱️', '🖲️', '🕹️', '🗜️', '💾', '💿', '📀', '📼', '📷', '📸', '📹', '🎥', '📺', '📻', '🔊', '🔉', '🔈', '🔇', '📢', '📣', '📯', '🔔', '🔕', '📡', '🌐'],
+    
+    // 生活服务
+    life: ['💇', '💇‍♀️', '💇‍♂️', '💆', '💆‍♀️', '💆‍♂️', '🧖', '🧖‍♀️', '🧖‍♂️', '👕', '👔', '👖', '🧥', '🧦', '👗', '👘', '👙', '👚', '👛', '👜', '👝', '🎒', '👞', '👟', '🥾', '🥿', '👠', '👡', '🩴', '👢', '👑', '👒', '🎩', '🎓', '🧢', '⛑️', '🪖', '💄', '💍', '💎'],
+    
+    // 宠物动物
+    pets: ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐽', '🐸', '🐵', '🐔', '🐧', '🐦', '🐤', '🦆', '🦅', '🦉', '🦇', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛', '🦋', '🐌', '🐞', '🐜', '🦟', '🦗', '🕷️', '🦂', '🐢', '🐍', '🦎', '🐙', '🦑', '🦐', '🦞', '🦀', '🐡', '🐠', '🐟', '🐬', '🐳', '🐋', '🦈', '🐊', '🐅', '🐆', '🦓', '🦍', '🦧', '🐘', '🦛', '🦏', '🐪', '🐫', '🦒', '🦘', '🦬', '🐃', '🐂', '🐄', '🐎', '🐖', '🐏', '🐑', '🦙', '🐐', '🦌', '🐕', '🐩', '🦮', '🐕‍🦺', '🐈', '🐈‍⬛', '🪶', '🐓', '🦃', '🦤', '🦚', '🦜', '🦢', '🦩', '🕊️', '🐇', '🦝', '🦨', '🦡', '🦫', '🦦', '🦥', '🐁', '🐀', '🐿️', '🦔'],
+    
+    // 运动健身
+    sports: ['⚽', '🏀', '🏈', '⚾', '🥎', '🎾', '🏐', '🏉', '🥏', '🎱', '🏓', '🏸', '🏒', '🏑', '🥍', '🏏', '🥅', '⛳', '🏹', '🎣', '🥊', '🥋', '🎽', '🛹', '🛷', '⛸️', '🥌', '🎿', '⛷️', '🏂', '🪂', '🏋️', '🤼', '🤸', '🤺', '⛹️', '🤾', '🏌️', '🏇', '🧘', '🏄', '🏊', '🤽', '🚣', '🧗', '🚵', '🚴', '🏆', '🥇', '🥈', '🥉', '🏅', '🎖️', '🏵️', '🎗️'],
+    
+    // 旅行度假
+    travel: ['🧳', '✈️', '🛫', '🛬', '🛩️', '💺', '🚁', '🌍', '🌎', '🌏', '🌐', '🗺️', '🧭', '🏔️', '⛰️', '🌋', '🗻', '🏕️', '🏖️', '🏜️', '🏝️', '🏞️', '🏟️', '🏛️', '🏗️', '🧱', '🏘️', '🏚️', '🏠', '🏡', '🏢', '🏣', '🏤', '🏥', '🏦', '🏨', '🏩', '🏪', '🏫', '🏬', '🏭', '🏯', '🏰', '💒', '🗼', '🗽', '⛪', '🕌', '🛕', '🕍', '⛩️', '🕋', '⛲', '⛺', '🌁', '🌃', '🏙️', '🌄', '🌅', '🌆', '🌇', '🌉', '🌊'],
+    
+    // 礼物人情
+    gifts: ['🎁', '🎉', '🎊', '🎈', '🎀', '💐', '🌸', '💮', '🏵️', '🌹', '🥀', '🌺', '🌻', '🌼', '🌷', '🌱', '🌲', '🌳', '🌴', '🌵', '🌶️', '🌾', '🌿', '☘️', '🍀', '🍁', '🍂', '🍃'],
+    
+    // 快递物流
+    delivery: ['📦', '📮', '📯', '📪', '📫', '📬', '📭', '📤', '📥', '✉️', '📧', '📨', '📩', '🚚', '🚛', '🚜', '🛻', '🚐'],
+    
+    // 收入相关
+    income: ['💰', '💴', '💵', '💶', '💷', '💸', '💳', '🧾', '💹', '📈', '📊', '📉', '💼', '🎁', '🎉', '🎊', '🏆', '🥇', '🥈', '🥉', '🏅', '🎖️', '🎗️', '🎫', '🎟️', '💎', '💍', '👑'],
+    
+    // 其他常用
+    other: ['📦', '📮', '📯', '📪', '📫', '📬', '📭', '📤', '📥', '🗳️', '✉️', '📧', '📨', '📩', '📰', '🗞️', '📑', '🔖', '🏷️', '🔒', '🔓', '🔐', '🔑', '🗝️', '🪧', '🪪', '📱', '☎️', '📞', '📟', '📠', '💻', '🖥️', '🖨️', '⌨️', '🖱️', '🖲️', '🕹️', '🗜️', '💾', '💿', '📀', '📼', '📷', '📸', '📹', '🎥', '📺', '📻', '🔊', '🔉', '🔈', '🔇', '📢', '📣', '📯', '🔔', '🔕', '📡', '🌐', '💬', '💭']
 };
 
 // 初始化图标选择器
@@ -4081,16 +4190,22 @@ function initIconPicker() {
     
     // 按类别组织图标
     const categories = [
-        { name: '食物', icons: ICON_LIBRARY.food },
-        { name: '交通', icons: ICON_LIBRARY.transport },
-        { name: '购物', icons: ICON_LIBRARY.shopping },
-        { name: '娱乐', icons: ICON_LIBRARY.entertainment },
-        { name: '医疗', icons: ICON_LIBRARY.medical },
-        { name: '教育', icons: ICON_LIBRARY.education },
-        { name: '住房', icons: ICON_LIBRARY.housing },
-        { name: '水电', icons: ICON_LIBRARY.utilities },
-        { name: '收入', icons: ICON_LIBRARY.income },
-        { name: '其他', icons: ICON_LIBRARY.other }
+        { name: '餐饮美食', icons: ICON_LIBRARY.food },
+        { name: '交通出行', icons: ICON_LIBRARY.transport },
+        { name: '购物消费', icons: ICON_LIBRARY.shopping },
+        { name: '娱乐休闲', icons: ICON_LIBRARY.entertainment },
+        { name: '医疗健康', icons: ICON_LIBRARY.medical },
+        { name: '教育学习', icons: ICON_LIBRARY.education },
+        { name: '住房物业', icons: ICON_LIBRARY.housing },
+        { name: '水电通讯', icons: ICON_LIBRARY.utilities },
+        { name: '生活服务', icons: ICON_LIBRARY.life },
+        { name: '宠物动物', icons: ICON_LIBRARY.pets },
+        { name: '运动健身', icons: ICON_LIBRARY.sports },
+        { name: '旅行度假', icons: ICON_LIBRARY.travel },
+        { name: '礼物人情', icons: ICON_LIBRARY.gifts },
+        { name: '快递物流', icons: ICON_LIBRARY.delivery },
+        { name: '收入相关', icons: ICON_LIBRARY.income },
+        { name: '其他常用', icons: ICON_LIBRARY.other }
     ];
     
     container.innerHTML = categories.map(cat => `
@@ -4185,8 +4300,12 @@ function openNumberKeyboard(inputId = 'record-amount') {
     // 更新显示
     updateNumberKeyboardDisplay();
     
-    // 显示键盘
+    // 显示键盘和背景遮罩
     keyboard.classList.add('show');
+    const backdrop = document.getElementById('number-keyboard-backdrop');
+    if (backdrop) {
+        backdrop.classList.add('show');
+    }
     document.body.classList.add('keyboard-open');
 }
 
@@ -4238,8 +4357,12 @@ function closeNumberKeyboard() {
         }
     }
     
-    // 隐藏键盘
+    // 隐藏键盘和背景遮罩
     keyboard.classList.remove('show');
+    const backdrop = document.getElementById('number-keyboard-backdrop');
+    if (backdrop) {
+        backdrop.classList.remove('show');
+    }
     document.body.classList.remove('keyboard-open');
 }
 
@@ -4307,8 +4430,12 @@ async function submitRecordFromKeyboard() {
         return;
     }
     
-    // 关闭键盘
+    // 关闭键盘和背景遮罩
     keyboard.classList.remove('show');
+    const backdrop = document.getElementById('number-keyboard-backdrop');
+    if (backdrop) {
+        backdrop.classList.remove('show');
+    }
     document.body.classList.remove('keyboard-open');
     
     // 提交表单
@@ -4339,6 +4466,14 @@ function initKeyboardEvents() {
                 const keyValue = this.dataset.key;
                 handleNumberKeyPress(keyValue);
             });
+        });
+    }
+    
+    // 点击背景遮罩关闭键盘
+    const backdrop = document.getElementById('number-keyboard-backdrop');
+    if (backdrop) {
+        backdrop.addEventListener('click', function() {
+            closeNumberKeyboard();
         });
     }
     
