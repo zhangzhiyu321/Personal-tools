@@ -2430,36 +2430,132 @@ async function updateLineChart(dailyStats) {
     
     if (echartsLine) echartsLine.dispose();
     dom.innerHTML = '';
-    echartsLine = echarts.init(dom, null, getEChartsInitOpts());
-    const labels = (dailyStats || []).map(d => {
-        const date = new Date(d.date);
-        return `${date.getMonth() + 1}/${date.getDate()}`;
-    });
-    // 确保数据都是数字，将 null/undefined 转为 0，避免线段断裂
-    const incomeData = (dailyStats || []).map(d => {
-        const value = Number(d.income) || 0;
-        return isNaN(value) ? 0 : value;
-    });
-    const expenseData = (dailyStats || []).map(d => {
-        const value = Number(d.expense) || 0;
-        return isNaN(value) ? 0 : value;
-    });
-    echartsLine.setOption({
-        animation: true,
-        animationDuration: 400,
-        animationEasing: 'cubicOut',
-        legend: { top: 0, left: 'center', data: ['收入', '支出'], textStyle: { fontSize: 11 }, itemWidth: 10, itemHeight: 10 },
-        grid: { left: '3%', right: '10%', top: '18%', bottom: '12%', containLabel: true },
-        xAxis: { type: 'category', boundaryGap: false, data: labels, axisLabel: { fontSize: 10, color: '#666' }, axisLine: { lineStyle: { color: '#e5e7eb' } }, axisTick: { show: false } },
-        yAxis: { type: 'value', min: 0, axisLabel: { fontSize: 10, formatter: v => '¥' + v }, splitLine: { lineStyle: { color: 'rgba(0,0,0,0.05)' } }, axisLine: { show: false }, axisTick: { show: false } },
-        series: [
-            { name: '收入', type: 'line', smooth: 0.35, data: incomeData, connectNulls: true, symbol: 'circle', symbolSize: 8, lineStyle: { width: 2.5, color: '#16a34a', cap: 'round', join: 'round' }, itemStyle: { color: '#16a34a', borderColor: '#fff', borderWidth: 1 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(22,163,74,0.2)' }, { offset: 1, color: 'rgba(22,163,74,0.03)' }] } }, emphasis: { focus: 'series', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } } },
-            { name: '支出', type: 'line', smooth: 0.35, data: expenseData, connectNulls: true, symbol: 'circle', symbolSize: 8, lineStyle: { width: 2.5, color: '#dc2626', cap: 'round', join: 'round' }, itemStyle: { color: '#dc2626', borderColor: '#fff', borderWidth: 1 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(220,38,38,0.2)' }, { offset: 1, color: 'rgba(220,38,38,0.03)' }] } }, emphasis: { focus: 'series', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } } }
-        ],
-        tooltip: {
-            show: false // 禁用默认 tooltip
+    
+    // 检测是否为移动端（在函数内部定义，确保作用域正确）
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth <= 768);
+    
+    // 移动端禁用emphasis的scale效果，避免显示放大的数据点（绿色X标记）
+    const emphasisConfig = isMobile 
+        ? { focus: 'series', scale: false, itemStyle: { borderColor: '#fff', borderWidth: 1 } }  // 移动端禁用scale，避免显示放大点
+        : { focus: 'series', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } };  // 桌面端保持原样
+    
+    // 确保容器有尺寸后再初始化（避免显示不全）
+    const rect = dom.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+        // 如果容器尺寸为0，延迟初始化
+        setTimeout(() => {
+            if (dom && dom.getBoundingClientRect().width > 0) {
+                try {
+                    echartsLine = echarts.init(dom, null, getEChartsInitOpts());
+                    continueLineChartSetup(emphasisConfig);
+                } catch (error) {
+                    console.error('初始化折线图失败:', error);
+                    setChartPlaceholder('line-chart', '图表加载失败，请刷新页面', true);
+                }
+            } else {
+                setChartPlaceholder('line-chart', '图表容器未准备好，请刷新页面', true);
+            }
+        }, 100);
+        return;
+    }
+    
+    try {
+        echartsLine = echarts.init(dom, null, getEChartsInitOpts());
+        continueLineChartSetup(emphasisConfig);
+    } catch (error) {
+        console.error('初始化折线图失败:', error);
+        setChartPlaceholder('line-chart', '图表加载失败，请刷新页面', true);
+    }
+}
+
+// 继续折线图设置（分离出来以便延迟初始化时调用）
+function continueLineChartSetup(emphasisConfig) {
+    if (!echartsLine || !currentDailyStats || currentDailyStats.length === 0) {
+        if (echartsLine) {
+            echartsLine.dispose();
+            echartsLine = null;
         }
-    });
+        setChartPlaceholder('line-chart', '暂无数据');
+        return;
+    }
+    
+    const dom = document.getElementById('line-chart');
+    if (!dom) {
+        setChartPlaceholder('line-chart', '图表容器不存在', true);
+        return;
+    }
+    
+    try {
+        const labels = (currentDailyStats || []).map(d => {
+            const date = new Date(d.date);
+            return `${date.getMonth() + 1}/${date.getDate()}`;
+        });
+        // 确保数据都是数字，将 null/undefined 转为 0，避免线段断裂
+        const incomeData = (currentDailyStats || []).map(d => {
+            const value = Number(d.income) || 0;
+            return isNaN(value) ? 0 : value;
+        });
+        const expenseData = (currentDailyStats || []).map(d => {
+            const value = Number(d.expense) || 0;
+            return isNaN(value) ? 0 : value;
+        });
+        
+        // 如果没有传入emphasisConfig，则重新计算（兜底处理）
+        if (!emphasisConfig) {
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth <= 768);
+            emphasisConfig = isMobile 
+                ? { focus: 'series', scale: false, itemStyle: { borderColor: '#fff', borderWidth: 1 } }
+                : { focus: 'series', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } };
+        }
+        
+        echartsLine.setOption({
+            animation: true,
+            animationDuration: 400,
+            animationEasing: 'cubicOut',
+            legend: { top: 0, left: 'center', data: ['收入', '支出'], textStyle: { fontSize: 11 }, itemWidth: 10, itemHeight: 10 },
+            grid: { left: '8%', right: '8%', top: '15%', bottom: '15%', containLabel: true },
+            xAxis: { type: 'category', boundaryGap: false, data: labels, axisLabel: { fontSize: 10, color: '#666' }, axisLine: { lineStyle: { color: '#e5e7eb' } }, axisTick: { show: false } },
+            yAxis: { type: 'value', min: 0, axisLabel: { fontSize: 10, formatter: v => '¥' + v }, splitLine: { lineStyle: { color: 'rgba(0,0,0,0.05)' } }, axisLine: { show: false }, axisTick: { show: false } },
+            series: [
+                { name: '收入', type: 'line', smooth: 0.35, data: incomeData, connectNulls: true, symbol: 'circle', symbolSize: 8, lineStyle: { width: 2.5, color: '#16a34a', cap: 'round', join: 'round' }, itemStyle: { color: '#16a34a', borderColor: '#fff', borderWidth: 1 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(22,163,74,0.2)' }, { offset: 1, color: 'rgba(22,163,74,0.03)' }] } }, emphasis: emphasisConfig },
+                { name: '支出', type: 'line', smooth: 0.35, data: expenseData, connectNulls: true, symbol: 'circle', symbolSize: 8, lineStyle: { width: 2.5, color: '#dc2626', cap: 'round', join: 'round' }, itemStyle: { color: '#dc2626', borderColor: '#fff', borderWidth: 1 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(220,38,38,0.2)' }, { offset: 1, color: 'rgba(220,38,38,0.03)' }] } }, emphasis: emphasisConfig }
+            ],
+            tooltip: {
+                show: false // 禁用默认 tooltip
+            }
+        });
+        
+        // 确保图表正确渲染：立即resize，然后延迟多次resize以确保容器尺寸已计算
+        // 先立即resize一次
+        if (echartsLine) {
+            echartsLine.resize();
+        }
+        
+        // 延迟resize，确保容器尺寸已计算（移动端特别需要）
+        requestAnimationFrame(() => {
+            if (echartsLine) {
+                echartsLine.resize();
+                // 再次延迟resize，确保在移动端容器完全布局后
+                requestAnimationFrame(() => {
+                    if (echartsLine) {
+                        echartsLine.resize();
+                        // 最后一次延迟resize，确保所有布局完成
+                        setTimeout(() => {
+                            if (echartsLine) echartsLine.resize();
+                        }, 200);
+                    }
+                });
+            }
+        });
+    } catch (error) {
+        console.error('设置折线图选项失败:', error);
+        if (echartsLine) {
+            echartsLine.dispose();
+            echartsLine = null;
+        }
+        setChartPlaceholder('line-chart', '图表加载失败，请刷新页面', true);
+        return;
+    }
     
     // 添加鼠标移动事件（桌面端）- 精确计算每一天
     let lastMouseIndex = -1;
@@ -2486,9 +2582,9 @@ async function updateLineChart(dailyStats) {
             const dataLength = currentDailyStats.length;
             
             if (dataLength > 0 && chartWidth > 0) {
-                // 考虑图表的 padding，grid 配置是 left: '3%', right: '10%'
-                const effectiveWidth = chartWidth * 0.87; // 减去左右边距
-                const effectiveX = relativeX - chartWidth * 0.03; // 减去左边距
+                // 考虑图表的 padding，grid 配置是 left: '8%', right: '8%'
+                const effectiveWidth = chartWidth * 0.84; // 减去左右边距
+                const effectiveX = relativeX - chartWidth * 0.08; // 减去左边距
                 const ratio = Math.max(0, Math.min(1, effectiveX / effectiveWidth));
                 const idx = Math.round(ratio * (dataLength - 1));
                 if (idx >= 0 && idx < dataLength) {
@@ -2591,9 +2687,9 @@ async function updateLineChart(dailyStats) {
             const chartWidth = rect.width;
             const dataLength = currentDailyStats.length;
             if (dataLength > 0 && chartWidth > 0) {
-                // 考虑图表的 padding，grid 配置是 left: '3%', right: '10%'
-                const effectiveWidth = chartWidth * 0.87; // 减去左右边距
-                const effectiveX = x - chartWidth * 0.03; // 减去左边距
+                // 考虑图表的 padding，grid 配置是 left: '8%', right: '8%'
+                const effectiveWidth = chartWidth * 0.84; // 减去左右边距
+                const effectiveX = x - chartWidth * 0.08; // 减去左边距
                 const ratio = Math.max(0, Math.min(1, effectiveX / effectiveWidth));
                 const idx = Math.round(ratio * (dataLength - 1));
                 if (idx >= 0 && idx < dataLength) {
