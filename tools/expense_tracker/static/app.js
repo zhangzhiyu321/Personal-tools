@@ -2023,6 +2023,7 @@ async function getDailyRecordsByCategory(date, useCache = true) {
 let currentTooltipData = null;
 let hideOnOutsideClickHandler = null;
 let tooltipAnimationFrame = null;
+let isTouchMoving = false; // 标记是否正在触摸移动
 function showDateDetailTooltip(date, categoryGroups, event) {
     if (!categoryGroups || categoryGroups.length === 0) {
         hideDateDetailTooltip();
@@ -2075,12 +2076,17 @@ function showDateDetailTooltip(date, categoryGroups, event) {
     // 渲染 tooltip 内容
     renderTooltipContent(tooltipEl, dateStr, totalIncome, totalExpense, categoryGroups);
     
-    // 定位 tooltip（带平滑动画）
+    // 定位 tooltip（触摸移动时不使用平滑动画，直接跟随）
     if (event) {
         const x = event.clientX || (event.touches && event.touches[0]?.clientX) || 0;
         const y = event.clientY || (event.touches && event.touches[0]?.clientY) || 0;
         if (x > 0 && y > 0) {
-            positionTooltipSmooth(tooltipEl, x, y, isNewTooltip);
+            // 如果是触摸移动，不使用平滑动画，直接定位
+            if (isTouchMoving) {
+                positionTooltipInstant(tooltipEl, x, y, isNewTooltip);
+            } else {
+                positionTooltipSmooth(tooltipEl, x, y, isNewTooltip);
+            }
         } else {
             // 如果坐标无效，使用默认位置
             showTooltipSmooth(tooltipEl, '50%', '50%', 'translate(-50%, -50%)', isNewTooltip);
@@ -2217,6 +2223,51 @@ function showTooltipSmooth(tooltipEl, left, top, transform, isNew) {
     });
 }
 
+// 立即定位 tooltip（无动画，用于触摸移动时跟随手指）
+function positionTooltipInstant(tooltipEl, x, y, isNew) {
+    // 先显示以便计算尺寸
+    tooltipEl.style.visibility = 'hidden';
+    tooltipEl.style.display = 'block';
+    tooltipEl.style.opacity = '1';
+    tooltipEl.style.left = `${x + 15}px`;
+    tooltipEl.style.top = `${y + 15}px`;
+    tooltipEl.style.transition = 'none'; // 禁用过渡动画
+    
+    tooltipAnimationFrame = requestAnimationFrame(() => {
+        const tooltipWidth = tooltipEl.offsetWidth || 240;
+        const tooltipHeight = tooltipEl.offsetHeight || 200;
+        const windowWidth = window.innerWidth;
+        const windowHeight = window.innerHeight;
+        
+        let left = x + 15;
+        let top = y + 15;
+        
+        // 防止超出右边界
+        if (left + tooltipWidth > windowWidth - 10) {
+            left = x - tooltipWidth - 15;
+        }
+        // 防止超出下边界
+        if (top + tooltipHeight > windowHeight - 10) {
+            top = y - tooltipHeight - 15;
+        }
+        // 防止超出左边界
+        if (left < 10) {
+            left = 10;
+        }
+        // 防止超出上边界
+        if (top < 10) {
+            top = 10;
+        }
+        
+        // 立即设置新位置，无动画
+        tooltipEl.style.left = `${left}px`;
+        tooltipEl.style.top = `${top}px`;
+        tooltipEl.style.transform = 'none';
+        tooltipEl.style.visibility = 'visible';
+        tooltipEl.style.opacity = '1';
+    });
+}
+
 // 平滑定位 tooltip
 function positionTooltipSmooth(tooltipEl, x, y, isNew) {
     // 先显示以便计算尺寸
@@ -2261,15 +2312,15 @@ function positionTooltipSmooth(tooltipEl, x, y, isNew) {
         const currentLeft = tooltipEl.style.left ? parseFloat(tooltipEl.style.left) : left;
         const currentTop = tooltipEl.style.top ? parseFloat(tooltipEl.style.top) : top;
         
+        // 计算位置变化
+        const deltaX = Math.abs(left - currentLeft);
+        const deltaY = Math.abs(top - currentTop);
+        
         // 设置新位置
         tooltipEl.style.left = `${left}px`;
         tooltipEl.style.top = `${top}px`;
         tooltipEl.style.transform = 'none';
         tooltipEl.style.visibility = 'visible';
-        
-        // 如果位置变化较大，使用平滑过渡
-        const deltaX = Math.abs(left - currentLeft);
-        const deltaY = Math.abs(top - currentTop);
         
         // 根据移动距离调整过渡时间
         const maxDelta = Math.max(deltaX, deltaY);
@@ -2384,8 +2435,15 @@ async function updateLineChart(dailyStats) {
         const date = new Date(d.date);
         return `${date.getMonth() + 1}/${date.getDate()}`;
     });
-    const incomeData = (dailyStats || []).map(d => d.income);
-    const expenseData = (dailyStats || []).map(d => d.expense);
+    // 确保数据都是数字，将 null/undefined 转为 0，避免线段断裂
+    const incomeData = (dailyStats || []).map(d => {
+        const value = Number(d.income) || 0;
+        return isNaN(value) ? 0 : value;
+    });
+    const expenseData = (dailyStats || []).map(d => {
+        const value = Number(d.expense) || 0;
+        return isNaN(value) ? 0 : value;
+    });
     echartsLine.setOption({
         animation: true,
         animationDuration: 400,
@@ -2395,8 +2453,8 @@ async function updateLineChart(dailyStats) {
         xAxis: { type: 'category', boundaryGap: false, data: labels, axisLabel: { fontSize: 10, color: '#666' }, axisLine: { lineStyle: { color: '#e5e7eb' } }, axisTick: { show: false } },
         yAxis: { type: 'value', min: 0, axisLabel: { fontSize: 10, formatter: v => '¥' + v }, splitLine: { lineStyle: { color: 'rgba(0,0,0,0.05)' } }, axisLine: { show: false }, axisTick: { show: false } },
         series: [
-            { name: '收入', type: 'line', smooth: 0.35, data: incomeData, symbol: 'circle', symbolSize: 8, lineStyle: { width: 2.5, color: '#16a34a', cap: 'round', join: 'round' }, itemStyle: { color: '#16a34a', borderColor: '#fff', borderWidth: 1 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(22,163,74,0.2)' }, { offset: 1, color: 'rgba(22,163,74,0.03)' }] } }, emphasis: { focus: 'series', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } } },
-            { name: '支出', type: 'line', smooth: 0.35, data: expenseData, symbol: 'circle', symbolSize: 8, lineStyle: { width: 2.5, color: '#dc2626', cap: 'round', join: 'round' }, itemStyle: { color: '#dc2626', borderColor: '#fff', borderWidth: 1 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(220,38,38,0.2)' }, { offset: 1, color: 'rgba(220,38,38,0.03)' }] } }, emphasis: { focus: 'series', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } } }
+            { name: '收入', type: 'line', smooth: 0.35, data: incomeData, connectNulls: true, symbol: 'circle', symbolSize: 8, lineStyle: { width: 2.5, color: '#16a34a', cap: 'round', join: 'round' }, itemStyle: { color: '#16a34a', borderColor: '#fff', borderWidth: 1 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(22,163,74,0.2)' }, { offset: 1, color: 'rgba(22,163,74,0.03)' }] } }, emphasis: { focus: 'series', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } } },
+            { name: '支出', type: 'line', smooth: 0.35, data: expenseData, connectNulls: true, symbol: 'circle', symbolSize: 8, lineStyle: { width: 2.5, color: '#dc2626', cap: 'round', join: 'round' }, itemStyle: { color: '#dc2626', borderColor: '#fff', borderWidth: 1 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(220,38,38,0.2)' }, { offset: 1, color: 'rgba(220,38,38,0.03)' }] } }, emphasis: { focus: 'series', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } } }
         ],
         tooltip: {
             show: false // 禁用默认 tooltip
@@ -2499,7 +2557,7 @@ async function updateLineChart(dailyStats) {
                 }
             }
             showDateDetailTooltip(date, categoryGroups, ev);
-        }, 30); // 进一步减少防抖时间，让响应更灵敏
+        }, 16); // 减少防抖时间到16ms（约60fps），让响应更灵敏
     });
     
     // 鼠标离开图表时隐藏 tooltip
@@ -2555,6 +2613,7 @@ async function updateLineChart(dailyStats) {
         touchStartX = touch.clientX;
         touchStartY = touch.clientY;
         isHorizontalSwipe = false;
+        isTouchMoving = false; // 触摸开始时重置标记
         
         const idx = getTouchDataIndex(touch);
         if (idx >= 0) {
@@ -2576,17 +2635,26 @@ async function updateLineChart(dailyStats) {
         // 判断是否为水平滑动（水平距离大于垂直距离的1.5倍）
         if (deltaX > deltaY * 1.5 && deltaX > 10) {
             isHorizontalSwipe = true;
+            isTouchMoving = true; // 标记正在触摸移动
             e.preventDefault(); // 只阻止水平滑动的默认行为
             
             const idx = getTouchDataIndex(touch);
             if (idx >= 0 && idx !== lastTouchIndex) {
                 lastTouchIndex = idx;
                 
-                // 立即更新，因为数据已经在缓存中
+                // 立即更新，因为数据已经在缓存中，使用即时定位
                 const date = currentDailyStats[idx].date;
                 const categoryGroups = dailyRecordsCache[date] || [];
                 if (categoryGroups.length > 0) {
                     showDateDetailTooltip(date, categoryGroups, e);
+                }
+            } else if (idx >= 0) {
+                // 即使索引没变化，也要更新位置，让tooltip跟随手指
+                const tooltipEl = document.getElementById('date-detail-tooltip');
+                if (tooltipEl) {
+                    const x = touch.clientX;
+                    const y = touch.clientY;
+                    positionTooltipInstant(tooltipEl, x, y, false);
                 }
             }
         }
@@ -2594,6 +2662,7 @@ async function updateLineChart(dailyStats) {
     }, { passive: false });
     
     dom.addEventListener('touchend', function() {
+        isTouchMoving = false; // 触摸结束，重置标记
         if (touchMoveTimer) {
             clearTimeout(touchMoveTimer);
             touchMoveTimer = null;
