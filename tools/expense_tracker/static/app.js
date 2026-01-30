@@ -260,6 +260,39 @@ function setChartPlaceholder(domId, message, isError) {
     dom.innerHTML = '<div class="chart-placeholder' + (isError ? ' chart-placeholder-error' : '') + '">' + (message || '暂无数据') + '</div>';
 }
 
+// 等待图表容器准备好（支持重试机制）
+function waitForChartContainer(domId, maxRetries = 10, retryDelay = 50) {
+    return new Promise((resolve, reject) => {
+        const dom = document.getElementById(domId);
+        if (!dom) {
+            reject(new Error(`图表容器 ${domId} 不存在`));
+            return;
+        }
+        
+        let retries = 0;
+        const checkContainer = () => {
+            const rect = dom.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+                resolve(dom);
+                return;
+            }
+            
+            retries++;
+            if (retries >= maxRetries) {
+                reject(new Error(`图表容器 ${domId} 未准备好`));
+                return;
+            }
+            
+            setTimeout(checkContainer, retryDelay);
+        };
+        
+        // 使用 requestAnimationFrame 确保DOM已渲染
+        requestAnimationFrame(() => {
+            requestAnimationFrame(checkContainer);
+        });
+    });
+}
+
 /** 将分类统计聚合为「前 N 项 + 其他」，便于分类多时图表更清晰 */
 function aggregateCategoryStats(categoryStats, options) {
     const maxVisible = options && options.maxVisible != null ? options.maxVisible : chartDisplayMaxVisible;
@@ -331,11 +364,6 @@ function getEChartsInitOpts() {
     const dpr = typeof window !== 'undefined' ? Math.max(2, window.devicePixelRatio || 1) : 2;
     return { renderer: 'svg', devicePixelRatio: dpr };
 }
-function ensureECharts() {
-    if (typeof echarts !== 'undefined') return Promise.resolve();
-    return new Promise((_, reject) => reject(new Error('ECharts 未加载')));
-}
-
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
     // 首先检查登录状态
@@ -502,15 +530,15 @@ async function switchMainTab(tabName) {
     // 滚动到页面顶部
     window.scrollTo({ top: 0, behavior: 'instant' });
     
-    // 切换到数据分析页面时确保 ECharts 可用（已通过 CDN 在 head 加载）
-    if (tabName === 'analysis') {
-        ensureECharts().catch(() => {});
-    }
-    
     // 根据标签页加载相应数据
     if (tabName === 'analysis') {
-        updateDatePickerDisplay(); // 更新日期选择器显示
-        loadAnalysisData();
+        // 等待DOM渲染完成后再加载数据，确保图表容器已准备好
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                updateDatePickerDisplay(); // 更新日期选择器显示
+                loadAnalysisData();
+            });
+        });
     } else if (tabName === 'records') {
         loadRecords();
     } else if (tabName === 'home') {
@@ -859,8 +887,6 @@ function getCurrentAnalysisDateRange() {
 
 // 更新柱状图（对比分析）- ECharts SVG 渲染，移动端清晰
 async function updateBarChart(categoryStats) {
-    const dom = document.getElementById('bar-chart');
-    if (!dom) return;
     if (typeof echarts === 'undefined') {
         setChartPlaceholder('bar-chart', '图表加载失败，请刷新页面', true);
         return;
@@ -874,44 +900,52 @@ async function updateBarChart(categoryStats) {
     const sortedStats = aggregated.chartData;
     const total = aggregated.total;
     if (echartsBar) echartsBar.dispose();
-    dom.innerHTML = '';
-    echartsBar = echarts.init(dom, null, getEChartsInitOpts());
-    echartsBar.setOption({
-        animation: true,
-        animationDuration: 400,
-        animationEasing: 'cubicOut',
-        grid: { left: '8%', right: '4%', top: '8%', bottom: '15%', containLabel: true },
-        xAxis: { type: 'category', data: sortedStats.map(c => `${c.icon} ${c.name}`), axisLabel: { fontSize: 10, color: '#666', rotate: 25 }, axisTick: { show: false }, axisLine: { lineStyle: { color: '#e5e7eb' } } },
-        yAxis: { type: 'value', min: 0, axisLabel: { fontSize: 10, formatter: v => '¥' + v }, splitLine: { lineStyle: { color: 'rgba(0,0,0,0.05)' } }, axisLine: { show: false }, axisTick: { show: false } },
-        series: [{
-            type: 'bar',
-            data: sortedStats.map((c, i) => ({ value: c.amount, itemStyle: { color: c.color } })),
-            barMaxWidth: 44,
-            barBorderRadius: [10, 10, 0, 0],
-            emphasis: { focus: 'self', itemStyle: { borderColor: '#fff', borderWidth: 2 } }
-        }],
-        tooltip: {
-            trigger: 'axis',
-            backgroundColor: 'rgba(0,0,0,0.85)',
-            borderColor: 'rgba(255,255,255,0.1)',
-            textStyle: { fontSize: 12 },
-            formatter: function(params) {
-                if (!params || !params[0]) return '';
-                const idx = params[0].dataIndex;
-                const cat = sortedStats[idx];
-                const val = cat.amount;
-                const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
-                return `金额: ¥${val.toFixed(2)} (${pct}%)`;
+    
+    // 等待容器准备好后再初始化
+    try {
+        const dom = await waitForChartContainer('bar-chart', 20, 50);
+        dom.innerHTML = '';
+        echartsBar = echarts.init(dom, null, getEChartsInitOpts());
+        echartsBar.setOption({
+            animation: true,
+            animationDuration: 400,
+            animationEasing: 'cubicOut',
+            grid: { left: '8%', right: '4%', top: '8%', bottom: '15%', containLabel: true },
+            xAxis: { type: 'category', data: sortedStats.map(c => `${c.icon} ${c.name}`), axisLabel: { fontSize: 10, color: '#666', rotate: 25 }, axisTick: { show: false }, axisLine: { lineStyle: { color: '#e5e7eb' } } },
+            yAxis: { type: 'value', min: 0, axisLabel: { fontSize: 10, formatter: v => '¥' + v }, splitLine: { lineStyle: { color: 'rgba(0,0,0,0.05)' } }, axisLine: { show: false }, axisTick: { show: false } },
+            series: [{
+                type: 'bar',
+                data: sortedStats.map((c, i) => ({ value: c.amount, itemStyle: { color: c.color } })),
+                barMaxWidth: 44,
+                barBorderRadius: [10, 10, 0, 0],
+                emphasis: { focus: 'self', itemStyle: { borderColor: '#fff', borderWidth: 2 } }
+            }],
+            tooltip: {
+                trigger: 'axis',
+                backgroundColor: 'rgba(0,0,0,0.85)',
+                borderColor: 'rgba(255,255,255,0.1)',
+                textStyle: { fontSize: 12 },
+                formatter: function(params) {
+                    if (!params || !params[0]) return '';
+                    const idx = params[0].dataIndex;
+                    const cat = sortedStats[idx];
+                    const val = cat.amount;
+                    const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+                    return `金额: ¥${val.toFixed(2)} (${pct}%)`;
+                }
             }
-        }
-    });
-    echartsBar.on('click', function(params) {
-        const idx = params.dataIndex;
-        const cat = sortedStats[idx];
-        if (!cat) return;
-        if (cat._isOther && cat._others && cat._others.length > 0) openOthersDetailModal(cat._others, total);
-        else openCategoryDetailFromBarChart(cat);
-    });
+        });
+        echartsBar.on('click', function(params) {
+            const idx = params.dataIndex;
+            const cat = sortedStats[idx];
+            if (!cat) return;
+            if (cat._isOther && cat._others && cat._others.length > 0) openOthersDetailModal(cat._others, total);
+            else openCategoryDetailFromBarChart(cat);
+        });
+    } catch (error) {
+        console.error('初始化柱状图失败:', error);
+        setChartPlaceholder('bar-chart', '图表加载失败，请刷新页面', true);
+    }
 }
 
 // 从柱状图打开某个分类的明细（趋势 + 记录列表）
@@ -2410,8 +2444,6 @@ function hideDateDetailTooltip() {
 }
 
 async function updateLineChart(dailyStats) {
-    const dom = document.getElementById('line-chart');
-    if (!dom) return;
     if (typeof echarts === 'undefined') {
         setChartPlaceholder('line-chart', '图表加载失败，请刷新页面', true);
         return;
@@ -2429,7 +2461,6 @@ async function updateLineChart(dailyStats) {
     preloadDailyCategoryData(dailyStats);
     
     if (echartsLine) echartsLine.dispose();
-    dom.innerHTML = '';
     
     // 检测是否为移动端（在函数内部定义，确保作用域正确）
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth <= 768);
@@ -2439,27 +2470,10 @@ async function updateLineChart(dailyStats) {
         ? { focus: 'series', scale: false, itemStyle: { borderColor: '#fff', borderWidth: 1 } }  // 移动端禁用scale，避免显示放大点
         : { focus: 'series', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } };  // 桌面端保持原样
     
-    // 确保容器有尺寸后再初始化（避免显示不全）
-    const rect = dom.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) {
-        // 如果容器尺寸为0，延迟初始化
-        setTimeout(() => {
-            if (dom && dom.getBoundingClientRect().width > 0) {
-                try {
-                    echartsLine = echarts.init(dom, null, getEChartsInitOpts());
-                    continueLineChartSetup(emphasisConfig);
-                } catch (error) {
-                    console.error('初始化折线图失败:', error);
-                    setChartPlaceholder('line-chart', '图表加载失败，请刷新页面', true);
-                }
-            } else {
-                setChartPlaceholder('line-chart', '图表容器未准备好，请刷新页面', true);
-            }
-        }, 100);
-        return;
-    }
-    
+    // 等待容器准备好后再初始化
     try {
+        const dom = await waitForChartContainer('line-chart', 20, 50);
+        dom.innerHTML = '';
         echartsLine = echarts.init(dom, null, getEChartsInitOpts());
         continueLineChartSetup(emphasisConfig);
     } catch (error) {
@@ -2804,8 +2818,6 @@ function continueLineChartSetup(emphasisConfig) {
 
 // 更新饼图（支出分类）- ECharts SVG 渲染，移动端清晰
 async function updatePieChart(categoryStats) {
-    const dom = document.getElementById('pie-chart');
-    if (!dom) return;
     if (typeof echarts === 'undefined') {
         setChartPlaceholder('pie-chart', '图表加载失败，请刷新页面', true);
         return;
@@ -2819,8 +2831,12 @@ async function updatePieChart(categoryStats) {
     const chartData = aggregated.chartData;
     const total = aggregated.total;
     if (echartsPie) echartsPie.dispose();
-    dom.innerHTML = '';
-    echartsPie = echarts.init(dom, null, getEChartsInitOpts());
+    
+    // 等待容器准备好后再初始化
+    try {
+        const dom = await waitForChartContainer('pie-chart', 20, 50);
+        dom.innerHTML = '';
+        echartsPie = echarts.init(dom, null, getEChartsInitOpts());
     const pieData = chartData.map((c, i) => ({
         name: `${c.icon} ${c.name} ${total > 0 ? ((c.amount / total) * 100).toFixed(1) : 0}%`,
         value: c.amount,
@@ -2855,11 +2871,15 @@ async function updatePieChart(categoryStats) {
             }
         }
     });
-    echartsPie.off('click');
-    echartsPie.on('click', function(params) {
-        const item = params.data;
-        if (item && item._isOther && item._others && item._others.length > 0) openOthersDetailModal(item._others, total);
-    });
+        echartsPie.off('click');
+        echartsPie.on('click', function(params) {
+            const item = params.data;
+            if (item && item._isOther && item._others && item._others.length > 0) openOthersDetailModal(item._others, total);
+        });
+    } catch (error) {
+        console.error('初始化饼图失败:', error);
+        setChartPlaceholder('pie-chart', '图表加载失败，请刷新页面', true);
+    }
 }
 
 // 加载记录列表
