@@ -57,6 +57,29 @@
                     <input type="hidden" id="record-type" name="type" value="expense" required>
                     <input type="hidden" id="category-selected-value" name="category" value="">
                     
+                    <!-- 日期选择区域 -->
+                    <div class="date-select-section">
+                        <div class="date-select-label">记账日期</div>
+                        <div class="date-quick-buttons">
+                            <button type="button" class="date-quick-btn" data-offset="-2">
+                                <span class="date-quick-day">前天</span>
+                            </button>
+                            <button type="button" class="date-quick-btn" data-offset="-1">
+                                <span class="date-quick-day">昨天</span>
+                            </button>
+                            <button type="button" class="date-quick-btn active" data-offset="0">
+                                <span class="date-quick-day">今天</span>
+                            </button>
+                            <button type="button" class="date-quick-btn date-custom-btn" id="date-custom-btn">
+                                <span class="date-quick-icon">📅</span>
+                                <span class="date-quick-day">选择</span>
+                            </button>
+                        </div>
+                        <div class="date-display" id="date-display">
+                            <span class="date-display-text" id="date-display-text">2026年2月4日</span>
+                        </div>
+                    </div>
+                    
                     <!-- 类型选择 -->
                     <div class="form-compact-row">
                         <div class="type-selector-compact">

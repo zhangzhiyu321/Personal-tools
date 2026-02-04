@@ -4573,6 +4573,150 @@ function handleNumberKeyPress(key) {
 }
 
 
+// ========== 日期选择功能 ==========
+let selectedDateOffset = 0; // 0=今天, -1=昨天, -2=前天, null=自定义
+let customSelectedDate = null; // 自定义选择的日期
+
+// 初始化日期选择
+function initDateSelection() {
+    const today = new Date();
+    updateDateDisplay(today);
+    const recordDateInput = document.getElementById('record-date');
+    if (recordDateInput) {
+        recordDateInput.value = getLocalDateString(today);
+    }
+    
+    // 绑定快速日期按钮
+    document.querySelectorAll('.date-quick-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            if (this.classList.contains('date-custom-btn')) {
+                // 打开自定义日期选择器
+                openCustomDatePicker();
+            } else {
+                // 快速选择（今天、昨天、前天）
+                const offset = parseInt(this.dataset.offset);
+                selectDateByOffset(offset);
+            }
+        });
+    });
+}
+
+// 在页面加载时初始化日期选择
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDateSelection);
+} else {
+    initDateSelection();
+}
+
+// 根据偏移量选择日期
+function selectDateByOffset(offset) {
+    selectedDateOffset = offset;
+    customSelectedDate = null;
+    
+    const date = new Date();
+    date.setDate(date.getDate() + offset);
+    
+    updateDateDisplay(date);
+    document.getElementById('record-date').value = getLocalDateString(date);
+    
+    // 更新按钮状态
+    document.querySelectorAll('.date-quick-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.offset === offset.toString()) {
+            btn.classList.add('active');
+        }
+    });
+}
+
+// 打开自定义日期选择器
+function openCustomDatePicker() {
+    const modal = ensureDatePickerModal();
+    const input = document.getElementById('date-picker-input');
+    
+    // 设置当前选择的日期
+    if (customSelectedDate) {
+        input.value = customSelectedDate;
+    } else {
+        const date = new Date();
+        date.setDate(date.getDate() + selectedDateOffset);
+        input.value = getLocalDateString(date);
+    }
+    
+    modal.classList.add('show');
+    
+    // 聚焦输入框
+    setTimeout(() => {
+        input.focus();
+    }, 100);
+}
+
+// 确保日期选择器模态框存在
+function ensureDatePickerModal() {
+    const modal = document.getElementById('date-picker-modal');
+    if (!modal) return null;
+    
+    // 只绑定一次事件
+    if (!modal.dataset.initialized) {
+        const confirmBtn = document.getElementById('date-picker-confirm');
+        const cancelBtn = document.getElementById('date-picker-cancel');
+        const input = document.getElementById('date-picker-input');
+        
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', () => {
+                const selectedDate = input.value;
+                if (selectedDate) {
+                    customSelectedDate = selectedDate;
+                    selectedDateOffset = null;
+                    
+                    const date = new Date(selectedDate + 'T00:00:00');
+                    updateDateDisplay(date);
+                    document.getElementById('record-date').value = selectedDate;
+                    
+                    // 更新按钮状态
+                    document.querySelectorAll('.date-quick-btn').forEach(btn => {
+                        btn.classList.remove('active');
+                    });
+                    document.querySelector('.date-custom-btn').classList.add('active');
+                    
+                    modal.classList.remove('show');
+                }
+            });
+        }
+        
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                modal.classList.remove('show');
+            });
+        }
+        
+        // 点击背景关闭
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.classList.remove('show');
+            }
+        });
+        
+        modal.dataset.initialized = 'true';
+    }
+    
+    return modal;
+}
+
+// 更新日期显示
+function updateDateDisplay(date) {
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+    const weekday = weekdays[date.getDay()];
+    
+    const displayText = `${year}年${month}月${day}日 星期${weekday}`;
+    const displayEl = document.getElementById('date-display-text');
+    if (displayEl) {
+        displayEl.textContent = displayText;
+    }
+}
+
 // 添加动画样式（如果不存在）
 if (!document.getElementById('expense-tracker-animations')) {
     const style = Object.assign(document.createElement('style'), {
