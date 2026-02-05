@@ -1469,22 +1469,16 @@ let numberKeyboardExpression = '';
 
 // 绑定事件
 function bindEvents() {
-    // 记账按钮点击事件 - 打开键盘
+    // 记账按钮点击事件 - 先打开记账流程（选分类），选完再进金额
     const btnOpenKeyboard = document.getElementById('btn-open-keyboard');
     if (btnOpenKeyboard) {
         btnOpenKeyboard.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            // 检查是否选择了分类
-            const categoryValue = document.getElementById('category-selected-value').value;
-            if (!categoryValue) {
-                customAlert('请先选择分类', '提示', 'warning');
-                return;
-            }
-            // 打开键盘
-            openNumberKeyboard('record-amount');
+            openRecordFlow();
         });
     }
+    bindRecordFlowEvents();
     
     // 编辑模态框中的金额输入框
     const editAmountInput = document.getElementById('edit-amount');
@@ -1541,18 +1535,21 @@ function bindEvents() {
     // 初始化键盘事件
     initKeyboardEvents();
     
-    // 类型切换按钮
+    // 类型切换按钮（首页与记账流程内共用，流程内需同步更新流程分类列表）
     document.querySelectorAll('.type-btn-compact').forEach(btn => {
         btn.addEventListener('click', function() {
-            // 移除所有active类
-            document.querySelectorAll('.type-btn-compact').forEach(b => b.classList.remove('active'));
-            // 添加active类到当前按钮
+            // 移除同组 active：首页一组，流程内一组
+            const isFlow = this.dataset.context === 'record-flow';
+            document.querySelectorAll(isFlow ? '.type-btn-compact[data-context="record-flow"]' : '.type-btn-compact:not([data-context])').forEach(b => b.classList.remove('active'));
             this.classList.add('active');
-            // 更新隐藏输入框的值
             const type = this.dataset.type;
             document.getElementById('record-type').value = type;
-            // 更新分类选择器
-            updateCategorySelector();
+            if (isFlow) {
+                updateRecordFlowCategorySelector();
+                document.querySelectorAll('.type-btn-compact:not([data-context])').forEach(b => b.classList.toggle('active', b.dataset.type === type));
+            } else {
+                document.querySelectorAll('.type-btn-compact[data-context="record-flow"]').forEach(b => b.classList.toggle('active', b.dataset.type === type));
+            }
         });
     });
     
@@ -1692,125 +1689,134 @@ async function loadCategories() {
     try {
         const response = await authFetch(`${API_BASE}/categories`);
         categories = await response.json();
-        updateCategorySelector();
         updateEditCategorySelect();
     } catch (error) {
         console.error('加载分类失败:', error);
     }
 }
 
-// 更新分类选择器
-function updateCategorySelector() {
+// ========== 记账流程（先选分类 → 再输入金额）==========
+function openRecordFlow() {
+    const overlay = document.getElementById('record-flow-overlay');
+    const sheet = document.getElementById('record-flow-sheet');
+    if (!overlay || !sheet) return;
+    document.getElementById('category-selected-value').value = '';
+    sheet.classList.remove('record-flow-step-2-active');
+    const btnNext = document.getElementById('record-flow-btn-next');
+    if (btnNext) btnNext.disabled = true;
+    updateRecordFlowCategorySelector();
+    overlay.classList.add('show');
+    overlay.setAttribute('aria-hidden', 'false');
+}
+
+function closeRecordFlow() {
+    const overlay = document.getElementById('record-flow-overlay');
+    const sheet = document.getElementById('record-flow-sheet');
+    if (!overlay || !sheet) return;
+    overlay.classList.remove('show');
+    overlay.setAttribute('aria-hidden', 'true');
+    sheet.classList.remove('record-flow-step-2-active');
+    closeNumberKeyboard();
+}
+
+function goToRecordFlowStep2() {
+    const sheet = document.getElementById('record-flow-sheet');
+    const categoryValue = document.getElementById('category-selected-value').value;
+    if (!categoryValue || !sheet) return;
     const typeInput = document.getElementById('record-type');
     const type = typeInput ? typeInput.value : 'expense';
     const categoryList = categories[type] || [];
-    const container = document.getElementById('category-selector');
-    
+    const cat = categoryList.find(c => (c.id && c.id.toString() === categoryValue) || c.name === categoryValue);
+    const name = cat ? (cat.name || cat.id) : categoryValue;
+    const icon = cat ? (cat.icon || '') : '';
+    const el = document.getElementById('record-flow-selected-category');
+    if (el) el.innerHTML = `<span class="category-btn-icon">${icon}</span><span>${name}</span>`;
+    sheet.classList.add('record-flow-step-2-active');
+    const amountVal = document.getElementById('record-amount').value;
+    const displayVal = (amountVal && amountVal !== '0') ? parseFloat(amountVal.replace(/[¥\s]/g, '')).toFixed(2) : '0.00';
+    const amountValueEl = document.getElementById('record-flow-amount-value');
+    if (amountValueEl) amountValueEl.textContent = displayVal;
+    setTimeout(function() {
+        openNumberKeyboard('record-amount');
+    }, 320);
+}
+
+function goToRecordFlowStep1() {
+    const sheet = document.getElementById('record-flow-sheet');
+    if (!sheet) return;
+    closeNumberKeyboard();
+    sheet.classList.remove('record-flow-step-2-active');
+    const btnNext = document.getElementById('record-flow-btn-next');
+    const categoryValue = document.getElementById('category-selected-value').value;
+    if (btnNext) btnNext.disabled = !categoryValue;
+}
+
+function updateRecordFlowCategorySelector() {
+    const typeInput = document.getElementById('record-type');
+    const type = typeInput ? typeInput.value : 'expense';
+    const categoryList = categories[type] || [];
+    const container = document.getElementById('record-flow-category-selector');
     if (!container) return;
-    
-    // 按 sort_order 降序排序（置顶的显示在前面）
     const sortedList = [...categoryList].sort((a, b) => {
-        const orderA = a.sort_order || 0;
-        const orderB = b.sort_order || 0;
-        if (orderA !== orderB) {
-            return orderB - orderA; // 降序
-        }
-        return (a.id || 0) - (b.id || 0); // 如果 sort_order 相同，按 id 升序
+        const orderA = a.sort_order || 0, orderB = b.sort_order || 0;
+        if (orderA !== orderB) return orderB - orderA;
+        return (a.id || 0) - (b.id || 0);
     });
-    
-    // 生成所有分类按钮（不限制数量，通过CSS限制可视区域）
     container.innerHTML = sortedList.map(cat => {
         const isOther = cat.name === '其他';
-        return `
-            <button type="button" class="category-btn ${isOther ? 'category-other' : ''}" 
-                    data-category="${cat.id || cat.name}" 
-                    data-color="${cat.color}"
-                    data-is-other="${isOther}">
-                <span class="category-btn-icon">${cat.icon}</span>
-                <span class="category-btn-text">${cat.name}</span>
-            </button>
-        `;
+        return `<button type="button" class="category-btn ${isOther ? 'category-other' : ''}" data-category="${cat.id || cat.name}" data-color="${cat.color}" data-is-other="${isOther}">
+            <span class="category-btn-icon">${cat.icon}</span>
+            <span class="category-btn-text">${cat.name}</span>
+        </button>`;
     }).join('');
-    
-    // 默认选中第一个
-    if (categoryList.length > 0) {
-        const firstBtn = container.querySelector('.category-btn');
-        if (firstBtn) {
-            firstBtn.classList.add('active');
-            const categoryId = firstBtn.dataset.category;
-            document.getElementById('category-selected-value').value = categoryId;
-        }
-    }
-    
-    // 绑定点击事件
     container.querySelectorAll('.category-btn').forEach(btn => {
         const isOther = btn.dataset.isOther === 'true';
-        
-        // 普通点击：选择分类
         btn.addEventListener('click', function(e) {
-            // 如果是"其他"分类，检查是否是按住Ctrl/Cmd键点击
             if (isOther && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
-                e.stopPropagation();
                 openCategoryModal();
                 return;
             }
-            
-            // 选择分类
             container.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
             this.classList.add('active');
-            const categoryId = this.dataset.category;
-            document.getElementById('category-selected-value').value = categoryId;
+            document.getElementById('category-selected-value').value = this.dataset.category;
+            const btnNext = document.getElementById('record-flow-btn-next');
+            if (btnNext) btnNext.disabled = false;
         });
-        
-        // 长按"其他"按钮打开分类管理（移动端和桌面端）
-        let longPressTimer = null;
-        
         if (isOther) {
-            btn.addEventListener('mousedown', function(e) {
-                longPressTimer = setTimeout(() => {
-                    e.preventDefault();
-                    openCategoryModal();
-                    longPressTimer = null;
-                }, 800); // 800ms长按
+            btn.addEventListener('contextmenu', function(e) { e.preventDefault(); openCategoryModal(); });
+            let longPressTimer = null;
+            btn.addEventListener('mousedown', function() {
+                longPressTimer = setTimeout(function() { longPressTimer = null; openCategoryModal(); }, 800);
             });
-            
-            btn.addEventListener('mouseup', function() {
-                if (longPressTimer) {
-                    clearTimeout(longPressTimer);
-                    longPressTimer = null;
-                }
-            });
-            
-            btn.addEventListener('mouseleave', function() {
-                if (longPressTimer) {
-                    clearTimeout(longPressTimer);
-                    longPressTimer = null;
-                }
-            });
-            
-            // 触摸事件（移动端）
+            btn.addEventListener('mouseup', function() { if (longPressTimer) clearTimeout(longPressTimer); longPressTimer = null; });
+            btn.addEventListener('mouseleave', function() { if (longPressTimer) clearTimeout(longPressTimer); longPressTimer = null; });
             btn.addEventListener('touchstart', function(e) {
-                longPressTimer = setTimeout(() => {
-                    e.preventDefault();
-                    openCategoryModal();
-                    longPressTimer = null;
-                }, 800);
+                longPressTimer = setTimeout(function() { e.preventDefault(); longPressTimer = null; openCategoryModal(); }, 800);
             });
-            
-            btn.addEventListener('touchend', function() {
-                if (longPressTimer) {
-                    clearTimeout(longPressTimer);
-                    longPressTimer = null;
-                }
-            });
-            
-            // 右键点击"其他"按钮打开分类管理（桌面端）
-            btn.addEventListener('contextmenu', function(e) {
-                e.preventDefault();
-                openCategoryModal();
-            });
+            btn.addEventListener('touchend', function() { if (longPressTimer) clearTimeout(longPressTimer); longPressTimer = null; });
         }
+    });
+    // 切换类型后清空选择，需重新选分类
+    document.getElementById('category-selected-value').value = '';
+    const btnNext = document.getElementById('record-flow-btn-next');
+    if (btnNext) btnNext.disabled = true;
+}
+
+function bindRecordFlowEvents() {
+    const btnClose = document.getElementById('record-flow-close');
+    const btnBack = document.getElementById('record-flow-back');
+    const btnNext = document.getElementById('record-flow-btn-next');
+    const amountTap = document.getElementById('record-flow-amount-tap');
+    if (btnClose) btnClose.addEventListener('click', closeRecordFlow);
+    if (btnBack) btnBack.addEventListener('click', goToRecordFlowStep1);
+    if (btnNext) btnNext.addEventListener('click', function() {
+        const categoryValue = document.getElementById('category-selected-value').value;
+        if (!categoryValue) return;
+        goToRecordFlowStep2();
+    });
+    if (amountTap) amountTap.addEventListener('click', function() {
+        openNumberKeyboard('record-amount');
     });
 }
 
@@ -1928,7 +1934,6 @@ async function handleAddRecord(e) {
                 }
             });
             document.getElementById('record-type').value = 'expense';
-            updateCategorySelector();
             
             // 重新加载数据
             loadStatistics();
@@ -4451,6 +4456,8 @@ async function submitRecordFromKeyboard() {
     
     // 提交表单
     await handleAddRecord(null);
+    // 关闭记账流程浮层
+    closeRecordFlow();
 }
 
 // 更新数字键盘显示
@@ -4462,6 +4469,15 @@ function updateNumberKeyboardDisplay() {
             display.textContent = numberKeyboardExpression + numberKeyboardValue;
         } else {
             display.textContent = numberKeyboardValue;
+        }
+    }
+    // 同步记账流程 Step2 的金额展示（与键盘联动）
+    const flowAmountEl = document.getElementById('record-flow-amount-value');
+    if (flowAmountEl) {
+        if (numberKeyboardExpression) {
+            flowAmountEl.textContent = numberKeyboardExpression + numberKeyboardValue;
+        } else {
+            flowAmountEl.textContent = numberKeyboardValue;
         }
     }
 }

@@ -627,10 +627,6 @@ input, textarea {
     width: 100%;
 }
 
-.form-group.full-width .category-selector {
-    width: 100%;
-}
-
 .form-group label {
     font-size: 11px;
     color: #666;
@@ -777,47 +773,7 @@ input, textarea {
     line-height: 1;
 }
 
-/* 分类选择器包装器 - 可滚动容器 */
-.category-selector-wrapper {
-    width: 100%;
-    max-height: 189px; /* 精确3行：55px(按钮) * 3 + 6px(gap) * 2 + 12px(padding上下) = 189px */
-    overflow-y: auto;
-    overflow-x: hidden;
-    border: 1px solid #f0f1f3; /* 更淡的边框 */
-    border-radius: 8px;
-    background: #f9fafb; /* 更柔和的背景 */
-    padding: 6px; /* 减小内边距 */
-    scrollbar-width: thin;
-    scrollbar-color: #d1d5db #f9fafb; /* 更柔和的滚动条颜色 */
-}
-
-.category-selector-wrapper::-webkit-scrollbar {
-    width: 6px;
-}
-
-.category-selector-wrapper::-webkit-scrollbar-track {
-    background: #fafafa;
-    border-radius: 3px;
-}
-
-.category-selector-wrapper::-webkit-scrollbar-thumb {
-    background: #d9d9d9;
-    border-radius: 3px;
-}
-
-.category-selector-wrapper::-webkit-scrollbar-thumb:hover {
-    background: #bfbfbf;
-}
-
-/* 分类选择器 - 4列网格布局 */
-.category-selector {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr); /* 4列 */
-    gap: 6px; /* 减小间距，压缩空间 */
-    width: 100%;
-}
-
-
+/* 分类按钮（记账流程全页内使用） */
 .category-btn {
     padding: 8px 4px; /* 减小内边距，让按钮更窄 */
     border: 1px solid #e5e7eb; /* 更淡的边框 */
@@ -2285,15 +2241,6 @@ input, textarea {
         font-size: 11px; /* 移动端文字稍大 */
     }
     
-    /* 移动端分类选择器调整为3列 */
-    .category-selector {
-        grid-template-columns: repeat(3, 1fr);
-    }
-    
-    .category-selector-wrapper {
-        max-height: 189px; /* 精确3行：55px(按钮) * 3 + 6px(gap) * 2 + 12px(padding上下) = 189px */
-    }
-
     .stats-cards {
         grid-template-columns: 1fr;
         gap: 6px;
@@ -3033,6 +2980,241 @@ input, textarea {
     .icon-grid {
         grid-template-columns: repeat(6, 1fr);
     }
+}
+
+/* ========== 记账流程全页（先选分类 → 再输入金额，整页展示）========== */
+.record-flow-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1980;
+    width: 100%;
+    height: 100%;
+    height: 100dvh;
+    background: #fefefe;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+
+.record-flow-overlay.show {
+    pointer-events: auto;
+    opacity: 1;
+    visibility: visible;
+}
+
+.record-flow-sheet {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+.record-flow-steps {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+.record-flow-step {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 16px 20px 24px;
+    padding-top: max(16px, env(safe-area-inset-top));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    box-sizing: border-box;
+    transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.3s ease;
+}
+
+.record-flow-step-1 {
+    transform: translateX(0);
+    opacity: 1;
+}
+
+.record-flow-step-2 {
+    transform: translateX(100%);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.record-flow-sheet.record-flow-step-2-active .record-flow-step-1 {
+    transform: translateX(-100%);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.record-flow-sheet.record-flow-step-2-active .record-flow-step-2 {
+    transform: translateX(0);
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.record-flow-step-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    min-height: 36px;
+}
+
+.record-flow-step-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #374151;
+}
+
+.record-flow-close {
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: transparent;
+    font-size: 24px;
+    line-height: 1;
+    color: #6b7280;
+    cursor: pointer;
+    border-radius: 50%;
+    transition: background 0.2s, color 0.2s;
+}
+
+.record-flow-close:hover {
+    background: #f3f4f6;
+    color: #374151;
+}
+
+.record-flow-close-placeholder {
+    width: 36px;
+    height: 36px;
+}
+
+.record-flow-back {
+    background: none;
+    border: none;
+    font-size: 14px;
+    color: #3b82f6;
+    cursor: pointer;
+    padding: 8px 0;
+    transition: opacity 0.2s;
+}
+
+.record-flow-back:hover {
+    opacity: 0.8;
+}
+
+.record-flow-type-row {
+    margin-bottom: 14px;
+}
+
+.record-flow-category-wrapper {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    margin-bottom: 16px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.record-flow-category-selector {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    width: 100%;
+}
+
+.record-flow-category-selector .category-btn {
+    min-height: 64px;
+    padding: 10px 6px;
+    font-size: 13px;
+}
+
+.record-flow-category-selector .category-btn-icon {
+    font-size: 22px;
+}
+
+.record-flow-category-selector .category-btn-text {
+    font-size: 12px;
+}
+
+.record-flow-btn-next {
+    width: 100%;
+    padding: 16px;
+    font-size: 16px;
+    border-radius: 14px;
+    transition: background 0.2s, transform 0.1s, opacity 0.3s;
+}
+
+.record-flow-btn-next:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.record-flow-selected-category {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1d4ed8;
+}
+
+.record-flow-selected-category .category-btn-icon {
+    font-size: 20px;
+}
+
+.record-flow-amount-tap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 28px 20px;
+    margin-bottom: 12px;
+    background: #f8fafc;
+    border: 2px dashed #e2e8f0;
+    border-radius: 16px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.record-flow-amount-tap:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+}
+
+.record-flow-amount-tap .record-flow-amount-prefix {
+    font-size: 18px;
+    color: #64748b;
+    margin-right: 4px;
+}
+
+.record-flow-amount-tap .record-flow-amount-value {
+    font-size: 36px;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: 0.02em;
+}
+
+.record-flow-amount-hint {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 8px;
+}
+
+.record-flow-note-hint {
+    font-size: 12px;
+    color: #94a3b8;
+    margin: 0;
+    text-align: center;
 }
 
 /* 自定义键盘样式 */

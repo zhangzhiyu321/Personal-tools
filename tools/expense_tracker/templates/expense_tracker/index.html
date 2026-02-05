@@ -87,15 +87,6 @@
                         </div>
                     </div>
                     
-                    <!-- 分类选择 -->
-                    <div class="category-section-compact">
-                        <div class="category-selector-wrapper">
-                            <div id="category-selector" class="category-selector">
-                                <!-- 动态生成分类按钮 -->
-                            </div>
-                        </div>
-                    </div>
-                    
                     <!-- 隐藏的金额和备注输入框（用于表单提交） -->
                     <input type="hidden" id="record-amount" name="amount" required>
                     <input type="hidden" id="record-note" name="note">
@@ -107,6 +98,56 @@
                         </button>
                     </div>
                 </form>
+            </div>
+
+            <!-- 记账流程全页：先选分类，再输入金额（整页展示，非弹窗） -->
+            <div id="record-flow-overlay" class="record-flow-overlay" aria-hidden="true">
+                <div class="record-flow-sheet" id="record-flow-sheet">
+                    <div class="record-flow-steps">
+                        <!-- Step1: 选择分类 -->
+                        <div class="record-flow-step record-flow-step-1" id="record-flow-step-1">
+                            <div class="record-flow-step-header">
+                                <span class="record-flow-step-title">选择分类</span>
+                                <button type="button" class="record-flow-close" id="record-flow-close" aria-label="关闭">&times;</button>
+                            </div>
+                            <div class="record-flow-type-row">
+                                <div class="type-selector-compact record-flow-type-selector">
+                                    <button type="button" class="type-btn-compact active" data-type="expense" data-context="record-flow">
+                                        <span class="type-icon">💸</span>
+                                        <span>支出</span>
+                                    </button>
+                                    <button type="button" class="type-btn-compact" data-type="income" data-context="record-flow">
+                                        <span class="type-icon">💰</span>
+                                        <span>收入</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="record-flow-category-wrapper">
+                                <div id="record-flow-category-selector" class="record-flow-category-selector">
+                                    <!-- 动态生成分类按钮 -->
+                                </div>
+                            </div>
+                            <button type="button" class="btn-primary-compact record-flow-btn-next" id="record-flow-btn-next" disabled>
+                                <span>记账</span>
+                            </button>
+                        </div>
+                        <!-- Step2: 输入金额 -->
+                        <div class="record-flow-step record-flow-step-2" id="record-flow-step-2">
+                            <div class="record-flow-step-header">
+                                <button type="button" class="record-flow-back" id="record-flow-back" aria-label="返回">← 换分类</button>
+                                <span class="record-flow-step-title">输入金额</span>
+                                <span class="record-flow-close-placeholder"></span>
+                            </div>
+                            <div class="record-flow-selected-category" id="record-flow-selected-category"></div>
+                            <div class="record-flow-amount-tap" id="record-flow-amount-tap">
+                                <span class="record-flow-amount-prefix">¥</span>
+                                <span class="record-flow-amount-value" id="record-flow-amount-value">0.00</span>
+                                <span class="record-flow-amount-hint">点击输入金额</span>
+                            </div>
+                            <p class="record-flow-note-hint">备注可在键盘区域填写</p>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- 今日记账记录 -->
