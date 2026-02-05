@@ -360,7 +360,6 @@ function init(authenticated) {
     initMainTabs();
     initTimeDimensionSelector();
     initRecordsDateFilter();
-    initDateSelection(); // 唯一入口：设置记账日期 + 绑定日期快捷按钮
 
     if (authenticated) {
         loadCategories().then(() => loadTodayRecords());
@@ -517,7 +516,6 @@ async function switchMainTab(tabName) {
     } else if (tabName === 'records') {
         loadRecords();
     } else if (tabName === 'home') {
-        resetDateToToday(); // 切回首页时记账日期默认今天，按钮与 record-date 同步
         loadStatistics();
         loadTodayRecords(); // 切换到首页时加载今日记录
     }
@@ -1443,8 +1441,6 @@ function bindEvents() {
     
     
     
-    // 日期选择器由 ensureDatePickerModal 在首次打开时创建并绑定，此处不绑定
-    
     // 记录列表：点击图标 → 改分类；点击名字 → 改备注；点击金额 → 改金额；点击空白 → 改日期；点击删除 → 删除
     const recordsListEl = document.getElementById('records-list');
     if (recordsListEl) {
@@ -1762,12 +1758,6 @@ async function handleAddRecord(e) {
     }
     
     const typeInput = document.getElementById('record-type');
-    // 确保日期是今天（如果没有设置）
-    const dateInput = document.getElementById('record-date');
-    if (!dateInput.value) {
-        dateInput.value = getLocalDateString();
-    }
-    
     const categoryValue = document.getElementById('category-selected-value').value;
     if (!categoryValue) {
         customAlert('请选择分类', '提示', 'warning');
@@ -1800,7 +1790,7 @@ async function handleAddRecord(e) {
     }
     
     const formData = {
-        date: dateInput.value,
+        date: getLocalDateString(),
         type: typeInput ? typeInput.value : 'expense',
         amount: amount,
         category: categoryName,
@@ -1822,9 +1812,6 @@ async function handleAddRecord(e) {
             
             // 重置表单
             document.getElementById('quick-add-form').reset();
-            // 重置日期为今天
-            const today = getLocalDateString();
-            document.getElementById('record-date').value = today;
             document.getElementById('record-amount').value = '';
             document.getElementById('record-note').value = '';
             // 重置键盘状态
@@ -4114,13 +4101,6 @@ function openNumberKeyboard(inputId = 'record-amount') {
     // 更新显示
     updateNumberKeyboardDisplay();
     
-    // 记账流程才显示日期行，编辑金额时隐藏；同步今天/昨天/前天选中态
-    const dateRow = document.getElementById('keyboard-date-row');
-    if (dateRow) {
-        dateRow.style.display = inputId === 'record-amount' ? 'flex' : 'none';
-        if (inputId === 'record-amount') syncKeyboardDateButtons();
-    }
-    
     // 显示键盘和背景遮罩
     keyboard.classList.add('show');
     const backdrop = document.getElementById('number-keyboard-backdrop');
@@ -4309,14 +4289,6 @@ function initKeyboardEvents() {
         });
     }
     
-    // 键盘内 今天/昨天/前天 点击切换记账日期
-    document.querySelectorAll('.keyboard-date-btn').forEach(btn => {
-        btn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            selectDateByOffset(parseInt(this.dataset.offset, 10));
-        });
-    });
-    
     // 点击键盘外部关闭
     document.addEventListener('click', function(e) {
         const numberKeyboard = document.getElementById('number-keyboard');
@@ -4408,131 +4380,8 @@ function handleNumberKeyPress(key) {
 }
 
 
-// ========== 日期选择功能（记账 / 记录列表改日期 / 编辑模态框共用同一弹窗）==========
-let selectedDateOffset = 0; // 0=今天, -1=昨天, -2=前天, null=自定义
-let customSelectedDate = null; // 自定义选择的日期
-// 外部调用时传入的回调（如记录列表改日期、编辑模态框选日期），确定时执行后清空；为 null 时走记账逻辑
+// ========== 日期选择功能（记录列表改日期 / 编辑模态框共用同一弹窗）==========
 let pendingDatePickerOnConfirm = null;
-
-// 初始化日期选择
-function initDateSelection() {
-    const today = new Date();
-    updateDateDisplay(today);
-    const recordDateInput = document.getElementById('record-date');
-    if (recordDateInput) {
-        recordDateInput.value = getLocalDateString(today);
-    }
-    
-    // 绑定快速日期按钮
-    document.querySelectorAll('.date-quick-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            if (this.classList.contains('date-custom-btn')) {
-                // 打开自定义日期选择器
-                openCustomDatePicker();
-            } else {
-                // 快速选择（今天、昨天、前天）
-                const offset = parseInt(this.dataset.offset);
-                selectDateByOffset(offset);
-            }
-        });
-    });
-}
-
-// 根据偏移量选择日期（首页快捷按钮 + 键盘内今天/昨天/前天）
-function selectDateByOffset(offset) {
-    selectedDateOffset = offset;
-    customSelectedDate = null;
-    
-    const date = new Date();
-    date.setDate(date.getDate() + offset);
-    
-    updateDateDisplay(date);
-    document.getElementById('record-date').value = getLocalDateString(date);
-    
-    document.querySelectorAll('.date-quick-btn').forEach(btn => {
-        btn.classList.remove('active');
-        if (btn.dataset.offset === offset.toString()) btn.classList.add('active');
-    });
-    document.querySelectorAll('.keyboard-date-btn').forEach(btn => {
-        btn.classList.remove('active');
-        if (btn.dataset.offset === offset.toString()) btn.classList.add('active');
-    });
-}
-
-// 键盘内日期按钮与 record-date 同步（仅今天/昨天/前天，不选即今天）
-function syncKeyboardDateButtons() {
-    const recordDateInput = document.getElementById('record-date');
-    if (!recordDateInput || !recordDateInput.value) return;
-    const todayStr = getLocalDateString(new Date());
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = getLocalDateString(yesterday);
-    const dayBefore = new Date();
-    dayBefore.setDate(dayBefore.getDate() - 2);
-    const dayBeforeStr = getLocalDateString(dayBefore);
-    const val = recordDateInput.value.trim();
-    let offset = 0;
-    if (val === yesterdayStr) offset = -1;
-    else if (val === dayBeforeStr) offset = -2;
-    else if (val !== todayStr) {
-        recordDateInput.value = todayStr;
-        selectedDateOffset = 0;
-        customSelectedDate = null;
-        updateDateDisplay(new Date());
-    }
-    document.querySelectorAll('.keyboard-date-btn').forEach(btn => {
-        btn.classList.remove('active');
-        if (btn.dataset.offset === String(offset)) btn.classList.add('active');
-    });
-}
-
-// 切换页面时把记账日期重置为今天（样式与 record-date 一致）
-function resetDateToToday() {
-    selectedDateOffset = 0;
-    customSelectedDate = null;
-    
-    const today = new Date();
-    const todayStr = getLocalDateString(today);
-    
-    updateDateDisplay(today);
-    const recordDateInput = document.getElementById('record-date');
-    if (recordDateInput) recordDateInput.value = todayStr;
-    
-    document.querySelectorAll('.date-quick-btn').forEach(btn => {
-        btn.classList.remove('active');
-        if (btn.dataset.offset === '0') {
-            btn.classList.add('active');
-        }
-    });
-}
-
-// 打开自定义日期选择器（记账用，确定后更新记账日期）
-function openCustomDatePicker() {
-    pendingDatePickerOnConfirm = null; // 走记账逻辑
-    const modal = ensureDatePickerModal();
-    const input = document.getElementById('date-picker-input');
-    if (!modal || !input) return;
-    
-    if (customSelectedDate) {
-        input.value = customSelectedDate;
-    } else {
-        const date = new Date();
-        date.setDate(date.getDate() + selectedDateOffset);
-        input.value = getLocalDateString(date);
-    }
-    
-    const titleEl = document.getElementById('date-picker-title');
-    if (titleEl) titleEl.textContent = '选择日期';
-    modal.classList.add('show');
-    
-    // 先聚焦，再尝试唤起原生日期选择器（移动端会直接打开日历）
-    setTimeout(() => {
-        input.focus();
-        if (typeof input.showPicker === 'function') {
-            try { input.showPicker(); } catch (e) { /* 部分浏览器不支持 */ }
-        }
-    }, 150);
-}
 
 // 关闭日期选择弹窗
 function closeDatePickerModal() {
@@ -4556,22 +4405,10 @@ function ensureDatePickerModal() {
             confirmBtn.addEventListener('click', () => {
                 const selectedDate = (input.value || '').trim();
                 if (!selectedDate) return;
-                // 若为记录编辑/编辑模态框等调用，走回调后关闭
                 if (typeof pendingDatePickerOnConfirm === 'function') {
                     pendingDatePickerOnConfirm(selectedDate);
                     pendingDatePickerOnConfirm = null;
-                    closeDatePickerModal();
-                    return;
                 }
-                // 记账逻辑
-                customSelectedDate = selectedDate;
-                selectedDateOffset = null;
-                const date = new Date(selectedDate + 'T00:00:00');
-                document.getElementById('record-date').value = selectedDate;
-                updateDateDisplay(date);
-                document.querySelectorAll('.date-quick-btn').forEach(btn => btn.classList.remove('active'));
-                const customBtn = document.querySelector('.date-custom-btn');
-                if (customBtn) customBtn.classList.add('active');
                 closeDatePickerModal();
             });
         }
@@ -4625,13 +4462,6 @@ function openSharedDatePicker(options) {
             try { input.showPicker(); } catch (e) { /* 部分浏览器不支持 */ }
         }
     }, 150);
-}
-
-// 更新日期显示
-function updateDateDisplay(date) {
-    const displayText = formatDateDisplayString(date);
-    const displayEl = document.getElementById('date-display-text');
-    if (displayEl) displayEl.textContent = displayText;
 }
 
 // 格式化为「YYYY年M月D日 星期X」，入参可为 Date 或 'YYYY-MM-DD' 字符串

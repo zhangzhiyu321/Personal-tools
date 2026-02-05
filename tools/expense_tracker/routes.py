@@ -231,7 +231,7 @@ def add_record():
     
     data = request.get_json() or {}
     schema = {
-        'date': {'type': 'date', 'required': True},
+        'date': {'type': 'date', 'required': False},
         'type': {'type': 'enum', 'required': True, 'allowed_values': ['income', 'expense']},
         'category': {'type': 'string', 'required': True, 'max_length': 50, 'sanitize': True},
         'account': {'type': 'string', 'required': False, 'max_length': 50, 'sanitize': True},
@@ -244,7 +244,10 @@ def add_record():
         logger.log_security_event('invalid_record_input', {'error': error_msg})
         return jsonify({'error': error_msg}), 400
     
-    date = datetime.strptime(cleaned_data['date'], '%Y-%m-%d').date()
+    if 'date' in cleaned_data and cleaned_data['date']:
+        date = datetime.strptime(cleaned_data['date'], '%Y-%m-%d').date()
+    else:
+        date = datetime.now().date()
     record_type = cleaned_data['type']
     amount = cleaned_data['amount']
     category_name, cat_error = resolve_category_name(user_id, record_type, cleaned_data['category'])

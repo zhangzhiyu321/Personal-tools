@@ -53,25 +53,8 @@
                     </div>
                 </div>
                 <form id="quick-add-form" class="quick-add-form">
-                    <input type="hidden" id="record-date" name="date">
                     <input type="hidden" id="record-type" name="type" value="expense" required>
                     <input type="hidden" id="category-selected-value" name="category" value="">
-                    
-                    <!-- 日期选择区域：标题行 + 快捷按钮行 -->
-                    <div class="date-select-section">
-                        <div class="date-select-header">
-                            <span class="date-select-label">记账日期</span>
-                            <span class="date-display-inline" id="date-display">
-                                <span class="date-display-text" id="date-display-text">2026年2月4日 星期四</span>
-                            </span>
-                        </div>
-                        <div class="date-quick-buttons">
-                            <button type="button" class="date-quick-btn" data-offset="-2">前天</button>
-                            <button type="button" class="date-quick-btn" data-offset="-1">昨天</button>
-                            <button type="button" class="date-quick-btn active" data-offset="0">今天</button>
-                            <button type="button" class="date-quick-btn date-custom-btn" id="date-custom-btn" title="选择其他日期">📅 选择日期</button>
-                        </div>
-                    </div>
                     
                     <!-- 类型选择 -->
                     <div class="form-compact-row">
@@ -444,7 +427,7 @@
                 <button type="button" class="modal-close" id="date-picker-close" aria-label="关闭">&times;</button>
             </div>
             <div class="date-picker-modal-body">
-                <label class="date-picker-label" for="date-picker-input">选择记账日期</label>
+                <label class="date-picker-label" for="date-picker-input">选择日期</label>
                 <input type="date" id="date-picker-input" class="date-picker-input" aria-describedby="date-picker-hint">
                 <p class="date-picker-hint" id="date-picker-hint">点击上方输入框可打开日历选择</p>
                 <div class="picker-actions">
@@ -462,15 +445,6 @@
     <div id="number-keyboard" class="custom-keyboard number-keyboard">
         <div class="keyboard-header">
             <span class="keyboard-title">输入金额</span>
-        </div>
-        <!-- 记账日期：今天 / 昨天 / 前天（仅记账时显示，默认今天） -->
-        <div class="keyboard-date-row" id="keyboard-date-row">
-            <span class="keyboard-date-label">记账日期</span>
-            <div class="keyboard-date-btns">
-                <button type="button" class="keyboard-date-btn active" data-offset="0">今天</button>
-                <button type="button" class="keyboard-date-btn" data-offset="-1">昨天</button>
-                <button type="button" class="keyboard-date-btn" data-offset="-2">前天</button>
-            </div>
         </div>
         <div class="keyboard-display">
             <span class="keyboard-display-prefix">¥</span>
