@@ -614,6 +614,7 @@ async function switchMainTab(tabName) {
     } else if (tabName === 'records') {
         loadRecords();
     } else if (tabName === 'home') {
+        resetDateToToday(); // 切回首页时记账日期默认今天，按钮与 record-date 同步
         loadStatistics();
         loadTodayRecords(); // 切换到首页时加载今日记录
     }
@@ -1667,6 +1668,23 @@ function bindEvents() {
     
     // 编辑表单
     document.getElementById('edit-form').addEventListener('submit', handleUpdateRecord);
+    // 编辑模态框内「选择日期」使用与记账相同的日期选择弹窗
+    const editDateBtn = document.getElementById('edit-date-btn');
+    if (editDateBtn) {
+        editDateBtn.addEventListener('click', () => {
+            const editDateInput = document.getElementById('edit-date');
+            const editDateDisplay = document.getElementById('edit-date-display');
+            const currentVal = (editDateInput && editDateInput.value) || getLocalDateString();
+            openSharedDatePicker({
+                initialValue: currentVal,
+                title: '选择日期',
+                onConfirm: (newDate) => {
+                    if (editDateInput) editDateInput.value = newDate;
+                    if (editDateDisplay) editDateDisplay.textContent = formatDateDisplayString(newDate);
+                }
+            });
+        });
+    }
 }
 
 // 加载分类
@@ -3124,35 +3142,28 @@ function bindInlineEditEvents() {
     });
 }
 
-// 编辑单条记录的日期
+// 编辑单条记录的日期（使用与记账相同的日期选择弹窗）
 function editRecordDate(recordItem) {
     if (!recordItem || !recordItem.dataset) return;
     const recordId = parseInt(recordItem.dataset.id, 10);
     if (isNaN(recordId)) return;
     const dateHiddenInput = recordItem.querySelector('.record-date-hidden');
     if (!dateHiddenInput || !dateHiddenInput.dataset) return;
-    const oldDate = dateHiddenInput.dataset.value || '';
+    const oldDate = (dateHiddenInput.dataset.value || '').trim();
     
-    openDatePicker({
-        initialDate: oldDate,
-        includeDay: true, // 包含日期选择
+    openSharedDatePicker({
+        initialValue: oldDate,
+        title: '选择日期',
         onConfirm: async (newDate) => {
-            if (newDate === oldDate) {
-                return;
-            }
-            
+            if (newDate === oldDate) return;
             try {
-                // 先获取当前记录
                 const response = await authFetch(`${API_BASE}/records/${recordId}`);
                 const data = await response.json();
                 const record = data.record;
-                
                 if (!record) {
                     customAlert('记录不存在', '错误', 'error');
                     return;
                 }
-                
-                // 更新记录日期
                 const updateResponse = await authFetch(`${API_BASE}/records/${recordId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -3164,14 +3175,11 @@ function editRecordDate(recordItem) {
                         note: record.note || ''
                     })
                 });
-                
                 const result = await updateResponse.json();
-                
                 if (updateResponse.ok) {
-                    // 更新成功，重新加载数据
                     loadStatistics();
                     loadRecords(currentPage);
-                    loadTodayRecords(); // 刷新今日记录
+                    loadTodayRecords();
                     showMessage('日期更新成功！', 'success');
                 } else {
                     customAlert(result.error || '更新失败', '更新失败', 'error');
@@ -3464,7 +3472,10 @@ async function openEditModal(recordId) {
         
         document.getElementById('edit-id').value = record.id;
         document.getElementById('edit-type').value = record.type;
-        document.getElementById('edit-date').value = record.date;
+        const editDateVal = (record.date || getLocalDateString()).trim();
+        document.getElementById('edit-date').value = editDateVal;
+        const editDateDisplay = document.getElementById('edit-date-display');
+        if (editDateDisplay) editDateDisplay.textContent = formatDateDisplayString(editDateVal);
         document.getElementById('edit-amount').value = parseFloat(record.amount).toFixed(2);
         document.getElementById('edit-category').value = record.category;
         document.getElementById('edit-note').value = record.note || '';
@@ -4573,9 +4584,11 @@ function handleNumberKeyPress(key) {
 }
 
 
-// ========== 日期选择功能 ==========
+// ========== 日期选择功能（记账 / 记录列表改日期 / 编辑模态框共用同一弹窗）==========
 let selectedDateOffset = 0; // 0=今天, -1=昨天, -2=前天, null=自定义
 let customSelectedDate = null; // 自定义选择的日期
+// 外部调用时传入的回调（如记录列表改日期、编辑模态框选日期），确定时执行后清空；为 null 时走记账逻辑
+let pendingDatePickerOnConfirm = null;
 
 // 初始化日期选择
 function initDateSelection() {
@@ -4628,8 +4641,29 @@ function selectDateByOffset(offset) {
     });
 }
 
-// 打开自定义日期选择器
+// 切换页面时把记账日期重置为今天（样式与 record-date 一致）
+function resetDateToToday() {
+    selectedDateOffset = 0;
+    customSelectedDate = null;
+    
+    const today = new Date();
+    const todayStr = getLocalDateString(today);
+    
+    updateDateDisplay(today);
+    const recordDateInput = document.getElementById('record-date');
+    if (recordDateInput) recordDateInput.value = todayStr;
+    
+    document.querySelectorAll('.date-quick-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.offset === '0') {
+            btn.classList.add('active');
+        }
+    });
+}
+
+// 打开自定义日期选择器（记账用，确定后更新记账日期）
 function openCustomDatePicker() {
+    pendingDatePickerOnConfirm = null; // 走记账逻辑
     const modal = ensureDatePickerModal();
     const input = document.getElementById('date-picker-input');
     if (!modal || !input) return;
@@ -4642,6 +4676,8 @@ function openCustomDatePicker() {
         input.value = getLocalDateString(date);
     }
     
+    const titleEl = document.getElementById('date-picker-title');
+    if (titleEl) titleEl.textContent = '选择日期';
     modal.classList.add('show');
     
     // 先聚焦，再尝试唤起原生日期选择器（移动端会直接打开日历）
@@ -4673,32 +4709,40 @@ function ensureDatePickerModal() {
         
         if (confirmBtn && input) {
             confirmBtn.addEventListener('click', () => {
-                const selectedDate = input.value;
-                if (selectedDate) {
-                    customSelectedDate = selectedDate;
-                    selectedDateOffset = null;
-                    
-                    const date = new Date(selectedDate + 'T00:00:00');
-                    updateDateDisplay(date);
-                    document.getElementById('record-date').value = selectedDate;
-                    
-                    document.querySelectorAll('.date-quick-btn').forEach(btn => {
-                        btn.classList.remove('active');
-                    });
-                    const customBtn = document.querySelector('.date-custom-btn');
-                    if (customBtn) customBtn.classList.add('active');
-                    
+                const selectedDate = (input.value || '').trim();
+                if (!selectedDate) return;
+                // 若为记录编辑/编辑模态框等调用，走回调后关闭
+                if (typeof pendingDatePickerOnConfirm === 'function') {
+                    pendingDatePickerOnConfirm(selectedDate);
+                    pendingDatePickerOnConfirm = null;
                     closeDatePickerModal();
+                    return;
                 }
+                // 记账逻辑
+                customSelectedDate = selectedDate;
+                selectedDateOffset = null;
+                const date = new Date(selectedDate + 'T00:00:00');
+                updateDateDisplay(date);
+                document.getElementById('record-date').value = selectedDate;
+                document.querySelectorAll('.date-quick-btn').forEach(btn => btn.classList.remove('active'));
+                const customBtn = document.querySelector('.date-custom-btn');
+                if (customBtn) customBtn.classList.add('active');
+                closeDatePickerModal();
             });
         }
         
         [cancelBtn, closeBtn].forEach(btn => {
-            if (btn) btn.addEventListener('click', closeDatePickerModal);
+            if (btn) btn.addEventListener('click', () => {
+                if (typeof pendingDatePickerOnConfirm === 'function') pendingDatePickerOnConfirm = null;
+                closeDatePickerModal();
+            });
         });
         
         modal.addEventListener('click', (e) => {
-            if (e.target === modal) closeDatePickerModal();
+            if (e.target === modal) {
+                if (typeof pendingDatePickerOnConfirm === 'function') pendingDatePickerOnConfirm = null;
+                closeDatePickerModal();
+            }
         });
         
         modal.dataset.initialized = 'true';
@@ -4707,19 +4751,50 @@ function ensureDatePickerModal() {
     return modal;
 }
 
+// 统一日期选择弹窗入口：记账不传 onConfirm；记录列表/编辑模态框传 initialValue + onConfirm
+function openSharedDatePicker(options) {
+    const { initialValue, title = '选择日期', onConfirm = null } = options || {};
+    const modal = ensureDatePickerModal();
+    const input = document.getElementById('date-picker-input');
+    const titleEl = document.getElementById('date-picker-title');
+    if (!modal || !input) return;
+    
+    pendingDatePickerOnConfirm = onConfirm || null;
+    if (titleEl) titleEl.textContent = title;
+    
+    let val = '';
+    if (initialValue && /^\d{4}-\d{2}-\d{2}$/.test(String(initialValue).trim())) {
+        val = String(initialValue).trim();
+    } else if (initialValue) {
+        const d = new Date(initialValue);
+        val = getLocalDateString(d);
+    } else {
+        val = getLocalDateString();
+    }
+    input.value = val;
+    
+    modal.classList.add('show');
+    setTimeout(() => {
+        input.focus();
+        if (typeof input.showPicker === 'function') {
+            try { input.showPicker(); } catch (e) { /* 部分浏览器不支持 */ }
+        }
+    }, 150);
+}
+
 // 更新日期显示
 function updateDateDisplay(date) {
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1;
-    const day = date.getDate();
-    const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
-    const weekday = weekdays[date.getDay()];
-    
-    const displayText = `${year}年${month}月${day}日 星期${weekday}`;
+    const displayText = formatDateDisplayString(date);
     const displayEl = document.getElementById('date-display-text');
-    if (displayEl) {
-        displayEl.textContent = displayText;
-    }
+    if (displayEl) displayEl.textContent = displayText;
+}
+
+// 格式化为「YYYY年M月D日 星期X」，入参可为 Date 或 'YYYY-MM-DD' 字符串
+function formatDateDisplayString(dateOrStr) {
+    const d = dateOrStr instanceof Date ? dateOrStr : new Date(String(dateOrStr).trim() + 'T00:00:00');
+    if (isNaN(d.getTime())) return '';
+    const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 星期${weekdays[d.getDay()]}`;
 }
 
 // 添加动画样式（如果不存在）
