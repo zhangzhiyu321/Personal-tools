@@ -124,12 +124,9 @@
                             </div>
                             <div class="record-flow-category-wrapper">
                                 <div id="record-flow-category-selector" class="record-flow-category-selector">
-                                    <!-- 动态生成分类按钮 -->
+                                    <!-- 动态生成分类按钮，选中后自动进入输入金额页 -->
                                 </div>
                             </div>
-                            <button type="button" class="btn-primary-compact record-flow-btn-next" id="record-flow-btn-next" disabled>
-                                <span>记账</span>
-                            </button>
                         </div>
                         <!-- Step2: 输入金额 -->
                         <div class="record-flow-step record-flow-step-2" id="record-flow-step-2">
@@ -461,16 +458,24 @@
     <!-- 数字键盘背景遮罩 -->
     <div id="number-keyboard-backdrop" class="keyboard-backdrop"></div>
     
-    <!-- 自定义数字键盘（金额输入） -->
+    <!-- 自定义数字键盘（金额输入，含日期选择） -->
     <div id="number-keyboard" class="custom-keyboard number-keyboard">
         <div class="keyboard-header">
             <span class="keyboard-title">输入金额</span>
+        </div>
+        <!-- 记账日期：今天 / 昨天 / 前天（仅记账时显示，默认今天） -->
+        <div class="keyboard-date-row" id="keyboard-date-row">
+            <span class="keyboard-date-label">记账日期</span>
+            <div class="keyboard-date-btns">
+                <button type="button" class="keyboard-date-btn active" data-offset="0">今天</button>
+                <button type="button" class="keyboard-date-btn" data-offset="-1">昨天</button>
+                <button type="button" class="keyboard-date-btn" data-offset="-2">前天</button>
+            </div>
         </div>
         <div class="keyboard-display">
             <span class="keyboard-display-prefix">¥</span>
             <span class="keyboard-display-value" id="number-keyboard-display">0.00</span>
         </div>
-        <!-- 备注输入区域 - 直接集成在键盘中 -->
         <div class="keyboard-note-section">
             <div class="keyboard-note-wrapper">
                 <span class="keyboard-note-icon">📝</span>
@@ -482,27 +487,23 @@
                 <button type="button" class="keyboard-key" data-key="7">7</button>
                 <button type="button" class="keyboard-key" data-key="8">8</button>
                 <button type="button" class="keyboard-key" data-key="9">9</button>
-                <button type="button" class="keyboard-key keyboard-key-operator" data-key="÷">÷</button>
+                <button type="button" class="keyboard-key keyboard-key-operator" data-key="-">-</button>
             </div>
             <div class="keyboard-row">
                 <button type="button" class="keyboard-key" data-key="4">4</button>
                 <button type="button" class="keyboard-key" data-key="5">5</button>
                 <button type="button" class="keyboard-key" data-key="6">6</button>
-                <button type="button" class="keyboard-key keyboard-key-operator" data-key="×">×</button>
+                <button type="button" class="keyboard-key keyboard-key-operator" data-key="+">+</button>
             </div>
             <div class="keyboard-row">
                 <button type="button" class="keyboard-key" data-key="1">1</button>
                 <button type="button" class="keyboard-key" data-key="2">2</button>
                 <button type="button" class="keyboard-key" data-key="3">3</button>
-                <button type="button" class="keyboard-key keyboard-key-operator" data-key="-">-</button>
+                <button type="button" class="keyboard-key keyboard-key-operator" data-key="=">=</button>
             </div>
-            <div class="keyboard-row">
+            <div class="keyboard-row keyboard-row-actions">
                 <button type="button" class="keyboard-key" data-key="0">0</button>
                 <button type="button" class="keyboard-key" data-key=".">.</button>
-                <button type="button" class="keyboard-key keyboard-key-operator" data-key="=">=</button>
-                <button type="button" class="keyboard-key keyboard-key-operator" data-key="+">+</button>
-            </div>
-            <div class="keyboard-row">
                 <button type="button" class="keyboard-key keyboard-key-clear" data-key="clear">清除</button>
                 <button type="button" class="keyboard-key keyboard-key-confirm" data-key="confirm">确定</button>
             </div>

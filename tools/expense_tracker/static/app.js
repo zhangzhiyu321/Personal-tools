@@ -1702,8 +1702,6 @@ function openRecordFlow() {
     if (!overlay || !sheet) return;
     document.getElementById('category-selected-value').value = '';
     sheet.classList.remove('record-flow-step-2-active');
-    const btnNext = document.getElementById('record-flow-btn-next');
-    if (btnNext) btnNext.disabled = true;
     updateRecordFlowCategorySelector();
     overlay.classList.add('show');
     overlay.setAttribute('aria-hidden', 'false');
@@ -1746,9 +1744,6 @@ function goToRecordFlowStep1() {
     if (!sheet) return;
     closeNumberKeyboard();
     sheet.classList.remove('record-flow-step-2-active');
-    const btnNext = document.getElementById('record-flow-btn-next');
-    const categoryValue = document.getElementById('category-selected-value').value;
-    if (btnNext) btnNext.disabled = !categoryValue;
 }
 
 function updateRecordFlowCategorySelector() {
@@ -1780,8 +1775,8 @@ function updateRecordFlowCategorySelector() {
             container.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
             this.classList.add('active');
             document.getElementById('category-selected-value').value = this.dataset.category;
-            const btnNext = document.getElementById('record-flow-btn-next');
-            if (btnNext) btnNext.disabled = false;
+            // 选完分类自动进入输入金额页
+            goToRecordFlowStep2();
         });
         if (isOther) {
             btn.addEventListener('contextmenu', function(e) { e.preventDefault(); openCategoryModal(); });
@@ -1799,25 +1794,55 @@ function updateRecordFlowCategorySelector() {
     });
     // 切换类型后清空选择，需重新选分类
     document.getElementById('category-selected-value').value = '';
-    const btnNext = document.getElementById('record-flow-btn-next');
-    if (btnNext) btnNext.disabled = true;
 }
 
 function bindRecordFlowEvents() {
     const btnClose = document.getElementById('record-flow-close');
     const btnBack = document.getElementById('record-flow-back');
-    const btnNext = document.getElementById('record-flow-btn-next');
     const amountTap = document.getElementById('record-flow-amount-tap');
+    const sheet = document.getElementById('record-flow-sheet');
     if (btnClose) btnClose.addEventListener('click', closeRecordFlow);
     if (btnBack) btnBack.addEventListener('click', goToRecordFlowStep1);
-    if (btnNext) btnNext.addEventListener('click', function() {
-        const categoryValue = document.getElementById('category-selected-value').value;
-        if (!categoryValue) return;
-        goToRecordFlowStep2();
-    });
-    if (amountTap) amountTap.addEventListener('click', function() {
+    // 右滑返回上一级：Step2 回到选择分类，Step1 关闭流程
+    var swipeStartX = 0, swipeStartY = 0;
+    var SWIPE_THRESHOLD = 60;
+    var SWIPE_MAX_VERTICAL_RATIO = 0.5; // 垂直位移不超过水平的此比例，避免和列表滚动冲突
+    if (sheet) {
+        sheet.addEventListener('touchstart', function(e) {
+            if (e.touches.length !== 1) return;
+            swipeStartX = e.touches[0].clientX;
+            swipeStartY = e.touches[0].clientY;
+        }, { passive: true });
+        sheet.addEventListener('touchend', function(e) {
+            if (e.changedTouches.length !== 1) return;
+            var endX = e.changedTouches[0].clientX;
+            var endY = e.changedTouches[0].clientY;
+            var deltaX = endX - swipeStartX;
+            var deltaY = endY - swipeStartY;
+            // 右滑：从左往右划，且水平距离足够、以水平为主
+            if (deltaX >= SWIPE_THRESHOLD && Math.abs(deltaY) <= Math.abs(deltaX) * SWIPE_MAX_VERTICAL_RATIO) {
+                var isStep2 = sheet.classList.contains('record-flow-step-2-active');
+                if (isStep2) {
+                    goToRecordFlowStep1();
+                } else {
+                    closeRecordFlow();
+                }
+            }
+        }, { passive: true });
+    }
+    // 点击/触摸金额区域打开数字键盘（移动端用 touchend 更可靠）
+    function openKeyboardFromAmountTap(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const keyboard = document.getElementById('number-keyboard');
+        if (keyboard && keyboard.classList.contains('show')) return;
         openNumberKeyboard('record-amount');
-    });
+    }
+    if (amountTap) {
+        amountTap.addEventListener('click', openKeyboardFromAmountTap);
+        amountTap.addEventListener('touchend', openKeyboardFromAmountTap, { passive: false });
+        amountTap.style.cursor = 'pointer';
+    }
 }
 
 // 更新编辑表单的分类选择
@@ -1867,16 +1892,12 @@ async function handleAddRecord(e) {
     const cat = categoryList.find(c => (c.id && c.id.toString() === categoryValue) || c.name === categoryValue);
     const categoryName = cat ? (cat.name || cat.id) : categoryValue;
     
-    // 获取金额值，处理可能的计算表达式
+    // 获取金额值，处理可能的加减运算
     let amountValue = document.getElementById('record-amount').value;
-    // 移除可能的¥符号和空格
     amountValue = amountValue.replace(/[¥\s]/g, '');
-    
-    // 如果包含运算符，先计算
-    if (amountValue && ['+', '-', '×', '÷'].some(op => amountValue.includes(op))) {
+    if (amountValue && ['+', '-'].some(op => amountValue.includes(op))) {
         try {
-            amountValue = amountValue.replace(/×/g, '*').replace(/÷/g, '/');
-            amountValue = eval(amountValue).toString();
+            amountValue = eval(amountValue.replace(/\s+/g, ' ').trim()).toString();
         } catch (e) {
             console.error('金额计算错误:', e);
             customAlert('金额格式错误，请重新输入', '输入错误', 'warning');
@@ -3528,16 +3549,12 @@ async function handleUpdateRecord(e) {
     
     const recordId = document.getElementById('edit-id').value;
     
-    // 获取金额值，处理可能的计算表达式
+    // 获取金额值，处理可能的加减运算
     let amountValue = document.getElementById('edit-amount').value;
-    // 移除可能的¥符号和空格
     amountValue = amountValue.replace(/[¥\s]/g, '');
-    
-    // 如果包含运算符，先计算
-    if (amountValue && ['+', '-', '×', '÷'].some(op => amountValue.includes(op))) {
+    if (amountValue && ['+', '-'].some(op => amountValue.includes(op))) {
         try {
-            amountValue = amountValue.replace(/×/g, '*').replace(/÷/g, '/');
-            amountValue = eval(amountValue).toString();
+            amountValue = eval(amountValue.replace(/\s+/g, ' ').trim()).toString();
         } catch (e) {
             console.error('金额计算错误:', e);
             customAlert('金额格式错误，请重新输入', '输入错误', 'warning');
@@ -4316,6 +4333,13 @@ function openNumberKeyboard(inputId = 'record-amount') {
     // 更新显示
     updateNumberKeyboardDisplay();
     
+    // 记账流程才显示日期行，编辑金额时隐藏；同步今天/昨天/前天选中态
+    const dateRow = document.getElementById('keyboard-date-row');
+    if (dateRow) {
+        dateRow.style.display = inputId === 'record-amount' ? 'flex' : 'none';
+        if (inputId === 'record-amount') syncKeyboardDateButtons();
+    }
+    
     // 显示键盘和背景遮罩
     keyboard.classList.add('show');
     const backdrop = document.getElementById('number-keyboard-backdrop');
@@ -4336,8 +4360,8 @@ function closeNumberKeyboard() {
     // 如果有未完成的表达式，先计算结果
     if (numberKeyboardExpression) {
         try {
-            // 构建完整表达式：表达式 + 当前值
-            let expr = (numberKeyboardExpression + numberKeyboardValue).replace(/×/g, '*').replace(/÷/g, '/');
+            // 构建完整表达式：仅支持 + - 运算
+            let expr = (numberKeyboardExpression + numberKeyboardValue).replace(/\s+/g, ' ').trim();
             const result = eval(expr);
             numberKeyboardValue = parseFloat(result).toFixed(2);
             numberKeyboardExpression = '';
@@ -4391,10 +4415,10 @@ async function submitRecordFromKeyboard() {
     
     if (!amountInput) return;
     
-    // 如果有未完成的表达式，先计算结果
+    // 如果有未完成的表达式，先计算结果（仅 + -）
     if (numberKeyboardExpression) {
         try {
-            let expr = numberKeyboardExpression.replace(/×/g, '*').replace(/÷/g, '/');
+            let expr = (numberKeyboardExpression + numberKeyboardValue).replace(/\s+/g, ' ').trim();
             const result = eval(expr);
             numberKeyboardValue = parseFloat(result).toFixed(2);
             numberKeyboardExpression = '';
@@ -4504,15 +4528,21 @@ function initKeyboardEvents() {
         });
     }
     
+    // 键盘内 今天/昨天/前天 点击切换记账日期
+    document.querySelectorAll('.keyboard-date-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            selectDateByOffset(parseInt(this.dataset.offset, 10));
+        });
+    });
+    
     // 点击键盘外部关闭
     document.addEventListener('click', function(e) {
         const numberKeyboard = document.getElementById('number-keyboard');
         const keyboardNoteInput = document.getElementById('keyboard-note-input');
-        
         if (numberKeyboard && numberKeyboard.classList.contains('show')) {
             const inputId = numberKeyboard.dataset.targetInput || 'record-amount';
             const targetInput = document.getElementById(inputId);
-            // 如果点击的是键盘内部（包括备注输入框）或原输入框，不关闭
             if (!numberKeyboard.contains(e.target) && 
                 (!targetInput || !targetInput.contains(e.target)) &&
                 (!keyboardNoteInput || !keyboardNoteInput.contains(e.target))) {
@@ -4536,8 +4566,7 @@ function handleNumberKeyPress(key) {
         // 计算结果
         if (numberKeyboardExpression) {
             try {
-                // 构建完整表达式：表达式 + 当前值
-                let expr = (numberKeyboardExpression + numberKeyboardValue).replace(/×/g, '*').replace(/÷/g, '/');
+                let expr = (numberKeyboardExpression + numberKeyboardValue).replace(/\s+/g, ' ').trim();
                 const result = eval(expr);
                 numberKeyboardValue = parseFloat(result).toFixed(2);
                 numberKeyboardExpression = '';
@@ -4552,19 +4581,17 @@ function handleNumberKeyPress(key) {
             // 如果没有表达式，只是显示当前值（已经是结果）
             // 不做任何操作，保持当前值
         }
-    } else if (['+', '-', '×', '÷'].includes(key)) {
-        // 运算符
+    } else if (['+', '-'].includes(key)) {
+        // 运算符（仅加减）
         if (numberKeyboardExpression) {
-            // 如果已有表达式，先计算完整表达式（表达式 + 当前值）
             try {
-                let expr = (numberKeyboardExpression + numberKeyboardValue).replace(/×/g, '*').replace(/÷/g, '/');
+                let expr = (numberKeyboardExpression + numberKeyboardValue).replace(/\s+/g, ' ').trim();
                 const result = eval(expr);
                 numberKeyboardValue = parseFloat(result).toFixed(2);
             } catch (e) {
                 // 忽略错误，使用当前值
             }
         }
-        // 构建新表达式
         numberKeyboardExpression = numberKeyboardValue + ' ' + key + ' ';
         numberKeyboardValue = '0.00';
         updateNumberKeyboardDisplay();
@@ -4637,7 +4664,7 @@ if (document.readyState === 'loading') {
     initDateSelection();
 }
 
-// 根据偏移量选择日期
+// 根据偏移量选择日期（首页快捷按钮 + 键盘内今天/昨天/前天）
 function selectDateByOffset(offset) {
     selectedDateOffset = offset;
     customSelectedDate = null;
@@ -4648,12 +4675,40 @@ function selectDateByOffset(offset) {
     updateDateDisplay(date);
     document.getElementById('record-date').value = getLocalDateString(date);
     
-    // 更新按钮状态
     document.querySelectorAll('.date-quick-btn').forEach(btn => {
         btn.classList.remove('active');
-        if (btn.dataset.offset === offset.toString()) {
-            btn.classList.add('active');
-        }
+        if (btn.dataset.offset === offset.toString()) btn.classList.add('active');
+    });
+    document.querySelectorAll('.keyboard-date-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.offset === offset.toString()) btn.classList.add('active');
+    });
+}
+
+// 键盘内日期按钮与 record-date 同步（仅今天/昨天/前天，不选即今天）
+function syncKeyboardDateButtons() {
+    const recordDateInput = document.getElementById('record-date');
+    if (!recordDateInput || !recordDateInput.value) return;
+    const todayStr = getLocalDateString(new Date());
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = getLocalDateString(yesterday);
+    const dayBefore = new Date();
+    dayBefore.setDate(dayBefore.getDate() - 2);
+    const dayBeforeStr = getLocalDateString(dayBefore);
+    const val = recordDateInput.value.trim();
+    let offset = 0;
+    if (val === yesterdayStr) offset = -1;
+    else if (val === dayBeforeStr) offset = -2;
+    else if (val !== todayStr) {
+        recordDateInput.value = todayStr;
+        selectedDateOffset = 0;
+        customSelectedDate = null;
+        updateDateDisplay(new Date());
+    }
+    document.querySelectorAll('.keyboard-date-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.offset === String(offset)) btn.classList.add('active');
     });
 }
 
@@ -4738,8 +4793,8 @@ function ensureDatePickerModal() {
                 customSelectedDate = selectedDate;
                 selectedDateOffset = null;
                 const date = new Date(selectedDate + 'T00:00:00');
-                updateDateDisplay(date);
                 document.getElementById('record-date').value = selectedDate;
+                updateDateDisplay(date);
                 document.querySelectorAll('.date-quick-btn').forEach(btn => btn.classList.remove('active'));
                 const customBtn = document.querySelector('.date-custom-btn');
                 if (customBtn) customBtn.classList.add('active');
