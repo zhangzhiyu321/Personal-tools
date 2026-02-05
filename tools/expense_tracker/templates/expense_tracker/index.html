@@ -57,26 +57,19 @@
                     <input type="hidden" id="record-type" name="type" value="expense" required>
                     <input type="hidden" id="category-selected-value" name="category" value="">
                     
-                    <!-- 日期选择区域 -->
+                    <!-- 日期选择区域：标题行 + 快捷按钮行 -->
                     <div class="date-select-section">
-                        <div class="date-select-label">记账日期</div>
-                        <div class="date-quick-buttons">
-                            <button type="button" class="date-quick-btn" data-offset="-2">
-                                <span class="date-quick-day">前天</span>
-                            </button>
-                            <button type="button" class="date-quick-btn" data-offset="-1">
-                                <span class="date-quick-day">昨天</span>
-                            </button>
-                            <button type="button" class="date-quick-btn active" data-offset="0">
-                                <span class="date-quick-day">今天</span>
-                            </button>
-                            <button type="button" class="date-quick-btn date-custom-btn" id="date-custom-btn">
-                                <span class="date-quick-icon">📅</span>
-                                <span class="date-quick-day">选择</span>
-                            </button>
+                        <div class="date-select-header">
+                            <span class="date-select-label">记账日期</span>
+                            <span class="date-display-inline" id="date-display">
+                                <span class="date-display-text" id="date-display-text">2026年2月4日 星期四</span>
+                            </span>
                         </div>
-                        <div class="date-display" id="date-display">
-                            <span class="date-display-text" id="date-display-text">2026年2月4日</span>
+                        <div class="date-quick-buttons">
+                            <button type="button" class="date-quick-btn" data-offset="-2">前天</button>
+                            <button type="button" class="date-quick-btn" data-offset="-1">昨天</button>
+                            <button type="button" class="date-quick-btn active" data-offset="0">今天</button>
+                            <button type="button" class="date-quick-btn date-custom-btn" id="date-custom-btn" title="选择其他日期">📅 选择日期</button>
                         </div>
                     </div>
                     
@@ -401,13 +394,17 @@
         </div>
     </div>
 
-    <!-- 通用日期选择器模态框（原生 date 输入，无滚轮） -->
+    <!-- 通用日期选择器模态框（原生 date 输入） -->
     <div id="date-picker-modal" class="modal">
-        <div class="modal-content" style="max-width: 500px;">
-            <span class="modal-close">&times;</span>
-            <h2 id="date-picker-title">选择日期</h2>
-            <div class="date-picker-container">
-                <input type="date" id="date-picker-input" class="date-picker-input">
+        <div class="modal-content date-picker-modal-content">
+            <div class="date-picker-modal-header">
+                <h2 id="date-picker-title">选择日期</h2>
+                <button type="button" class="modal-close" id="date-picker-close" aria-label="关闭">&times;</button>
+            </div>
+            <div class="date-picker-modal-body">
+                <label class="date-picker-label" for="date-picker-input">选择记账日期</label>
+                <input type="date" id="date-picker-input" class="date-picker-input" aria-describedby="date-picker-hint">
+                <p class="date-picker-hint" id="date-picker-hint">点击上方输入框可打开日历选择</p>
                 <div class="picker-actions">
                     <button type="button" class="btn-secondary" id="date-picker-cancel">取消</button>
                     <button type="button" class="btn-primary" id="date-picker-confirm">确定</button>

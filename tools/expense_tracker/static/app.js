@@ -4632,8 +4632,8 @@ function selectDateByOffset(offset) {
 function openCustomDatePicker() {
     const modal = ensureDatePickerModal();
     const input = document.getElementById('date-picker-input');
+    if (!modal || !input) return;
     
-    // 设置当前选择的日期
     if (customSelectedDate) {
         input.value = customSelectedDate;
     } else {
@@ -4644,10 +4644,19 @@ function openCustomDatePicker() {
     
     modal.classList.add('show');
     
-    // 聚焦输入框
+    // 先聚焦，再尝试唤起原生日期选择器（移动端会直接打开日历）
     setTimeout(() => {
         input.focus();
-    }, 100);
+        if (typeof input.showPicker === 'function') {
+            try { input.showPicker(); } catch (e) { /* 部分浏览器不支持 */ }
+        }
+    }, 150);
+}
+
+// 关闭日期选择弹窗
+function closeDatePickerModal() {
+    const modal = document.getElementById('date-picker-modal');
+    if (modal) modal.classList.remove('show');
 }
 
 // 确保日期选择器模态框存在
@@ -4659,9 +4668,10 @@ function ensureDatePickerModal() {
     if (!modal.dataset.initialized) {
         const confirmBtn = document.getElementById('date-picker-confirm');
         const cancelBtn = document.getElementById('date-picker-cancel');
+        const closeBtn = document.getElementById('date-picker-close');
         const input = document.getElementById('date-picker-input');
         
-        if (confirmBtn) {
+        if (confirmBtn && input) {
             confirmBtn.addEventListener('click', () => {
                 const selectedDate = input.value;
                 if (selectedDate) {
@@ -4672,28 +4682,23 @@ function ensureDatePickerModal() {
                     updateDateDisplay(date);
                     document.getElementById('record-date').value = selectedDate;
                     
-                    // 更新按钮状态
                     document.querySelectorAll('.date-quick-btn').forEach(btn => {
                         btn.classList.remove('active');
                     });
-                    document.querySelector('.date-custom-btn').classList.add('active');
+                    const customBtn = document.querySelector('.date-custom-btn');
+                    if (customBtn) customBtn.classList.add('active');
                     
-                    modal.classList.remove('show');
+                    closeDatePickerModal();
                 }
             });
         }
         
-        if (cancelBtn) {
-            cancelBtn.addEventListener('click', () => {
-                modal.classList.remove('show');
-            });
-        }
+        [cancelBtn, closeBtn].forEach(btn => {
+            if (btn) btn.addEventListener('click', closeDatePickerModal);
+        });
         
-        // 点击背景关闭
         modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                modal.classList.remove('show');
-            }
+            if (e.target === modal) closeDatePickerModal();
         });
         
         modal.dataset.initialized = 'true';
