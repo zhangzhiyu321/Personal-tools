@@ -1,5 +1,6 @@
 """
-记账工具路由和API
+记账工具 - 路由与 API
+薄路由层：解析请求、校验、调用 service、返回响应。
 """
 
 from flask import render_template, request, jsonify, Response, g
@@ -7,12 +8,19 @@ from datetime import datetime
 from decimal import Decimal
 from .database import db, Expense, Category
 from . import page_blueprint, api_blueprint
+from .service import (
+    get_categories_for_user,
+    resolve_category_name,
+    get_statistics,
+    get_category_detail,
+    get_others_detail,
+    build_export_csv,
+    DEFAULT_EXPENSE_CATEGORIES,
+    DEFAULT_INCOME_CATEGORIES,
+)
 from security.auth import require_auth
 from security.validation import InputValidator
 from security.logging import SecurityLogger
-import csv
-import io
-from collections import defaultdict
 from functools import wraps
 
 logger = SecurityLogger()
@@ -56,28 +64,6 @@ def handle_db_error(f):
     return wrapper
 
 
-# 支出分类配置（带图标）
-EXPENSE_CATEGORIES = [
-    {'id': 'food', 'name': '餐饮', 'icon': '🍔', 'color': '#FF6B6B'},
-    {'id': 'transport', 'name': '交通', 'icon': '🚗', 'color': '#4ECDC4'},
-    {'id': 'shopping', 'name': '购物', 'icon': '🛍️', 'color': '#FFE66D'},
-    {'id': 'entertainment', 'name': '娱乐', 'icon': '🎬', 'color': '#A8E6CF'},
-    {'id': 'medical', 'name': '医疗', 'icon': '🏥', 'color': '#FF8B94'},
-    {'id': 'education', 'name': '教育', 'icon': '📚', 'color': '#95E1D3'},
-    {'id': 'housing', 'name': '住房', 'icon': '🏠', 'color': '#F38181'},
-    {'id': 'utilities', 'name': '水电', 'icon': '💡', 'color': '#AA96DA'},
-    {'id': 'other', 'name': '其他', 'icon': '📦', 'color': '#C7CEEA'},
-]
-
-# 收入分类配置
-INCOME_CATEGORIES = [
-    {'id': 'salary', 'name': '工资', 'icon': '💰', 'color': '#51CF66'},
-    {'id': 'bonus', 'name': '奖金', 'icon': '🎁', 'color': '#FFD43B'},
-    {'id': 'investment', 'name': '投资', 'icon': '📈', 'color': '#74C0FC'},
-    {'id': 'other_income', 'name': '其他', 'icon': '💵', 'color': '#FF8787'},
-]
-
-
 # ========== 页面路由 ==========
 
 @page_blueprint.route('/')
@@ -96,27 +82,12 @@ def get_categories():
     user_id = get_current_user_id()
     if not user_id:
         return jsonify({'error': '未登录'}), 401
-    
-    def get_cats(cat_type):
-        return Category.query.filter_by(user_id=user_id, type=cat_type).order_by(Category.sort_order.desc(), Category.id).all()
-    
     try:
-        expense_categories, income_categories = get_cats('expense'), get_cats('income')
-        if not expense_categories and not income_categories:
-            from .database import init_default_categories_for_user
-            try:
-                init_default_categories_for_user(user_id)
-                expense_categories, income_categories = get_cats('expense'), get_cats('income')
-            except Exception as e:
-                logger.log_error('auto_init_categories_failed', {'user_id': user_id, 'error': str(e)})
-        
-        return jsonify({
-            'expense': [cat.to_dict() for cat in expense_categories],
-            'income': [cat.to_dict() for cat in income_categories]
-        })
+        data = get_categories_for_user(user_id)
+        return jsonify(data)
     except Exception as e:
         logger.log_error('get_categories_failed', {'error': str(e)})
-        return jsonify({'expense': EXPENSE_CATEGORIES, 'income': INCOME_CATEGORIES})
+        return jsonify({'expense': DEFAULT_EXPENSE_CATEGORIES, 'income': DEFAULT_INCOME_CATEGORIES})
 
 
 @api_blueprint.route('/categories', methods=['POST'])
@@ -275,27 +246,13 @@ def add_record():
     
     date = datetime.strptime(cleaned_data['date'], '%Y-%m-%d').date()
     record_type = cleaned_data['type']
-    category = cleaned_data['category']
     amount = cleaned_data['amount']
-    
-    if amount <= 0:
-        return jsonify({'error': '金额必须大于0'}), 400
-    
-    # 验证分类是否存在
-    try:
-        cat_obj = Category.query.filter_by(
-            id=int(category), user_id=user_id
-        ).first() if category.isdigit() else Category.query.filter_by(
-            name=category, type=record_type, user_id=user_id
-        ).first()
-        if not cat_obj:
-            return jsonify({'error': f'分类不存在: {category}'}), 400
-        category = cat_obj.name
-    except (ValueError, TypeError):
-        return jsonify({'error': f'无效的分类: {category}'}), 400
-    
+    category_name, cat_error = resolve_category_name(user_id, record_type, cleaned_data['category'])
+    if cat_error:
+        return jsonify({'error': cat_error}), 400
+
     expense = Expense(
-        user_id=user_id, date=date, type=record_type, category=category,
+        user_id=user_id, date=date, type=record_type, category=category_name,
         account=cleaned_data.get('account', '未关联') or '未关联',
         amount=amount, note=cleaned_data.get('note', '')
     )
@@ -343,34 +300,28 @@ def update_record(record_id):
     if not is_valid:
         logger.log_security_event('invalid_record_update_input', {'error': error_msg})
         return jsonify({'error': error_msg}), 400
-    
-    if 'date' in data:
-        expense.date = datetime.strptime(data['date'], '%Y-%m-%d').date()
-    if 'type' in data:
-        expense.type = data['type']
-    if 'category' in data:
-        category = data['category']
-        try:
-            cat_obj = Category.query.filter_by(
-                id=int(category), user_id=user_id
-            ).first() if str(category).isdigit() else Category.query.filter_by(
-                name=category, type=expense.type, user_id=user_id
-            ).first()
-            if not cat_obj:
-                return jsonify({'error': f'分类不存在: {category}'}), 400
-            expense.category = cat_obj.name
-        except (ValueError, TypeError):
-            return jsonify({'error': f'无效的分类: {category}'}), 400
-    if 'amount' in data:
-        amount = Decimal(str(data['amount']))
+
+    if 'date' in cleaned_data:
+        expense.date = datetime.strptime(cleaned_data['date'], '%Y-%m-%d').date()
+    if 'type' in cleaned_data:
+        expense.type = cleaned_data['type']
+    if 'category' in cleaned_data:
+        category_name, cat_error = resolve_category_name(
+            user_id, expense.type, cleaned_data['category']
+        )
+        if cat_error:
+            return jsonify({'error': cat_error}), 400
+        expense.category = category_name
+    if 'amount' in cleaned_data:
+        amount = cleaned_data['amount']
         if amount <= 0:
             return jsonify({'error': '金额必须大于0'}), 400
         expense.amount = amount
-    if 'account' in data:
-        expense.account = data['account'].strip() or '未关联'
-    if 'note' in data:
-        expense.note = data['note'].strip()
-    
+    if 'account' in cleaned_data:
+        expense.account = (cleaned_data['account'] or '').strip() or '未关联'
+    if 'note' in cleaned_data:
+        expense.note = (cleaned_data['note'] or '').strip()
+
     db.session.commit()
     return jsonify({'success': True, 'record': expense.to_dict()})
 
@@ -394,186 +345,51 @@ def delete_record(record_id):
 
 @api_blueprint.route('/statistics', methods=['GET'])
 @require_auth
-def get_statistics():
+def get_statistics_route():
     """获取统计数据"""
     user_id = get_current_user_id()
     if not user_id:
         return jsonify({'error': '未登录'}), 401
-    
     start, end = parse_date_range(request.args.get('start_date'), request.args.get('end_date'))
-    query = Expense.query.filter_by(user_id=user_id)
-    if start:
-        query = query.filter(Expense.date >= start)
-    if end:
-        query = query.filter(Expense.date <= end)
-    
-    records = query.all()
-    total_income = sum(float(r.amount) for r in records if r.type == 'income')
-    total_expense = sum(float(r.amount) for r in records if r.type == 'expense')
-    
-    # 今日支出
-    today_expense = sum(float(r.amount) for r in Expense.query.filter_by(
-        user_id=user_id, date=datetime.now().date(), type='expense'
-    ).all())
-    
-    # 按分类统计支出
-    expense_by_category = defaultdict(float)
-    daily_stats = defaultdict(lambda: {'income': 0.0, 'expense': 0.0})
-    for record in records:
-        if record.type == 'expense':
-            expense_by_category[record.category] += float(record.amount)
-        date_str = record.date.strftime('%Y-%m-%d')
-        daily_stats[date_str][record.type] += float(record.amount)
-    
-    daily_list = sorted([
-        {'date': date, 'income': s['income'], 'expense': s['expense'],
-         'balance': s['income'] - s['expense']}
-        for date, s in daily_stats.items()
-    ], key=lambda x: x['date'])
-    
-    # 分类统计
-    all_categories = {cat.name: cat for cat in Category.query.filter_by(user_id=user_id).all()}
-    category_list = sorted([
-        {
-            'category': cat_name, 'amount': amount,
-            'name': all_categories[cat_name].name if cat_name in all_categories else cat_name,
-            'icon': all_categories[cat_name].icon if cat_name in all_categories else '📦',
-            'color': all_categories[cat_name].color if cat_name in all_categories else '#C7CEEA'
-        }
-        for cat_name, amount in expense_by_category.items()
-    ], key=lambda x: x['amount'], reverse=True)
-    
-    return jsonify({
-        'total_income': total_income, 'total_expense': total_expense,
-        'balance': total_income - total_expense, 'today_expense': today_expense,
-        'daily_stats': daily_list, 'category_stats': category_list,
-        'record_count': len(records)
-    })
+    data = get_statistics(user_id, start_date=start, end_date=end)
+    return jsonify(data)
 
 
 @api_blueprint.route('/statistics/category_detail', methods=['GET'])
 @require_auth
-def get_category_detail():
+def get_category_detail_route():
     """获取指定分类在当前时间范围内的明细（趋势 + 记录列表）"""
     category_key = request.args.get('category')
     if not category_key:
         return jsonify({'error': '缺少分类参数 category'}), 400
-
-    # require_auth装饰器已经验证了用户身份并设置了g.current_user
-    # 如果这里user_id为None，说明g.current_user没有正确设置，这是不应该发生的
     user_id = get_current_user_id()
     if not user_id:
-        # 记录错误以便调试
         logger.log_error('get_category_detail_user_id_missing', {
             'has_current_user': hasattr(g, 'current_user'),
-            'current_user': str(g.current_user) if hasattr(g, 'current_user') else None,
-            'path': request.path
+            'path': request.path,
         })
         return jsonify({'error': '需要认证', 'code': 'UNAUTHORIZED'}), 401
-    
     start, end = parse_date_range(request.args.get('start_date'), request.args.get('end_date'))
-    query = Expense.query.filter_by(user_id=user_id, type='expense', category=category_key)
-    if start:
-        query = query.filter(Expense.date >= start)
-    if end:
-        query = query.filter(Expense.date <= end)
-
-    records = query.order_by(Expense.date.asc(), Expense.created_at.asc()).all()
-    
-    daily_amount = defaultdict(float)
-    total_amount = sum(float(r.amount) for r in records)
-    for r in records:
-        if r.date:
-            daily_amount[r.date.strftime('%Y-%m-%d')] += float(r.amount)
-
-    daily_trend = sorted([{'date': d, 'amount': v} for d, v in daily_amount.items()], key=lambda x: x['date'])
-
-    cat_obj = Category.query.filter_by(user_id=user_id, name=category_key, type='expense').first()
-    category_info = {
-        'key': category_key, 'name': cat_obj.name if cat_obj else category_key,
-        'icon': cat_obj.icon if cat_obj else '📦',
-        'color': cat_obj.color if cat_obj else '#C7CEEA'
-    }
-
-    return jsonify({
-        'category': category_info, 'total_amount': total_amount,
-        'daily_trend': daily_trend,
-        'records': [{
-            'id': r.id, 'date': r.date.strftime('%Y-%m-%d') if r.date else None,
-            'amount': float(r.amount), 'note': r.note or '',
-            'created_at': r.created_at.strftime('%Y-%m-%d %H:%M:%S') if r.created_at else None
-        } for r in records]
-    })
+    data = get_category_detail(user_id, category_key, start_date=start, end_date=end)
+    return jsonify(data)
 
 
 @api_blueprint.route('/statistics/others_detail', methods=['GET'], strict_slashes=False)
 @require_auth
-def get_others_detail():
-    """获取「其他」合并分类的明细：小分类汇总 + 具体记录列表（对比分析中点击「其他」时使用）"""
+def get_others_detail_route():
+    """获取「其他」合并分类的明细：小分类汇总 + 具体记录列表"""
     categories_param = request.args.get('categories')
     if not categories_param or not categories_param.strip():
         return jsonify({'error': '缺少参数 categories（多个分类名用英文逗号分隔）'}), 400
-
     user_id = get_current_user_id()
     if not user_id:
         return jsonify({'error': '需要认证', 'code': 'UNAUTHORIZED'}), 401
-
     category_names = [c.strip() for c in categories_param.split(',') if c.strip()]
     if not category_names:
         return jsonify({'error': '参数 categories 为空'}), 400
-
     start, end = parse_date_range(request.args.get('start_date'), request.args.get('end_date'))
-    query = Expense.query.filter_by(user_id=user_id, type='expense').filter(
-        Expense.category.in_(category_names)
-    )
-    if start:
-        query = query.filter(Expense.date >= start)
-    if end:
-        query = query.filter(Expense.date <= end)
-
-    records = query.order_by(Expense.date.asc(), Expense.created_at.asc()).all()
-    total_amount = sum(float(r.amount) for r in records)
-
-    # 按分类汇总（与统计接口结构一致）
-    cat_amount = defaultdict(float)
-    for r in records:
-        cat_amount[r.category] += float(r.amount)
-
-    all_categories = {cat.name: cat for cat in Category.query.filter_by(user_id=user_id, type='expense').all()}
-    category_breakdown = sorted([
-        {
-            'category': cat_name, 'amount': amount,
-            'name': all_categories[cat_name].name if cat_name in all_categories else cat_name,
-            'icon': all_categories[cat_name].icon if cat_name in all_categories else '📦',
-            'color': all_categories[cat_name].color if cat_name in all_categories else '#C7CEEA'
-        }
-        for cat_name, amount in cat_amount.items()
-    ], key=lambda x: x['amount'], reverse=True)
-
-    # 每条记录带上分类名称和图标，便于前端展示
-    def record_category_info(cat_key):
-        c = all_categories.get(cat_key)
-        return (c.name if c else cat_key, c.icon if c else '📦')
-
-    records_data = []
-    for r in records:
-        cat_name, cat_icon = record_category_info(r.category)
-        records_data.append({
-            'id': r.id,
-            'date': r.date.strftime('%Y-%m-%d') if r.date else None,
-            'amount': float(r.amount),
-            'note': r.note or '',
-            'category': r.category,
-            'category_name': cat_name,
-            'category_icon': cat_icon,
-            'created_at': r.created_at.strftime('%Y-%m-%d %H:%M:%S') if r.created_at else None
-        })
-
-    return jsonify({
-        'total_amount': total_amount,
-        'category_breakdown': category_breakdown,
-        'records': records_data
-    })
+    data = get_others_detail(user_id, category_names, start_date=start, end_date=end)
+    return jsonify(data)
 
 
 @api_blueprint.route('/export', methods=['GET'])
@@ -583,31 +399,10 @@ def export_data():
     user_id = get_current_user_id()
     if not user_id:
         return jsonify({'error': '未登录'}), 401
-    
     start, end = parse_date_range(request.args.get('start_date'), request.args.get('end_date'))
-    query = Expense.query.filter_by(user_id=user_id)
-    if start:
-        query = query.filter(Expense.date >= start)
-    if end:
-        query = query.filter(Expense.date <= end)
-    
-    records = query.order_by(Expense.date.asc(), Expense.created_at.asc()).all()
-    output = io.StringIO()
-    writer = csv.writer(output, delimiter='\t')
-    writer.writerow(['日期', '收支类型', '类别', '账户', '金额', '备注'])
-    
-    for record in records:
-        writer.writerow([
-            record.date.strftime('%Y年%m月%d日') if record.date else '',
-            '收入' if record.type == 'income' else '支出',
-            record.category,
-            record.account or '未关联',
-            float(record.amount),
-            record.note or ''
-        ])
-    
+    content = build_export_csv(user_id, start_date=start, end_date=end)
     return Response(
-        output.getvalue(), mimetype='text/csv; charset=utf-8-sig',
+        content, mimetype='text/csv; charset=utf-8-sig',
         headers={'Content-Disposition': 'attachment; filename=expense_records.csv'}
     )
 

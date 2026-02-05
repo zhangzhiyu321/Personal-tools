@@ -1,12 +1,19 @@
 // 记账工具前端逻辑
+// 设计：配置与常量集中、工具函数复用、初始化统一入口，便于扩展与维护。
 
 const API_BASE = '/api/expense_tracker';
 const AUTH_API = '/api/auth';
 
-// ========== 日期工具函数 ==========
+// ========== 工具函数 ==========
 const getLocalDateString = (date = null) => {
     const d = date ? new Date(date) : new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/** 金额格式化为 ¥x.xx，统一展示与动画重绘 */
+const formatMoney = (num) => {
+    const n = typeof num === 'number' ? num : parseFloat(num);
+    return '¥' + (isNaN(n) ? '0.00' : n.toFixed(2));
 };
 
 // ========== 认证功能 ==========
@@ -249,7 +256,6 @@ let currentTimeDimension = 'day'; // day, week, month
 let currentDailyStats = null; // 保存当前的每日统计数据，用于图表点击
 // 图表展示：缓存原始分类数据，用于切换「展示方式」时重绘
 let lastCategoryStatsForCharts = null;
-let lastDailyStatsForCharts = null; // 缓存每日统计，供 ECharts 延迟加载后重绘
 // 图表中最多单独显示的分类数，超出部分合并为「其他」；设为很大则显示全部
 let chartDisplayMaxVisible = 6;
 
@@ -320,15 +326,6 @@ function aggregateCategoryStats(categoryStats, options) {
     return { chartData: [...main, otherItem], others: rest, total };
 }
 
-// 获取日期所在周数（ISO周，周一开始）
-function getWeekNumber(date) {
-    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-    const dayNum = d.getUTCDay() || 7;
-    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-    return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
-}
-
 // 日期选择器状态
 let datePickerState = {
     day: { year: new Date().getFullYear(), month: new Date().getMonth() + 1 },
@@ -336,133 +333,39 @@ let datePickerState = {
     month: { count: 1 } // 近N月，最多24个月
 };
 
-// 获取指定年份和周数的日期范围（ISO周，周一开始）
-function getWeekDateRange(year, week) {
-    // 找到该年的第一个周四（ISO周定义）
-    const jan4 = new Date(year, 0, 4);
-    const jan4Day = jan4.getDay() || 7; // 0=周日，转换为7
-    const firstThursday = new Date(jan4);
-    firstThursday.setDate(jan4.getDate() - jan4Day + 4);
-    
-    // 计算第一周的周一
-    const firstMonday = new Date(firstThursday);
-    firstMonday.setDate(firstThursday.getDate() - 3);
-    
-    // 计算目标周的周一
-    const targetMonday = new Date(firstMonday);
-    targetMonday.setDate(firstMonday.getDate() + (week - 1) * 7);
-    
-    // 计算目标周的周日
-    const targetSunday = new Date(targetMonday);
-    targetSunday.setDate(targetMonday.getDate() + 6);
-    
-    return { startDate: targetMonday, endDate: targetSunday };
-}
-
 // ECharts 初始化选项：SVG 渲染 + 高 DPI，移动端清晰
 function getEChartsInitOpts() {
     const dpr = typeof window !== 'undefined' ? Math.max(2, window.devicePixelRatio || 1) : 2;
     return { renderer: 'svg', devicePixelRatio: dpr };
 }
-// 初始化
+// ========== 统一初始化入口 ==========
 document.addEventListener('DOMContentLoaded', async () => {
-    // 首先检查登录状态
     const isAuthenticated = await checkAuthStatus();
-    if (!isAuthenticated) {
-        // 如果未登录，只初始化UI，不加载数据
-        initUI();
-        return;
-    }
-    
-    // 已登录，正常初始化
-    initApp();
+    init(isAuthenticated);
 });
 
-// 初始化UI（未登录时）
-function initUI() {
-    // 设置默认日期为今天（隐藏字段）
-    const today = getLocalDateString();
-    const dateInput = document.getElementById('record-date');
-    if (dateInput) {
-        dateInput.value = today;
-    }
-    // 确保类型默认为支出
+/**
+ * 统一初始化：未登录仅搭好 UI 与事件，已登录再拉取数据。
+ * 便于扩展与维护，避免 initUI/initApp 重复逻辑。
+ */
+function init(authenticated) {
     const typeInput = document.getElementById('record-type');
-    if (typeInput) {
-        typeInput.value = 'expense';
-    }
-    // 确保支出按钮是激活状态
+    if (typeInput) typeInput.value = 'expense';
     const expenseBtn = document.querySelector('.type-btn-compact[data-type="expense"]');
-    if (expenseBtn) {
-        expenseBtn.classList.add('active');
-    }
+    if (expenseBtn) expenseBtn.classList.add('active');
     const incomeBtn = document.querySelector('.type-btn-compact[data-type="income"]');
-    if (incomeBtn) {
-        incomeBtn.classList.remove('active');
-    }
-    
-    // 绑定事件
-    bindEvents();
-    
-    // 初始化标签页
-    initMainTabs();
-    
-    // 初始化时间维度选择器
-    initTimeDimensionSelector();
-    
-    // 初始化记录列表日期筛选
-    initRecordsDateFilter();
-}
+    if (incomeBtn) incomeBtn.classList.remove('active');
 
-// 初始化应用（已登录时）
-function initApp() {
-    // 设置默认日期为今天（隐藏字段）
-    const today = getLocalDateString();
-    const dateInput = document.getElementById('record-date');
-    if (dateInput) {
-        dateInput.value = today;
-    }
-    // 确保类型默认为支出
-    const typeInput = document.getElementById('record-type');
-    if (typeInput) {
-        typeInput.value = 'expense';
-    }
-    // 确保支出按钮是激活状态
-    const expenseBtn = document.querySelector('.type-btn-compact[data-type="expense"]');
-    if (expenseBtn) {
-        expenseBtn.classList.add('active');
-    }
-    const incomeBtn = document.querySelector('.type-btn-compact[data-type="income"]');
-    if (incomeBtn) {
-        incomeBtn.classList.remove('active');
-    }
-    
-    // 优化加载顺序：先加载关键数据，图表延迟加载
-    // 1. 先加载分类（记账表单需要）
-    loadCategories().then(() => {
-        // 2. 然后加载今日记录（首页显示）
-        loadTodayRecords();
-    });
-    
-    // 3. 并行加载统计和记录列表（非阻塞）
-    Promise.all([
-        loadStatistics(),
-        loadRecords()
-    ]).catch(error => {
-        console.error('数据加载错误:', error);
-    });
-    
-    // 绑定事件
     bindEvents();
-    
-    // 初始化标签页
     initMainTabs();
-    
-    // 初始化时间维度选择器
     initTimeDimensionSelector();
-    
-    // 初始化记录列表日期筛选
     initRecordsDateFilter();
+    initDateSelection(); // 唯一入口：设置记账日期 + 绑定日期快捷按钮
+
+    if (authenticated) {
+        loadCategories().then(() => loadTodayRecords());
+        Promise.all([loadStatistics(), loadRecords()]).catch(err => console.error('数据加载错误:', err));
+    }
 }
 
 // 初始化记录列表日期筛选
@@ -787,17 +690,6 @@ function navigateDatePicker(dimension, direction) {
     loadAnalysisData();
 }
 
-// 获取年份的最大周数
-function getMaxWeekInYear(year) {
-    const dec31 = new Date(year, 11, 31);
-    const week = getWeekNumber(dec31);
-    if (week === 1) {
-        // 如果12月31日是第1周，说明它属于下一年的第一周
-        return getWeekNumber(new Date(year, 11, 24));
-    }
-    return week;
-}
-
 // 更新日期选择器显示
 function updateDatePickerDisplay() {
     // 隐藏所有日期选择器
@@ -872,9 +764,9 @@ async function loadAnalysisData() {
         const expenseEl = document.getElementById('analysis-total-expense');
         const balanceEl = document.getElementById('analysis-total-balance');
         
-        if (incomeEl) incomeEl.textContent = `¥${data.total_income.toFixed(2)}`;
-        if (expenseEl) expenseEl.textContent = `¥${data.total_expense.toFixed(2)}`;
-        if (balanceEl) balanceEl.textContent = `¥${data.balance.toFixed(2)}`;
+        if (incomeEl) incomeEl.textContent = formatMoney(data.total_income);
+        if (expenseEl) expenseEl.textContent = formatMoney(data.total_expense);
+        if (balanceEl) balanceEl.textContent = formatMoney(data.balance);
         
         // 强制浏览器重新渲染统计卡片，防止模糊
         if (incomeEl) incomeEl.offsetHeight; // 触发重排
@@ -882,7 +774,6 @@ async function loadAnalysisData() {
         if (balanceEl) balanceEl.offsetHeight;
         
         lastCategoryStatsForCharts = data.category_stats || null;
-        lastDailyStatsForCharts = data.daily_stats || null;
         await Promise.all([
             updateLineChart(data.daily_stats),
             updatePieChart(data.category_stats),
@@ -1149,10 +1040,7 @@ async function renderCategoryDetailModal(detailData) {
         titleEl.textContent = `${icon} ${name} - 分类明细`;
     }
 
-    if (totalEl) {
-        const total = Number(detailData.total_amount || 0);
-        totalEl.textContent = `¥${total.toFixed(2)}`;
-    }
+    if (totalEl) totalEl.textContent = formatMoney(detailData.total_amount ?? 0);
 
     // 保存完整数据供分页和交互使用
     currentCategoryDetailData = detailData;
@@ -2061,14 +1949,14 @@ async function loadStatistics() {
         const data = await response.json();
         
         // 更新统计卡片
-        document.getElementById('total-income').textContent = `¥${data.total_income.toFixed(2)}`;
-        document.getElementById('total-expense').textContent = `¥${data.total_expense.toFixed(2)}`;
-        document.getElementById('total-balance').textContent = `¥${data.balance.toFixed(2)}`;
+        document.getElementById('total-income').textContent = formatMoney(data.total_income);
+        document.getElementById('total-expense').textContent = formatMoney(data.total_expense);
+        document.getElementById('total-balance').textContent = formatMoney(data.balance);
         
         // 更新当日支出（如果存在）
         const todayExpenseEl = document.getElementById('today-expense');
         if (todayExpenseEl && data.today_expense !== undefined) {
-            todayExpenseEl.textContent = `¥${data.today_expense.toFixed(2)}`;
+            todayExpenseEl.textContent = formatMoney(data.today_expense);
         }
         
         lastCategoryStatsForCharts = data.category_stats || null;
@@ -2302,7 +2190,7 @@ function renderTooltipContent(tooltipEl, dateStr, totalIncome, totalExpense, cat
                 <span class="date-detail-tooltip-category-icon">${category.icon}</span>
                 <span class="date-detail-tooltip-category-name">${category.name}</span>
                 <span class="date-detail-tooltip-category-type">${typeLabel}</span>
-                <span class="date-detail-tooltip-category-amount">¥${category.amount.toFixed(2)}</span>
+                <span class="date-detail-tooltip-category-amount">${formatMoney(category.amount)}</span>
                 <span class="date-detail-tooltip-category-count">(${category.count}条)</span>
             </div>
         `;
@@ -2318,8 +2206,8 @@ function renderTooltipContent(tooltipEl, dateStr, totalIncome, totalExpense, cat
                 <div class="date-detail-tooltip-header">
                     <span class="date-detail-tooltip-date">${dateStr}</span>
                     <div class="date-detail-tooltip-totals">
-                        ${totalIncome > 0 ? `<span class="date-detail-tooltip-total income">收入: ¥${totalIncome.toFixed(2)}</span>` : ''}
-                        ${totalExpense > 0 ? `<span class="date-detail-tooltip-total expense">支出: ¥${totalExpense.toFixed(2)}</span>` : ''}
+                        ${totalIncome > 0 ? `<span class="date-detail-tooltip-total income">收入: ${formatMoney(totalIncome)}</span>` : ''}
+                        ${totalExpense > 0 ? `<span class="date-detail-tooltip-total expense">支出: ${formatMoney(totalExpense)}</span>` : ''}
                     </div>
                 </div>
                 <div class="date-detail-tooltip-categories">
@@ -2340,8 +2228,8 @@ function renderTooltipContent(tooltipEl, dateStr, totalIncome, totalExpense, cat
             <div class="date-detail-tooltip-header">
                 <span class="date-detail-tooltip-date">${dateStr}</span>
                 <div class="date-detail-tooltip-totals">
-                    ${totalIncome > 0 ? `<span class="date-detail-tooltip-total income">收入: ¥${totalIncome.toFixed(2)}</span>` : ''}
-                    ${totalExpense > 0 ? `<span class="date-detail-tooltip-total expense">支出: ¥${totalExpense.toFixed(2)}</span>` : ''}
+                    ${totalIncome > 0 ? `<span class="date-detail-tooltip-total income">收入: ${formatMoney(totalIncome)}</span>` : ''}
+                    ${totalExpense > 0 ? `<span class="date-detail-tooltip-total expense">支出: ${formatMoney(totalExpense)}</span>` : ''}
                 </div>
             </div>
             <div class="date-detail-tooltip-categories">
@@ -3107,7 +2995,7 @@ function renderRecords(records) {
                 <div class="date-header">
                     <span class="date-label">${dateLabel}</span>
                     <div class="date-right-info">
-                        ${dailyExpense > 0 ? `<span class="date-expense">¥${dailyExpense.toFixed(2)}</span>` : ''}
+                        ${dailyExpense > 0 ? `<span class="date-expense">${formatMoney(dailyExpense)}</span>` : ''}
                         <span class="date-total">${dateRecords.length} 条</span>
                     </div>
                 </div>
@@ -3631,113 +3519,6 @@ async function handleDeleteRecord(event, recordId) {
         console.error('删除记录失败:', error);
         customAlert('删除失败，请重试', '错误', 'error');
     }
-}
-
-// 通用日期选择器（原生 input[type=date]，无滚轮）- 完全由 JS 创建，不依赖模板
-const DATE_PICKER_MODAL_ID = 'date-picker-modal-js';
-const DATE_PICKER_INPUT_ID = 'date-picker-input-js';
-
-let datePickerConfig = {
-    onConfirm: null,
-    onCancel: null
-};
-
-let datePickerModalCreated = false;
-
-function ensureDatePickerModal() {
-    if (datePickerModalCreated) return;
-    const wrap = document.createElement('div');
-    wrap.id = DATE_PICKER_MODAL_ID;
-    wrap.className = 'modal';
-    wrap.innerHTML = `
-        <div class="modal-content" style="max-width: 500px;">
-            <span class="modal-close" data-date-picker-close>&times;</span>
-            <h2 id="date-picker-title-js">选择日期</h2>
-            <div class="date-picker-container">
-                <input type="date" id="${DATE_PICKER_INPUT_ID}" class="date-picker-input">
-                <div class="picker-actions">
-                    <button type="button" class="btn-secondary" data-date-picker-cancel>取消</button>
-                    <button type="button" class="btn-primary" data-date-picker-confirm>确定</button>
-                </div>
-            </div>
-        </div>`;
-    document.body.appendChild(wrap);
-
-    wrap.addEventListener('click', (e) => {
-        if (e.target === wrap) closeDatePicker();
-    });
-    wrap.querySelectorAll('[data-date-picker-close], [data-date-picker-cancel]').forEach(btn => {
-        btn.addEventListener('click', closeDatePicker);
-    });
-    const confirmBtn = wrap.querySelector('[data-date-picker-confirm]');
-    if (confirmBtn) confirmBtn.addEventListener('click', confirmDateSelection);
-    const input = wrap.querySelector(`#${DATE_PICKER_INPUT_ID}`);
-    if (input) {
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') { e.preventDefault(); confirmDateSelection(); }
-        });
-    }
-    datePickerModalCreated = true;
-}
-
-function openDatePicker(config) {
-    const {
-        initialDate = null,
-        title = '选择日期',
-        onConfirm = null,
-        onCancel = null
-    } = config || {};
-    
-    datePickerConfig.onConfirm = onConfirm;
-    datePickerConfig.onCancel = onCancel;
-    
-    let initialValue = '';
-    if (initialDate && /^\d{4}-\d{2}-\d{2}$/.test(String(initialDate).trim())) {
-        initialValue = String(initialDate).trim();
-    } else if (initialDate) {
-        const d = new Date(initialDate);
-        initialValue = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    } else {
-        initialValue = new Date().toISOString().slice(0, 10);
-    }
-    
-    ensureDatePickerModal();
-    const modal = document.getElementById(DATE_PICKER_MODAL_ID);
-    const input = document.getElementById(DATE_PICKER_INPUT_ID);
-    if (!modal || !input) {
-        if (typeof customAlert === 'function') customAlert('日期选择器初始化失败，请刷新后重试', '错误', 'error');
-        return;
-    }
-    
-    const titleEl = document.getElementById('date-picker-title-js');
-    if (titleEl) titleEl.textContent = title;
-    input.value = initialValue;
-    input.min = '1970-01-01';
-    input.max = '2099-12-31';
-    
-    modal.classList.add('show');
-    modal.style.display = 'flex';
-    modal.style.alignItems = 'center';
-    modal.style.justifyContent = 'center';
-    setTimeout(() => input.focus(), 150);
-}
-
-function closeDatePicker() {
-    const modal = document.getElementById(DATE_PICKER_MODAL_ID);
-    if (modal) {
-        modal.classList.remove('show');
-        modal.style.display = '';
-    }
-    if (datePickerConfig.onCancel) datePickerConfig.onCancel();
-}
-
-function confirmDateSelection() {
-    const { onConfirm } = datePickerConfig;
-    const input = document.getElementById(DATE_PICKER_INPUT_ID);
-    const dateStr = input && input.value ? input.value.trim() : '';
-    if (!dateStr) return;
-    closeDatePicker();
-    if (onConfirm) onConfirm(dateStr);
 }
 
 // 导出数据
@@ -4655,13 +4436,6 @@ function initDateSelection() {
             }
         });
     });
-}
-
-// 在页面加载时初始化日期选择
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initDateSelection);
-} else {
-    initDateSelection();
 }
 
 // 根据偏移量选择日期（首页快捷按钮 + 键盘内今天/昨天/前天）
