@@ -516,6 +516,8 @@ async function switchMainTab(tabName) {
     } else if (tabName === 'records') {
         loadRecords();
     } else if (tabName === 'home') {
+        // 确保回到真正的首页：关闭记账流程浮层和数字键盘，避免“记账一半”时切走再回来还停在浮层
+        closeRecordFlow();
         loadStatistics();
         loadTodayRecords(); // 切换到首页时加载今日记录
     }
