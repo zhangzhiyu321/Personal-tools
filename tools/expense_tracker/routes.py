@@ -317,17 +317,7 @@ def update_record(record_id):
 
     if 'date' in cleaned_data:
         date = datetime.strptime(cleaned_data['date'], '%Y-%m-%d').date()
-        # 验证日期：只能选择前天、昨天、今天、明天这4天
-        today = datetime.now().date()
-        allowed_dates = [
-            today - timedelta(days=2),  # 前天
-            today - timedelta(days=1),  # 昨天
-            today,                      # 今天
-            today + timedelta(days=1)   # 明天
-        ]
-        if date not in allowed_dates:
-            logger.log_security_event('invalid_record_date_update', {'date': str(date), 'allowed_dates': [str(d) for d in allowed_dates]})
-            return jsonify({'error': '只能选择前天、昨天、今天、明天这4天'}), 400
+        # 编辑记录时允许选择任意日期
         expense.date = date
     if 'type' in cleaned_data:
         expense.type = cleaned_data['type']

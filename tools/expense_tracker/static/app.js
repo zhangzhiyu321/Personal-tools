@@ -4200,7 +4200,8 @@ function initKeyboardEvents() {
         // 编辑模式下的日期选择按钮事件
         const dateSelectBtn = document.getElementById('keyboard-date-select-btn');
         if (dateSelectBtn) {
-            dateSelectBtn.addEventListener('click', function() {
+            dateSelectBtn.addEventListener('click', function(e) {
+                e.stopPropagation(); // 阻止事件冒泡，避免触发数字键盘的关闭事件
                 const keyboard = document.getElementById('number-keyboard');
                 const inputId = keyboard.dataset.targetInput || '';
                 
@@ -4216,6 +4217,16 @@ function initKeyboardEvents() {
                             if (selectText) {
                                 selectText.textContent = formatKeyboardDateDisplay(newDate);
                             }
+                            // 确保数字键盘仍然显示
+                            const keyboard = document.getElementById('number-keyboard');
+                            if (keyboard && !keyboard.classList.contains('show')) {
+                                keyboard.classList.add('show');
+                                const backdrop = document.getElementById('number-keyboard-backdrop');
+                                if (backdrop) {
+                                    backdrop.classList.add('show');
+                                }
+                                document.body.classList.add('keyboard-open');
+                            }
                         }
                     });
                 }
@@ -4226,7 +4237,15 @@ function initKeyboardEvents() {
     // 点击背景遮罩关闭键盘
     const backdrop = document.getElementById('number-keyboard-backdrop');
     if (backdrop) {
-        backdrop.addEventListener('click', function() {
+        backdrop.addEventListener('click', function(e) {
+            // 如果日期选择器正在显示，不关闭数字键盘
+            const datePickerModal = document.getElementById('date-picker-modal');
+            if (datePickerModal && datePickerModal.classList.contains('show')) {
+                // 如果点击的是日期选择器模态框，阻止事件
+                if (datePickerModal.contains(e.target)) {
+                    return;
+                }
+            }
             closeNumberKeyboard();
         });
     }
@@ -4235,6 +4254,13 @@ function initKeyboardEvents() {
     document.addEventListener('click', function(e) {
         const numberKeyboard = document.getElementById('number-keyboard');
         const keyboardNoteInput = document.getElementById('keyboard-note-input');
+        const datePickerModal = document.getElementById('date-picker-modal');
+        
+        // 如果日期选择器正在显示，不关闭数字键盘
+        if (datePickerModal && datePickerModal.classList.contains('show')) {
+            return;
+        }
+        
         if (numberKeyboard && numberKeyboard.classList.contains('show')) {
             const inputId = numberKeyboard.dataset.targetInput || 'record-amount';
             const targetInput = document.getElementById(inputId);
@@ -4344,11 +4370,126 @@ function updateKeyboardDateSelection(offset) {
 
 // ========== 日期选择功能（记录列表改日期 / 编辑模态框共用同一弹窗）==========
 let pendingDatePickerOnConfirm = null;
+let calendarCurrentDate = null; // 当前显示的月份日期
+let calendarSelectedDate = null; // 选中的日期
 
 // 关闭日期选择弹窗
 function closeDatePickerModal() {
     const modal = document.getElementById('date-picker-modal');
-    if (modal) modal.classList.remove('show');
+    if (modal) {
+        modal.classList.remove('show');
+        // 阻止事件冒泡，避免触发数字键盘的关闭事件
+        const modalContent = modal.querySelector('.date-picker-modal-content');
+        if (modalContent) {
+            // 确保事件不会冒泡
+        }
+    }
+    // 不清空 calendarSelectedDate，因为可能在确认时还需要使用
+    // calendarCurrentDate = null;
+    // calendarSelectedDate = null;
+}
+
+// 渲染日历
+function renderCalendar(year, month, selectedDate) {
+    const daysContainer = document.getElementById('calendar-days');
+    const monthYearEl = document.getElementById('calendar-month-year');
+    if (!daysContainer || !monthYearEl) return;
+    
+    // 更新月份年份显示
+    monthYearEl.textContent = `${year}年${month}月`;
+    
+    // 清空日期容器
+    daysContainer.innerHTML = '';
+    
+    // 获取当月第一天和最后一天
+    const firstDay = new Date(year, month - 1, 1);
+    const lastDay = new Date(year, month, 0);
+    const firstDayOfWeek = firstDay.getDay(); // 0=周日, 6=周六
+    const daysInMonth = lastDay.getDate();
+    
+    // 获取上个月的最后几天（用于填充第一周）
+    const prevMonthLastDay = new Date(year, month - 1, 0).getDate();
+    
+    // 获取今天的日期
+    const today = new Date();
+    const todayStr = getLocalDateString(today);
+    
+    // 渲染日期
+    // 上个月的日期（灰色）
+    for (let i = firstDayOfWeek - 1; i >= 0; i--) {
+        const day = prevMonthLastDay - i;
+        const dateStr = getLocalDateString(new Date(year, month - 2, day));
+        const dayEl = document.createElement('div');
+        dayEl.className = 'calendar-day calendar-day-other';
+        if (selectedDate && dateStr === selectedDate) {
+            dayEl.classList.add('calendar-day-selected');
+        }
+        dayEl.textContent = day;
+        dayEl.dataset.date = dateStr;
+        daysContainer.appendChild(dayEl);
+    }
+    
+    // 当月的日期
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = getLocalDateString(new Date(year, month - 1, day));
+        const dayEl = document.createElement('div');
+        dayEl.className = 'calendar-day';
+        
+        // 判断是否是今天
+        if (dateStr === todayStr) {
+            dayEl.classList.add('calendar-day-today');
+        }
+        
+        // 判断是否被选中
+        if (selectedDate && dateStr === selectedDate) {
+            dayEl.classList.add('calendar-day-selected');
+        }
+        
+        dayEl.textContent = day;
+        dayEl.dataset.date = dateStr;
+        daysContainer.appendChild(dayEl);
+    }
+    
+    // 下个月的日期（填充到6行）
+    const totalCells = daysContainer.children.length;
+    const remainingCells = 42 - totalCells; // 6行 x 7列 = 42
+    for (let day = 1; day <= remainingCells; day++) {
+        const dateStr = getLocalDateString(new Date(year, month, day));
+        const dayEl = document.createElement('div');
+        dayEl.className = 'calendar-day calendar-day-other';
+        if (selectedDate && dateStr === selectedDate) {
+            dayEl.classList.add('calendar-day-selected');
+        }
+        dayEl.textContent = day;
+        dayEl.dataset.date = dateStr;
+        daysContainer.appendChild(dayEl);
+    }
+    
+    // 绑定日期点击事件
+    daysContainer.querySelectorAll('.calendar-day').forEach(dayEl => {
+        dayEl.addEventListener('click', function(e) {
+            e.stopPropagation(); // 阻止事件冒泡，避免触发数字键盘的关闭事件
+            const date = this.dataset.date;
+            if (!date) return;
+            
+            calendarSelectedDate = date;
+            const dateObj = new Date(date + 'T00:00:00');
+            
+            // 如果点击的是其他月份的日期，切换到那个月份
+            if (dateObj.getMonth() + 1 !== month || dateObj.getFullYear() !== year) {
+                calendarCurrentDate = dateObj;
+                renderCalendar(dateObj.getFullYear(), dateObj.getMonth() + 1, date);
+            } else {
+                // 移除之前的选中状态
+                daysContainer.querySelectorAll('.calendar-day-selected').forEach(el => {
+                    el.classList.remove('calendar-day-selected');
+                });
+                
+                // 添加选中状态
+                this.classList.add('calendar-day-selected');
+            }
+        });
+    });
 }
 
 // 确保日期选择器模态框存在
@@ -4361,33 +4502,130 @@ function ensureDatePickerModal() {
         const confirmBtn = document.getElementById('date-picker-confirm');
         const cancelBtn = document.getElementById('date-picker-cancel');
         const closeBtn = document.getElementById('date-picker-close');
-        const input = document.getElementById('date-picker-input');
+        const prevMonthBtn = document.getElementById('calendar-prev-month');
+        const nextMonthBtn = document.getElementById('calendar-next-month');
         
-        if (confirmBtn && input) {
-            confirmBtn.addEventListener('click', () => {
-                const selectedDate = (input.value || '').trim();
-                if (!selectedDate) return;
+        // 确认按钮
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', (e) => {
+                e.stopPropagation(); // 阻止事件冒泡
+                if (!calendarSelectedDate) return;
                 if (typeof pendingDatePickerOnConfirm === 'function') {
-                    pendingDatePickerOnConfirm(selectedDate);
+                    pendingDatePickerOnConfirm(calendarSelectedDate);
                     pendingDatePickerOnConfirm = null;
                 }
                 closeDatePickerModal();
+                // 确保数字键盘仍然显示（如果在编辑模式下）
+                setTimeout(() => {
+                    const keyboard = document.getElementById('number-keyboard');
+                    const inputId = keyboard ? keyboard.dataset.targetInput || '' : '';
+                    if (inputId && inputId.startsWith('record-edit-')) {
+                        if (keyboard && !keyboard.classList.contains('show')) {
+                            keyboard.classList.add('show');
+                            const backdrop = document.getElementById('number-keyboard-backdrop');
+                            if (backdrop) {
+                                backdrop.classList.add('show');
+                            }
+                            document.body.classList.add('keyboard-open');
+                        }
+                    }
+                }, 10);
             });
         }
         
+        // 取消和关闭按钮
         [cancelBtn, closeBtn].forEach(btn => {
-            if (btn) btn.addEventListener('click', () => {
+            if (btn) btn.addEventListener('click', (e) => {
+                e.stopPropagation(); // 阻止事件冒泡
                 if (typeof pendingDatePickerOnConfirm === 'function') pendingDatePickerOnConfirm = null;
                 closeDatePickerModal();
+                // 确保数字键盘仍然显示（如果在编辑模式下）
+                setTimeout(() => {
+                    const keyboard = document.getElementById('number-keyboard');
+                    const inputId = keyboard ? keyboard.dataset.targetInput || '' : '';
+                    if (inputId && inputId.startsWith('record-edit-')) {
+                        if (keyboard && !keyboard.classList.contains('show')) {
+                            keyboard.classList.add('show');
+                            const backdrop = document.getElementById('number-keyboard-backdrop');
+                            if (backdrop) {
+                                backdrop.classList.add('show');
+                            }
+                            document.body.classList.add('keyboard-open');
+                        }
+                    }
+                }, 10);
             });
         });
         
+        // 月份导航
+        if (prevMonthBtn) {
+            prevMonthBtn.addEventListener('click', (e) => {
+                e.stopPropagation(); // 阻止事件冒泡
+                if (!calendarCurrentDate) return;
+                const newDate = new Date(calendarCurrentDate);
+                newDate.setMonth(newDate.getMonth() - 1);
+                calendarCurrentDate = newDate;
+                renderCalendar(newDate.getFullYear(), newDate.getMonth() + 1, calendarSelectedDate);
+            });
+        }
+        
+        if (nextMonthBtn) {
+            nextMonthBtn.addEventListener('click', (e) => {
+                e.stopPropagation(); // 阻止事件冒泡
+                if (!calendarCurrentDate) return;
+                const newDate = new Date(calendarCurrentDate);
+                newDate.setMonth(newDate.getMonth() + 1);
+                calendarCurrentDate = newDate;
+                renderCalendar(newDate.getFullYear(), newDate.getMonth() + 1, calendarSelectedDate);
+            });
+        }
+        
+        // 快捷操作按钮
+        const quickBtns = document.querySelectorAll('.calendar-quick-btn');
+        quickBtns.forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation(); // 阻止事件冒泡
+                const action = this.dataset.action;
+                let targetDate = null;
+                const today = new Date();
+                
+                if (action === 'today') {
+                    targetDate = getLocalDateString(today);
+                } else if (action === 'yesterday') {
+                    const yesterday = new Date(today);
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    targetDate = getLocalDateString(yesterday);
+                } else if (action === 'tomorrow') {
+                    const tomorrow = new Date(today);
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    targetDate = getLocalDateString(tomorrow);
+                }
+                
+                if (targetDate) {
+                    calendarSelectedDate = targetDate;
+                    const dateObj = new Date(targetDate + 'T00:00:00');
+                    calendarCurrentDate = dateObj;
+                    renderCalendar(dateObj.getFullYear(), dateObj.getMonth() + 1, targetDate);
+                }
+            });
+        });
+        
+        // 点击背景关闭
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
+                e.stopPropagation(); // 阻止事件冒泡到数字键盘的背景遮罩
                 if (typeof pendingDatePickerOnConfirm === 'function') pendingDatePickerOnConfirm = null;
                 closeDatePickerModal();
             }
         });
+        
+        // 阻止日期选择器内容区域的点击事件冒泡
+        const modalContent = modal.querySelector('.date-picker-modal-content');
+        if (modalContent) {
+            modalContent.addEventListener('click', (e) => {
+                e.stopPropagation(); // 阻止事件冒泡
+            });
+        }
         
         modal.dataset.initialized = 'true';
     }
@@ -4399,31 +4637,48 @@ function ensureDatePickerModal() {
 function openSharedDatePicker(options) {
     const { initialValue, title = '选择日期', onConfirm = null } = options || {};
     const modal = ensureDatePickerModal();
-    const input = document.getElementById('date-picker-input');
     const titleEl = document.getElementById('date-picker-title');
-    if (!modal || !input) return;
+    if (!modal) return;
     
     pendingDatePickerOnConfirm = onConfirm || null;
     if (titleEl) titleEl.textContent = title;
     
-    let val = '';
+    // 解析初始日期
+    let initialDate = null;
     if (initialValue && /^\d{4}-\d{2}-\d{2}$/.test(String(initialValue).trim())) {
-        val = String(initialValue).trim();
+        initialDate = String(initialValue).trim();
     } else if (initialValue) {
         const d = new Date(initialValue);
-        val = getLocalDateString(d);
+        initialDate = getLocalDateString(d);
     } else {
-        val = getLocalDateString();
+        initialDate = getLocalDateString();
     }
-    input.value = val;
     
+    // 设置当前显示的月份和选中的日期
+    const dateObj = new Date(initialDate + 'T00:00:00');
+    calendarCurrentDate = dateObj;
+    calendarSelectedDate = initialDate;
+    
+    // 渲染日历
+    renderCalendar(dateObj.getFullYear(), dateObj.getMonth() + 1, initialDate);
+    
+    // 显示模态框
     modal.classList.add('show');
-    setTimeout(() => {
-        input.focus();
-        if (typeof input.showPicker === 'function') {
-            try { input.showPicker(); } catch (e) { /* 部分浏览器不支持 */ }
+    
+    // 确保数字键盘仍然显示（如果在编辑模式下）
+    const keyboard = document.getElementById('number-keyboard');
+    const inputId = keyboard ? keyboard.dataset.targetInput || '' : '';
+    if (inputId && inputId.startsWith('record-edit-')) {
+        // 确保数字键盘保持显示状态
+        if (keyboard && !keyboard.classList.contains('show')) {
+            keyboard.classList.add('show');
+            const backdrop = document.getElementById('number-keyboard-backdrop');
+            if (backdrop) {
+                backdrop.classList.add('show');
+            }
+            document.body.classList.add('keyboard-open');
         }
-    }, 150);
+    }
 }
 
 // 格式化为「YYYY年M月D日 星期X」，入参可为 Date 或 'YYYY-MM-DD' 字符串

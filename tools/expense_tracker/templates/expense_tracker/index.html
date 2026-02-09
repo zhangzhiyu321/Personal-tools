@@ -419,7 +419,7 @@
         </div>
     </div>
 
-    <!-- 通用日期选择器模态框（原生 date 输入） -->
+    <!-- 通用日期选择器模态框（自定义日历） -->
     <div id="date-picker-modal" class="modal">
         <div class="modal-content date-picker-modal-content">
             <div class="date-picker-modal-header">
@@ -427,9 +427,31 @@
                 <button type="button" class="modal-close" id="date-picker-close" aria-label="关闭">&times;</button>
             </div>
             <div class="date-picker-modal-body">
-                <label class="date-picker-label" for="date-picker-input">选择日期</label>
-                <input type="date" id="date-picker-input" class="date-picker-input" aria-describedby="date-picker-hint">
-                <p class="date-picker-hint" id="date-picker-hint">点击上方输入框可打开日历选择</p>
+                <!-- 月份导航 -->
+                <div class="calendar-nav">
+                    <button type="button" class="calendar-nav-btn" id="calendar-prev-month" aria-label="上一个月">‹</button>
+                    <div class="calendar-month-year" id="calendar-month-year"></div>
+                    <button type="button" class="calendar-nav-btn" id="calendar-next-month" aria-label="下一个月">›</button>
+                </div>
+                <!-- 星期标题 -->
+                <div class="calendar-weekdays">
+                    <div class="calendar-weekday">日</div>
+                    <div class="calendar-weekday">一</div>
+                    <div class="calendar-weekday">二</div>
+                    <div class="calendar-weekday">三</div>
+                    <div class="calendar-weekday">四</div>
+                    <div class="calendar-weekday">五</div>
+                    <div class="calendar-weekday">六</div>
+                </div>
+                <!-- 日期网格 -->
+                <div class="calendar-days" id="calendar-days"></div>
+                <!-- 快捷操作 -->
+                <div class="calendar-quick-actions">
+                    <button type="button" class="calendar-quick-btn" data-action="today">今天</button>
+                    <button type="button" class="calendar-quick-btn" data-action="yesterday">昨天</button>
+                    <button type="button" class="calendar-quick-btn" data-action="tomorrow">明天</button>
+                </div>
+                <!-- 操作按钮 -->
                 <div class="picker-actions">
                     <button type="button" class="btn-secondary" id="date-picker-cancel">取消</button>
                     <button type="button" class="btn-primary" id="date-picker-confirm">确定</button>
