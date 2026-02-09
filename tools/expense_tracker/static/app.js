@@ -1355,6 +1355,7 @@ function showDateRecordsInChart(date, dayRecords, category, event) {
 let numberKeyboardValue = '0.00';
 let numberKeyboardExpression = '';
 let selectedRecordDate = null; // 记账时选择的日期，null表示使用今天
+let currentEditingRecord = null; // 当前正在编辑的记录（用于记录列表中的编辑）
 
 // 绑定事件
 function bindEvents() {
@@ -1443,20 +1444,6 @@ function bindEvents() {
     });
     
     
-    
-    // 记录列表：点击图标 → 改分类；点击名字 → 改备注；点击金额 → 改金额；点击空白 → 改日期；点击删除 → 删除
-    const recordsListEl = document.getElementById('records-list');
-    if (recordsListEl) {
-        recordsListEl.addEventListener('click', (e) => {
-            const recordItem = e.target.closest('.record-item');
-            if (!recordItem) return;
-            if (e.target.closest('.record-actions')) return;
-            if (e.target.closest('.editable')) return;
-            e.preventDefault();
-            e.stopPropagation();
-            editRecordDate(recordItem);
-        });
-    }
     
     // 导出导入
     document.getElementById('btn-export').addEventListener('click', handleExport);
@@ -3019,19 +3006,18 @@ function renderRecords(records) {
             
             html += `
                 <div class="record-item" data-id="${record.id}">
-                    <div class="record-icon editable" data-field="category" data-record-id="${record.id}" data-value="${record.category}">${icon}</div>
+                    <div class="record-icon">${icon}</div>
                     <div class="record-info">
                         <div class="record-header">
-                            <span class="record-category editable" data-field="note" data-record-id="${record.id}" data-value="${record.note || ''}">${displayName}</span>
+                            <span class="record-category">${displayName}</span>
                         </div>
                     </div>
-                    <div class="record-amount ${typeClass} editable" data-field="amount" data-record-id="${record.id}" data-value="${record.amount}">
+                    <div class="record-amount ${typeClass}" data-record-id="${record.id}" data-record-type="${record.type}" data-record-category="${record.category}" data-record-date="${record.date}" data-record-note="${escapeHtml(record.note || '')}" style="cursor: pointer;">
                         ${record.type === 'income' ? '+' : '-'}¥${parseFloat(record.amount).toFixed(2)}
                     </div>
                     <div class="record-actions">
                         <button class="btn-danger" onclick="handleDeleteRecord(event, ${record.id})">删除</button>
                     </div>
-                    <input type="hidden" class="record-date-hidden" data-record-id="${record.id}" data-value="${record.date}">
                 </div>
             `;
         });
@@ -3044,293 +3030,30 @@ function renderRecords(records) {
     
     container.innerHTML = html;
     
-    // 绑定内联编辑事件
-    bindInlineEditEvents();
-}
-
-// 绑定内联编辑事件（可编辑字段；改日期由 #records-list 事件委托处理）
-function bindInlineEditEvents() {
-    document.querySelectorAll('.editable').forEach(element => {
-        element.addEventListener('click', function(e) {
+    // 绑定金额点击事件，打开数字键盘进行编辑
+    container.querySelectorAll('.record-amount').forEach(amountEl => {
+        amountEl.addEventListener('click', function(e) {
+            e.preventDefault();
             e.stopPropagation();
-            startInlineEdit(this);
-        });
-    });
-}
-
-// 编辑单条记录的日期（使用与记账相同的日期选择弹窗）
-function editRecordDate(recordItem) {
-    if (!recordItem || !recordItem.dataset) return;
-    const recordId = parseInt(recordItem.dataset.id, 10);
-    if (isNaN(recordId)) return;
-    const dateHiddenInput = recordItem.querySelector('.record-date-hidden');
-    if (!dateHiddenInput || !dateHiddenInput.dataset) return;
-    const oldDate = (dateHiddenInput.dataset.value || '').trim();
-    
-    openSharedDatePicker({
-        initialValue: oldDate,
-        title: '选择日期',
-        onConfirm: async (newDate) => {
-            if (newDate === oldDate) return;
-            try {
-                const response = await authFetch(`${API_BASE}/records/${recordId}`);
-                const data = await response.json();
-                const record = data.record;
-                if (!record) {
-                    customAlert('记录不存在', '错误', 'error');
-                    return;
-                }
-                const updateResponse = await authFetch(`${API_BASE}/records/${recordId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        date: newDate,
-                        type: record.type,
-                        amount: parseFloat(record.amount),
-                        category: record.category,
-                        note: record.note || ''
-                    })
-                });
-                const result = await updateResponse.json();
-                if (updateResponse.ok) {
-                    loadStatistics();
-                    loadRecords(currentPage);
-                    loadTodayRecords();
-                    showMessage('日期更新成功！', 'success');
-                } else {
-                    customAlert(result.error || '更新失败', '更新失败', 'error');
-                }
-            } catch (error) {
-                console.error('更新日期失败:', error);
-                customAlert('更新日期失败，请重试', '错误', 'error');
-            }
-        }
-    });
-}
-
-// 开始内联编辑
-function startInlineEdit(element) {
-    const field = element.dataset.field;
-    const recordId = element.dataset.recordId;
-    const currentValue = element.dataset.value;
-    const originalText = element.textContent.trim();
-    
-    // 如果已经在编辑状态，忽略
-    if (element.querySelector('input, select')) {
-        return;
-    }
-    
-    let input;
-    
-    if (field === 'category') {
-        // 分类：使用下拉选择
-        const record = getRecordFromDOM(recordId);
-        const type = record?.type || 'expense';
-        const categoryList = categories[type] || [];
-        
-        input = document.createElement('select');
-        input.className = 'inline-edit-input';
-        categoryList.forEach(cat => {
-            const option = document.createElement('option');
-            // 使用分类名称作为值（因为数据库存储的是名称）
-            option.value = cat.name || cat.id;
-            option.textContent = `${cat.icon} ${cat.name}`;
-            // 匹配当前值（可能是ID或名称）
-            if (cat.id === currentValue || cat.name === currentValue || (cat.id && cat.id.toString() === currentValue)) {
-                option.selected = true;
-            }
-            input.appendChild(option);
-        });
-    } else if (field === 'date') {
-        // 日期：使用日期选择器
-        input = document.createElement('input');
-        input.type = 'date';
-        input.className = 'inline-edit-input';
-        input.value = currentValue;
-    } else if (field === 'amount') {
-        // 金额：使用数字输入
-        input = document.createElement('input');
-        input.type = 'number';
-        input.step = '0.01';
-        input.min = '0.01';
-        input.className = 'inline-edit-input';
-        // 移除符号和¥，只保留数字
-        const amountValue = originalText.replace(/[+\-¥]/g, '').trim();
-        input.value = amountValue;
-    } else if (field === 'note') {
-        // 备注：使用文本输入
-        input = document.createElement('input');
-        input.type = 'text';
-        input.className = 'inline-edit-input';
-        input.value = currentValue || '';
-        input.placeholder = '输入备注...';
-    }
-    
-    // 保存原始内容
-    const originalHTML = element.innerHTML;
-    element.innerHTML = '';
-    element.appendChild(input);
-    input.focus();
-    
-    // 处理保存
-    const saveEdit = async () => {
-        const newValue = input.value.trim();
-        if (newValue === currentValue || newValue === '') {
-            // 没有变化，恢复原样
-            element.innerHTML = originalHTML;
-            element.dataset.value = currentValue;
-            return;
-        }
-        
-        // 更新记录
-        await updateRecordField(recordId, field, newValue, element);
-    };
-    
-    // 处理取消
-    const cancelEdit = () => {
-        element.innerHTML = originalHTML;
-        element.dataset.value = currentValue;
-    };
-    
-    // 绑定事件
-    input.addEventListener('blur', saveEdit);
-    input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            input.blur();
-        } else if (e.key === 'Escape') {
-            e.preventDefault();
-            cancelEdit();
-        }
-    });
-}
-
-// 更新记录字段
-async function updateRecordField(recordId, field, newValue, element) {
-    try {
-        // 先获取当前记录
-        const response = await authFetch(`${API_BASE}/records/${recordId}`);
-        const data = await response.json();
-        const record = data.record;
-        
-        if (!record) {
-            customAlert('记录不存在', '错误', 'error');
-            element.innerHTML = element.dataset.value;
-            return;
-        }
-        
-        // 构建更新数据
-        const updateData = {
-            date: record.date,
-            type: record.type,
-            amount: parseFloat(record.amount),
-            category: record.category,
-            note: record.note || ''
-        };
-        
-        // 更新对应字段
-        if (field === 'category') {
-            // 检查新分类是否属于当前类型
-            // newValue 可能是分类名称或ID（因为选择器使用 cat.name || cat.id）
-            const categoryList = [...categories.expense, ...categories.income];
-            const newCategory = categoryList.find(c => 
-                c.id === newValue || 
-                c.name === newValue || 
-                (c.id && c.id.toString() === newValue)
-            );
-            if (!newCategory) {
-                customAlert('无效的分类', '输入错误', 'warning');
-                element.innerHTML = element.dataset.value;
-                return;
-            }
-            // 如果分类类型与记录类型不匹配，需要同时更新类型
-            const isIncomeCategory = categories.income.some(c => 
-                c.id === newValue || 
-                c.name === newValue || 
-                (c.id && c.id.toString() === newValue)
-            );
-            const isExpenseCategory = categories.expense.some(c => 
-                c.id === newValue || 
-                c.name === newValue || 
-                (c.id && c.id.toString() === newValue)
-            );
+            const recordId = this.dataset.recordId;
+            const recordType = this.dataset.recordType;
+            const recordCategory = this.dataset.recordCategory;
+            const recordDate = this.dataset.recordDate;
+            const recordNote = this.dataset.recordNote || '';
+            const recordAmount = this.textContent.replace(/[^0-9.]/g, ''); // 提取金额数字
             
-            if (isIncomeCategory && record.type !== 'income') {
-                updateData.type = 'income';
-            } else if (isExpenseCategory && record.type !== 'expense') {
-                updateData.type = 'expense';
+            if (recordId) {
+                openRecordEditKeyboard({
+                    id: recordId,
+                    type: recordType,
+                    category: recordCategory,
+                    date: recordDate,
+                    note: recordNote,
+                    amount: recordAmount
+                });
             }
-            // 使用分类名称作为值（因为数据库存储的是名称）
-            updateData.category = newCategory.name || newCategory.id;
-        } else if (field === 'date') {
-            updateData.date = newValue;
-        } else if (field === 'amount') {
-            const amount = parseFloat(newValue);
-            if (isNaN(amount) || amount <= 0) {
-                customAlert('金额必须大于0', '输入错误', 'warning');
-                element.innerHTML = element.dataset.value;
-                return;
-            }
-            updateData.amount = amount;
-        } else if (field === 'note') {
-            // 备注：直接更新
-            updateData.note = newValue || '';
-        }
-        
-        // 发送更新请求
-        const updateResponse = await authFetch(`${API_BASE}/records/${recordId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updateData)
         });
-        
-        const result = await updateResponse.json();
-        
-        if (updateResponse.ok) {
-            // 更新成功，重新加载数据
-            loadStatistics();
-            loadRecords(currentPage);
-            loadTodayRecords(); // 刷新今日记录
-            showMessage('更新成功！', 'success');
-        } else {
-            customAlert(result.error || '更新失败', '更新失败', 'error');
-            // 恢复原值
-            element.innerHTML = element.dataset.value;
-        }
-    } catch (error) {
-        console.error('更新记录失败:', error);
-        customAlert('更新失败，请重试', '错误', 'error');
-        // 恢复原值
-        element.innerHTML = element.dataset.value;
-    }
-}
-
-// 从DOM获取记录信息（辅助函数）
-function getRecordFromDOM(recordId) {
-    const recordItem = document.querySelector(`.record-item[data-id="${recordId}"]`);
-    if (!recordItem) return null;
-    
-    // 从DOM元素中提取信息
-    const amountElement = recordItem.querySelector('.record-amount');
-    const amountText = amountElement?.textContent || '';
-    const isIncome = amountText.startsWith('+') || amountElement.classList.contains('income');
-    const amount = parseFloat(amountText.replace(/[+\-¥]/g, '').trim());
-    
-    // 优先从 record-icon 获取分类（因为现在分类编辑在 icon 上）
-    const categoryElement = recordItem.querySelector('.record-icon.editable[data-field="category"]') || 
-                           recordItem.querySelector('.record-category.editable[data-field="category"]');
-    const category = categoryElement?.dataset.value || '';
-    
-    const dateElement = recordItem.querySelector('.record-date.editable');
-    const date = dateElement?.dataset.value || '';
-    
-    return {
-        id: recordId,
-        type: isIncome ? 'income' : 'expense',
-        amount: amount,
-        category: category,
-        date: date
-    };
+    });
 }
 
 // 渲染分页
@@ -4071,6 +3794,61 @@ function selectIcon(icon) {
     closeIconPicker();
 }
 
+// 打开记录编辑键盘（用于记录列表中的编辑）
+function openRecordEditKeyboard(record) {
+    // 保存当前编辑的记录信息
+    currentEditingRecord = record;
+    
+    const keyboard = document.getElementById('number-keyboard');
+    if (!keyboard) return;
+    
+    // 使用特殊的inputId标识这是记录编辑模式
+    keyboard.dataset.targetInput = `record-edit-${record.id}`;
+    
+    // 设置金额值
+    numberKeyboardValue = parseFloat(record.amount || 0).toFixed(2);
+    numberKeyboardExpression = '';
+    
+    // 设置日期
+    selectedRecordDate = record.date || getLocalDateString();
+    
+    // 设置备注
+    const keyboardNoteInput = document.getElementById('keyboard-note-input');
+    if (keyboardNoteInput) {
+        keyboardNoteInput.value = record.note || '';
+    }
+    
+    // 显示日期选择区域，并切换为编辑模式（显示"选择日期"按钮）
+    const dateSection = document.querySelector('.keyboard-date-section');
+    const quickButtons = document.getElementById('keyboard-date-quick-buttons');
+    const selectWrapper = document.getElementById('keyboard-date-select-wrapper');
+    const selectText = document.getElementById('keyboard-date-select-text');
+    
+    if (dateSection) {
+        dateSection.style.display = 'block';
+        // 隐藏快捷日期按钮，显示"选择日期"按钮
+        if (quickButtons) quickButtons.style.display = 'none';
+        if (selectWrapper) {
+            selectWrapper.style.display = 'block';
+            // 更新日期显示文本（使用简洁格式）
+            if (selectText) {
+                selectText.textContent = formatKeyboardDateDisplay(selectedRecordDate);
+            }
+        }
+    }
+    
+    // 更新显示
+    updateNumberKeyboardDisplay();
+    
+    // 显示键盘和背景遮罩
+    keyboard.classList.add('show');
+    const backdrop = document.getElementById('number-keyboard-backdrop');
+    if (backdrop) {
+        backdrop.classList.add('show');
+    }
+    document.body.classList.add('keyboard-open');
+}
+
 // 打开数字键盘
 function openNumberKeyboard(inputId = 'record-amount') {
     const keyboard = document.getElementById('number-keyboard');
@@ -4107,9 +3885,14 @@ function openNumberKeyboard(inputId = 'record-amount') {
         }
         // 初始化日期选择按钮状态（默认选择今天，offset=0）
         updateKeyboardDateSelection(0);
-        // 显示日期选择区域
+        // 显示日期选择区域，并切换为记账模式（显示快捷日期按钮）
         if (dateSection) {
             dateSection.style.display = 'block';
+            const quickButtons = document.getElementById('keyboard-date-quick-buttons');
+            const selectWrapper = document.getElementById('keyboard-date-select-wrapper');
+            // 显示快捷日期按钮，隐藏"选择日期"按钮
+            if (quickButtons) quickButtons.style.display = 'flex';
+            if (selectWrapper) selectWrapper.style.display = 'none';
         }
     } else {
         numberKeyboardValue = currentValue;
@@ -4119,6 +3902,10 @@ function openNumberKeyboard(inputId = 'record-amount') {
         // 隐藏日期选择区域
         if (dateSection) {
             dateSection.style.display = 'none';
+            const quickButtons = document.getElementById('keyboard-date-quick-buttons');
+            const selectWrapper = document.getElementById('keyboard-date-select-wrapper');
+            if (quickButtons) quickButtons.style.display = 'none';
+            if (selectWrapper) selectWrapper.style.display = 'none';
         }
         // 同步备注输入框的值（编辑模态框）
         const editNoteInput = document.getElementById('edit-note');
@@ -4144,8 +3931,26 @@ function openNumberKeyboard(inputId = 'record-amount') {
 function closeNumberKeyboard() {
     const keyboard = document.getElementById('number-keyboard');
     const inputId = keyboard.dataset.targetInput || 'record-amount';
+    
+    // 如果是记录编辑模式，清除编辑状态
+    if (inputId && inputId.startsWith('record-edit-')) {
+        currentEditingRecord = null;
+    }
+    
     const amountInput = document.getElementById(inputId);
     
+    // 如果inputId不是标准的input元素（如record-edit-xxx），直接关闭键盘
+    if (!amountInput && inputId.startsWith('record-edit-')) {
+        keyboard.classList.remove('show');
+        const backdrop = document.getElementById('number-keyboard-backdrop');
+        if (backdrop) {
+            backdrop.classList.remove('show');
+        }
+        document.body.classList.remove('keyboard-open');
+        return;
+    }
+    
+    // 如果inputId不是标准的input元素且不是记录编辑模式，直接返回
     if (!amountInput) return;
     
     // 如果有未完成的表达式，先计算结果
@@ -4202,9 +4007,13 @@ async function submitRecordFromKeyboard() {
     // 先同步数据到隐藏输入框
     const keyboard = document.getElementById('number-keyboard');
     const inputId = keyboard.dataset.targetInput || 'record-amount';
-    const amountInput = document.getElementById(inputId);
     
-    if (!amountInput) return;
+    // 获取amountInput（记录编辑模式可能不存在）
+    let amountInput = null;
+    if (!inputId || !inputId.startsWith('record-edit-')) {
+        amountInput = document.getElementById(inputId);
+        if (!amountInput) return;
+    }
     
     // 如果有未完成的表达式，先计算结果（仅 + -）
     if (numberKeyboardExpression) {
@@ -4229,8 +4038,10 @@ async function submitRecordFromKeyboard() {
         finalValue = '';
     }
     
-    // 更新金额输入框值
-    amountInput.value = finalValue;
+    // 更新金额输入框值（如果存在）
+    if (amountInput) {
+        amountInput.value = finalValue;
+    }
     
     // 同步备注输入框的值
     const keyboardNoteInput = document.getElementById('keyboard-note-input');
@@ -4251,6 +4062,71 @@ async function submitRecordFromKeyboard() {
         // 关闭键盘
         keyboard.classList.remove('show');
         document.body.classList.remove('keyboard-open');
+        return;
+    }
+    
+    // 如果是记录列表中的编辑模式
+    if (inputId && inputId.startsWith('record-edit-')) {
+        if (!currentEditingRecord) {
+            customAlert('编辑信息丢失，请重新操作', '错误', 'error');
+            closeNumberKeyboard();
+            return;
+        }
+        
+        // 获取备注
+        const keyboardNoteInput = document.getElementById('keyboard-note-input');
+        const note = keyboardNoteInput ? keyboardNoteInput.value.trim() : '';
+        
+        // 获取日期（使用选择的日期或原日期）
+        const date = selectedRecordDate || currentEditingRecord.date || getLocalDateString();
+        
+        // 验证金额
+        const amount = parseFloat(finalValue);
+        if (isNaN(amount) || amount <= 0) {
+            customAlert('请输入有效的金额', '输入错误', 'warning');
+            return;
+        }
+        
+        // 关闭键盘和背景遮罩
+        keyboard.classList.remove('show');
+        const backdrop = document.getElementById('number-keyboard-backdrop');
+        if (backdrop) {
+            backdrop.classList.remove('show');
+        }
+        document.body.classList.remove('keyboard-open');
+        
+        // 更新记录
+        try {
+            const response = await authFetch(`${API_BASE}/records/${currentEditingRecord.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type: currentEditingRecord.type,
+                    category: currentEditingRecord.category,
+                    amount: amount.toFixed(2),
+                    date: date,
+                    note: note
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (response.ok) {
+                showMessage('更新成功！', 'success');
+                // 刷新数据
+                loadStatistics();
+                loadRecords(currentPage);
+                loadTodayRecords();
+                // 清除编辑状态
+                currentEditingRecord = null;
+            } else {
+                customAlert(result.error || '更新失败', '更新失败', 'error');
+            }
+        } catch (error) {
+            console.error('更新记录失败:', error);
+            customAlert('更新失败，请重试', '错误', 'error');
+        }
+        
         return;
     }
     
@@ -4320,6 +4196,31 @@ function initKeyboardEvents() {
                 }
             });
         });
+        
+        // 编辑模式下的日期选择按钮事件
+        const dateSelectBtn = document.getElementById('keyboard-date-select-btn');
+        if (dateSelectBtn) {
+            dateSelectBtn.addEventListener('click', function() {
+                const keyboard = document.getElementById('number-keyboard');
+                const inputId = keyboard.dataset.targetInput || '';
+                
+                // 只有在编辑记录模式下才打开日期选择器
+                if (inputId && inputId.startsWith('record-edit-')) {
+                    const currentDate = selectedRecordDate || getLocalDateString();
+                    openSharedDatePicker({
+                        initialValue: currentDate,
+                        title: '选择日期',
+                        onConfirm: (newDate) => {
+                            selectedRecordDate = newDate;
+                            const selectText = document.getElementById('keyboard-date-select-text');
+                            if (selectText) {
+                                selectText.textContent = formatKeyboardDateDisplay(newDate);
+                            }
+                        }
+                    });
+                }
+            });
+        }
     }
     
     // 点击背景遮罩关闭键盘
@@ -4531,6 +4432,36 @@ function formatDateDisplayString(dateOrStr) {
     if (isNaN(d.getTime())) return '';
     const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
     return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 星期${weekdays[d.getDay()]}`;
+}
+
+// 格式化为键盘日期显示格式「M月D日 星期X」（更简洁，适合手机端）
+function formatKeyboardDateDisplay(dateOrStr) {
+    const d = dateOrStr instanceof Date ? dateOrStr : new Date(String(dateOrStr).trim() + 'T00:00:00');
+    if (isNaN(d.getTime())) return '选择日期';
+    const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+    const today = new Date();
+    const isToday = d.toDateString() === today.toDateString();
+    const isYesterday = (() => {
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        return d.toDateString() === yesterday.toDateString();
+    })();
+    const isTomorrow = (() => {
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return d.toDateString() === tomorrow.toDateString();
+    })();
+    
+    // 如果是今天、昨天、明天，显示相对日期
+    if (isToday) {
+        return `今天 ${d.getMonth() + 1}月${d.getDate()}日`;
+    } else if (isYesterday) {
+        return `昨天 ${d.getMonth() + 1}月${d.getDate()}日`;
+    } else if (isTomorrow) {
+        return `明天 ${d.getMonth() + 1}月${d.getDate()}日`;
+    } else {
+        return `${d.getMonth() + 1}月${d.getDate()}日 星期${weekdays[d.getDay()]}`;
+    }
 }
 
 // 添加动画样式（如果不存在）

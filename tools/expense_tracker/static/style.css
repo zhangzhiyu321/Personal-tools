@@ -641,31 +641,6 @@ input, textarea {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231890ff' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
 }
 
-/* 内联编辑中的下拉框 */
-.inline-edit-input {
-    font-size: inherit;
-    font-weight: inherit;
-    color: inherit;
-    background: white;
-    border: 2px solid #1890ff;
-    border-radius: 6px;
-    padding: 2px 6px;
-    outline: none;
-    min-width: 80px;
-    font-family: inherit;
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    cursor: pointer;
-}
-
-.inline-edit-input[type="date"] {
-    cursor: text;
-}
-
-.inline-edit-input:focus {
-    box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.2);
-}
 
 /* 编辑模态框中的下拉框 */
 #edit-category,
@@ -1910,18 +1885,6 @@ input, textarea {
     flex-shrink: 0;
 }
 
-.record-icon.editable {
-    cursor: pointer;
-    padding: 4px;
-    border-radius: 6px;
-    transition: all 0.2s ease;
-    display: inline-block;
-}
-
-.record-icon.editable:hover {
-    background: #e6f7ff;
-    transform: scale(1.1);
-}
 
 .record-info {
     flex: 1;
@@ -1941,17 +1904,6 @@ input, textarea {
     font-size: 13px;
 }
 
-.record-category.editable {
-    cursor: pointer;
-    padding: 2px 6px;
-    border-radius: 6px;
-    transition: all 0.2s ease;
-}
-
-.record-category.editable:hover {
-    background: #e6f7ff;
-    color: #1890ff;
-}
 
 .record-time {
     font-size: 10px;
@@ -1982,25 +1934,6 @@ input, textarea {
     color: #dc2626; /* 柔和的红色 */
 }
 
-.record-amount.editable {
-    cursor: pointer;
-    padding: 2px 8px;
-    border-radius: 6px;
-    transition: all 0.2s ease;
-}
-
-.record-amount.editable:hover {
-    background: #fff7e6;
-    transform: scale(1.05);
-}
-
-.record-amount.income.editable:hover {
-    background: #f6ffed;
-}
-
-.record-amount.expense.editable:hover {
-    background: #fff1f0;
-}
 
 .record-actions {
     display: flex;
@@ -2058,7 +1991,8 @@ input, textarea {
 .modal {
     display: none;
     position: fixed;
-    z-index: 2000;
+    /* 提高层级，确保在数字键盘之上 */
+    z-index: 2100;
     left: 0;
     top: 0;
     width: 100%;
@@ -3237,6 +3171,73 @@ input, textarea {
     background: #1890ff;
     border-color: #1890ff;
     color: #fff;
+}
+
+/* 编辑模式下的日期选择按钮 */
+.keyboard-date-select-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.keyboard-date-select-btn {
+    width: 100%;
+    padding: 12px 16px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #374151;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.keyboard-date-select-btn:hover {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+}
+
+.keyboard-date-select-btn:active {
+    transform: scale(0.97);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.16);
+}
+
+.keyboard-date-select-icon {
+    font-size: 16px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.keyboard-date-select-text {
+    flex: 1;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 移动端优化 */
+@media (max-width: 768px) {
+    .keyboard-date-select-btn {
+        padding: 14px 16px;
+        font-size: 15px;
+        min-height: 52px; /* 确保有足够的点击区域 */
+    }
+    
+    .keyboard-date-select-icon {
+        font-size: 18px;
+    }
 }
 
 /* 键盘中的备注输入区域 */
