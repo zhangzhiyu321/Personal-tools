@@ -4,7 +4,7 @@
 """
 
 from flask import render_template, request, jsonify, Response, g
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from .database import db, Expense, Category
 from . import page_blueprint, api_blueprint
@@ -246,6 +246,17 @@ def add_record():
     
     if 'date' in cleaned_data and cleaned_data['date']:
         date = datetime.strptime(cleaned_data['date'], '%Y-%m-%d').date()
+        # 验证日期：只能选择前天、昨天、今天、明天这4天
+        today = datetime.now().date()
+        allowed_dates = [
+            today - timedelta(days=2),  # 前天
+            today - timedelta(days=1),  # 昨天
+            today,                      # 今天
+            today + timedelta(days=1)   # 明天
+        ]
+        if date not in allowed_dates:
+            logger.log_security_event('invalid_record_date', {'date': str(date), 'allowed_dates': [str(d) for d in allowed_dates]})
+            return jsonify({'error': '只能选择前天、昨天、今天、明天这4天'}), 400
     else:
         date = datetime.now().date()
     record_type = cleaned_data['type']
@@ -305,7 +316,19 @@ def update_record(record_id):
         return jsonify({'error': error_msg}), 400
 
     if 'date' in cleaned_data:
-        expense.date = datetime.strptime(cleaned_data['date'], '%Y-%m-%d').date()
+        date = datetime.strptime(cleaned_data['date'], '%Y-%m-%d').date()
+        # 验证日期：只能选择前天、昨天、今天、明天这4天
+        today = datetime.now().date()
+        allowed_dates = [
+            today - timedelta(days=2),  # 前天
+            today - timedelta(days=1),  # 昨天
+            today,                      # 今天
+            today + timedelta(days=1)   # 明天
+        ]
+        if date not in allowed_dates:
+            logger.log_security_event('invalid_record_date_update', {'date': str(date), 'allowed_dates': [str(d) for d in allowed_dates]})
+            return jsonify({'error': '只能选择前天、昨天、今天、明天这4天'}), 400
+        expense.date = date
     if 'type' in cleaned_data:
         expense.type = cleaned_data['type']
     if 'category' in cleaned_data:

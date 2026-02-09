@@ -1354,6 +1354,7 @@ function showDateRecordsInChart(date, dayRecords, category, event) {
 // 自定义键盘相关变量
 let numberKeyboardValue = '0.00';
 let numberKeyboardExpression = '';
+let selectedRecordDate = null; // 记账时选择的日期，null表示使用今天
 
 // 绑定事件
 function bindEvents() {
@@ -1791,8 +1792,11 @@ async function handleAddRecord(e) {
         return;
     }
     
+    // 使用选择的日期，如果没有选择则使用今天
+    const recordDate = selectedRecordDate || getLocalDateString();
+    
     const formData = {
-        date: getLocalDateString(),
+        date: recordDate,
         type: typeInput ? typeInput.value : 'expense',
         amount: amount,
         category: categoryName,
@@ -1819,10 +1823,19 @@ async function handleAddRecord(e) {
             // 重置键盘状态
             numberKeyboardValue = '0.00';
             numberKeyboardExpression = '';
+            selectedRecordDate = getLocalDateString(); // 重置日期选择为今天
             // 重置键盘中的备注输入框
             const keyboardNoteInput = document.getElementById('keyboard-note-input');
             if (keyboardNoteInput) {
                 keyboardNoteInput.value = '';
+            }
+            // 重置日期选择按钮状态为今天
+            document.querySelectorAll('.keyboard-date-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            const todayBtn = document.querySelector('.keyboard-date-btn[data-date-offset="0"]');
+            if (todayBtn) {
+                todayBtn.classList.add('active');
             }
             // 重置类型选择为支出
             document.querySelectorAll('.type-btn-compact').forEach(btn => {
@@ -4081,17 +4094,32 @@ function openNumberKeyboard(inputId = 'record-amount') {
     }
     
     // 如果是首页的记账按钮打开的，重置键盘状态
+    const dateSection = document.querySelector('.keyboard-date-section');
     if (inputId === 'record-amount') {
         numberKeyboardValue = '0.00';
         numberKeyboardExpression = '';
+        // 重置日期选择为今天（默认）
+        selectedRecordDate = getLocalDateString();
         // 重置键盘中的备注输入框
         const keyboardNoteInput = document.getElementById('keyboard-note-input');
         if (keyboardNoteInput) {
             keyboardNoteInput.value = '';
         }
+        // 初始化日期选择按钮状态（默认选择今天，offset=0）
+        updateKeyboardDateSelection(0);
+        // 显示日期选择区域
+        if (dateSection) {
+            dateSection.style.display = 'block';
+        }
     } else {
         numberKeyboardValue = currentValue;
         numberKeyboardExpression = '';
+        // 编辑模态框不显示日期选择
+        selectedRecordDate = null;
+        // 隐藏日期选择区域
+        if (dateSection) {
+            dateSection.style.display = 'none';
+        }
         // 同步备注输入框的值（编辑模态框）
         const editNoteInput = document.getElementById('edit-note');
         const keyboardNoteInput = document.getElementById('keyboard-note-input');
@@ -4281,6 +4309,17 @@ function initKeyboardEvents() {
                 handleNumberKeyPress(keyValue);
             });
         });
+        
+        // 日期选择按钮事件（只支持前天、昨天、今天、明天）
+        numberKeyboard.querySelectorAll('.keyboard-date-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const offset = this.dataset.dateOffset;
+                if (offset !== undefined) {
+                    const offsetNum = parseInt(offset, 10);
+                    updateKeyboardDateSelection(offsetNum);
+                }
+            });
+        });
     }
     
     // 点击背景遮罩关闭键盘
@@ -4381,6 +4420,26 @@ function handleNumberKeyPress(key) {
     }
 }
 
+// ========== 键盘日期选择功能 ==========
+// 更新日期选择按钮状态
+function updateKeyboardDateSelection(offset) {
+    // 移除所有按钮的active状态
+    document.querySelectorAll('.keyboard-date-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // 计算选择的日期
+    const today = new Date();
+    today.setDate(today.getDate() + offset);
+    selectedRecordDate = getLocalDateString(today);
+    
+    // 激活对应的按钮
+    const targetBtn = document.querySelector(`.keyboard-date-btn[data-date-offset="${offset}"]`);
+    if (targetBtn) {
+        targetBtn.classList.add('active');
+    }
+    
+}
 
 // ========== 日期选择功能（记录列表改日期 / 编辑模态框共用同一弹窗）==========
 let pendingDatePickerOnConfirm = null;
