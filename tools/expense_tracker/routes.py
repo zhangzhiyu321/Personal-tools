@@ -5,7 +5,7 @@
 
 from flask import render_template, request, jsonify, Response, g
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from .database import db, Expense, Category
 from . import page_blueprint, api_blueprint
 from .service import (
@@ -191,8 +191,11 @@ def get_records():
     if not user_id:
         return jsonify({'error': '未登录'}), 401
     
-    start, end = parse_date_range(request.args.get('start_date'), request.args.get('end_date'))
     type_filter = request.args.get('type')
+    # 日期范围（用于今日记录、按日查看等）
+    start, end = parse_date_range(request.args.get('start_date'), request.args.get('end_date'))
+  
+    search_query = (request.args.get('q') or '').strip()
     try:
         page = max(1, int(request.args.get('page', 1)))
         per_page = max(1, min(100, int(request.args.get('per_page', 20))))
@@ -200,12 +203,29 @@ def get_records():
         page, per_page = 1, 20
     
     query = Expense.query.filter_by(user_id=user_id)
+    if type_filter:
+        query = query.filter(Expense.type == type_filter)
     if start:
         query = query.filter(Expense.date >= start)
     if end:
         query = query.filter(Expense.date <= end)
-    if type_filter:
-        query = query.filter(Expense.type == type_filter)
+    
+    # 关键字搜索：分类 / 备注 / 账户 文本模糊匹配 + 金额精确匹配
+    if search_query:
+        like_pattern = f"%{search_query}%"
+        search_filters = [
+            Expense.category.ilike(like_pattern),
+            Expense.note.ilike(like_pattern),
+            Expense.account.ilike(like_pattern),
+        ]
+        try:
+            amount_val = Decimal(search_query)
+            search_filters.append(Expense.amount == amount_val)
+        except (InvalidOperation, ValueError):
+            pass
+        if search_filters:
+            from sqlalchemy import or_
+            query = query.filter(or_(*search_filters))
     
     pagination = query.order_by(Expense.date.desc(), Expense.created_at.desc()).paginate(
         page=page, per_page=per_page, error_out=False

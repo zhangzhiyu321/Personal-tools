@@ -1636,80 +1636,68 @@ input, textarea {
     justify-content: flex-end;
 }
 
-/* 内联日期筛选功能 */
-.date-filter-inline {
+/* 记录列表搜索框 */
+.records-search {
+    flex: 1;
+    min-width: 0;
+    max-width: 260px;
+}
+
+.records-search-input-wrapper {
     display: flex;
     align-items: center;
-    gap: 4px;
-    margin-right: 8px;
-    padding: 3px 5px;
+    gap: 6px;
+    padding: 6px 10px;
     background: #f8f9fa;
-    border-radius: 5px;
-    border: 1px solid #e9ecef;
+    border-radius: 999px;
+    border: 1px solid #e1e5eb;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.records-search-icon {
+    font-size: 13px;
+    color: #9ca3af;
     flex-shrink: 0;
 }
 
-.date-input-inline {
-    padding: 3px 5px;
-    border: 1px solid #d9d9d9;
-    border-radius: 4px;
-    font-size: 11px;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    background: #fff;
-    height: 22px;
-    width: 85px;
-    min-width: 75px;
-    max-width: 100px;
-}
-
-.date-input-inline:focus {
+.records-search-input {
+    flex: 1;
+    min-width: 0;
+    border: none;
     outline: none;
-    border-color: #1890ff;
-    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
+    background: transparent;
+    font-size: 12px;
+    color: #374151;
 }
 
-.date-separator {
-    color: #999;
-    font-size: 10px;
-    font-weight: 500;
-    padding: 0 1px;
-    flex-shrink: 0;
+.records-search-input::placeholder {
+    color: #9ca3af;
 }
 
-.btn-filter-inline {
-    padding: 3px 6px;
-    border: 1px solid #d9d9d9;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 500;
+.records-search-clear {
+    border: none;
+    background: transparent;
+    color: #cbd5e1;
     cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    background: #fff;
-    color: #666;
-    height: 22px;
-    min-width: 22px;
+    font-size: 12px;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
     display: flex;
     align-items: center;
     justify-content: center;
-    white-space: nowrap;
+    padding: 0;
     flex-shrink: 0;
+    transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
 
-.btn-filter-inline:hover {
-    border-color: #1890ff;
-    color: #1890ff;
-    background: #f0f8ff;
+.records-search-clear:hover {
+    background: #e5e7eb;
+    color: #64748b;
 }
 
-.btn-filter-inline.btn-filter-primary {
-    background: #1890ff;
-    color: #fff;
-    border-color: #1890ff;
-}
-
-.btn-filter-inline.btn-filter-primary:hover {
-    background: #40a9ff;
-    border-color: #40a9ff;
+.records-search-clear:active {
+    transform: scale(0.9);
 }
 
 /* 年月选择器（使用普通date input） */
@@ -2293,39 +2281,6 @@ input, textarea {
         padding: 6px 10px;
     }
     
-    /* 内联日期筛选在移动端的响应式样式 - 保持一行显示 */
-    .date-filter-inline {
-        flex-wrap: nowrap;
-        width: auto;
-        margin-right: 4px;
-        margin-bottom: 0;
-        padding: 2px 4px;
-        flex-shrink: 1;
-        min-width: 0;
-    }
-    
-    .date-input-inline {
-        flex: 0 0 auto;
-        min-width: 65px;
-        max-width: 80px;
-        width: 70px;
-        height: 24px;
-        font-size: 10px;
-        padding: 2px 3px;
-    }
-    
-    .date-separator {
-        font-size: 9px;
-        padding: 0;
-    }
-    
-    .btn-filter-inline {
-        height: 24px;
-        min-width: 22px;
-        padding: 2px 5px;
-        font-size: 10px;
-    }
-    
     .section-header {
         flex-direction: row;
         align-items: center;
@@ -2349,6 +2304,18 @@ input, textarea {
         font-size: 10px;
         padding: 4px 8px;
         white-space: nowrap;
+    }
+    
+    .records-search {
+        max-width: 200px;
+    }
+    
+    .records-search-input-wrapper {
+        padding: 4px 8px;
+    }
+    
+    .records-search-input {
+        font-size: 11px;
     }
     
 }

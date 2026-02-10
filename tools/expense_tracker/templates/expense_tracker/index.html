@@ -245,13 +245,24 @@
                 <div class="section-header">
                     <h2>记账记录</h2>
                     <div class="section-actions">
-                        <!-- 日期筛选功能 -->
-                        <div class="date-filter-inline">
-                            <input type="date" id="records-start-date" class="date-input-inline" placeholder="开始日期">
-                            <span class="date-separator">-</span>
-                            <input type="date" id="records-end-date" class="date-input-inline" placeholder="结束日期">
-                            <button type="button" class="btn-filter-inline" id="clear-records-filter" title="清除">✕</button>
-                            <button type="button" class="btn-filter-inline btn-filter-primary" id="apply-records-filter" title="应用">✓</button>
+                        <!-- 搜索框 -->
+                        <div class="records-search">
+                            <div class="records-search-input-wrapper">
+                                <span class="records-search-icon">🔍</span>
+                                <input
+                                    type="text"
+                                    id="records-search-input"
+                                    class="records-search-input"
+                                    placeholder="搜索分类 / 备注 / 金额"
+                                    autocomplete="off"
+                                >
+                                <button
+                                    type="button"
+                                    id="records-search-clear"
+                                    class="records-search-clear"
+                                    title="清空搜索"
+                                >✕</button>
+                            </div>
                         </div>
                         <!-- 导出导入按钮 -->
                         <button id="btn-export" class="btn-secondary">导出</button>

@@ -27,7 +27,7 @@ const clearAuth = () => {
 // 带认证的fetch函数（自动添加token）
 async function authFetch(url, options = {}) {
     const token = getToken();
-    
+
     // 设置默认headers
     // 如果body是FormData，不要设置Content-Type，让浏览器自动设置multipart/form-data
     const isFormData = options.body instanceof FormData;
@@ -35,25 +35,25 @@ async function authFetch(url, options = {}) {
         ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
         ...options.headers
     };
-    
+
     // 如果有token，添加到headers
     if (token) {
         headers['Authorization'] = `Bearer ${token}`;
     }
-    
+
     // 发起请求
     const response = await fetch(url, {
         ...options,
         headers
     });
-    
+
     // 如果返回401未授权，清除token并显示登录弹窗
     if (response.status === 401) {
         clearAuth();
         showLoginModal();
         throw new Error('需要登录');
     }
-    
+
     return response;
 }
 
@@ -93,7 +93,7 @@ function createLoginModal() {
         loginModal = document.getElementById('login-modal');
         return;
     }
-    
+
     const modal = document.createElement('div');
     modal.id = 'login-modal';
     modal.className = 'login-modal';
@@ -119,7 +119,7 @@ function createLoginModal() {
     `;
     document.body.appendChild(modal);
     loginModal = modal;
-    
+
     // 回车键登录
     document.getElementById('login-username')?.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
@@ -131,7 +131,7 @@ function createLoginModal() {
             handleLogin();
         }
     });
-    
+
     // 点击背景关闭
     modal.addEventListener('click', (e) => {
         if (e.target === modal) {
@@ -142,12 +142,12 @@ function createLoginModal() {
 
 async function handleLogin() {
     if (isLoggingIn) return;
-    
+
     const username = document.getElementById('login-username')?.value.trim();
     const password = document.getElementById('login-password')?.value;
     const errorDiv = document.getElementById('login-error');
     const submitBtn = document.getElementById('login-submit-btn');
-    
+
     if (!username || !password) {
         if (errorDiv) {
             errorDiv.textContent = '请输入用户名和密码';
@@ -155,14 +155,14 @@ async function handleLogin() {
         }
         return;
     }
-    
+
     isLoggingIn = true;
     if (submitBtn) {
         submitBtn.textContent = '登录中...';
         submitBtn.disabled = true;
     }
     if (errorDiv) errorDiv.style.display = 'none';
-    
+
     try {
         const response = await fetch(`${AUTH_API}/login`, {
             method: 'POST',
@@ -171,17 +171,17 @@ async function handleLogin() {
             },
             body: JSON.stringify({ username, password })
         });
-        
+
         const data = await response.json();
-        
+
         if (response.ok && data.success) {
             // 保存token和用户名
             setToken(data.token);
             localStorage.setItem('username', data.username || username);
-            
+
             // 隐藏登录弹窗
             hideLoginModal();
-            
+
             // 重新加载数据
             location.reload();
         } else {
@@ -211,7 +211,7 @@ async function checkAuthStatus() {
         showLoginModal();
         return false;
     }
-    
+
     try {
         const response = await authFetch(`${AUTH_API}/verify`);
         if (response.ok) {
@@ -274,7 +274,7 @@ function waitForChartContainer(domId, maxRetries = 10, retryDelay = 50) {
             reject(new Error(`图表容器 ${domId} 不存在`));
             return;
         }
-        
+
         let retries = 0;
         const checkContainer = () => {
             const rect = dom.getBoundingClientRect();
@@ -282,16 +282,16 @@ function waitForChartContainer(domId, maxRetries = 10, retryDelay = 50) {
                 resolve(dom);
                 return;
             }
-            
+
             retries++;
             if (retries >= maxRetries) {
                 reject(new Error(`图表容器 ${domId} 未准备好`));
                 return;
             }
-            
+
             setTimeout(checkContainer, retryDelay);
         };
-        
+
         // 使用 requestAnimationFrame 确保DOM已渲染
         requestAnimationFrame(() => {
             requestAnimationFrame(checkContainer);
@@ -359,7 +359,6 @@ function init(authenticated) {
     bindEvents();
     initMainTabs();
     initTimeDimensionSelector();
-    initRecordsDateFilter();
 
     if (authenticated) {
         loadCategories().then(() => loadTodayRecords());
@@ -367,120 +366,10 @@ function init(authenticated) {
     }
 }
 
-// 初始化记录列表日期筛选
-function initRecordsDateFilter() {
-    const startDateInput = document.getElementById('records-start-date');
-    const endDateInput = document.getElementById('records-end-date');
-    
-    // 保存原始值，用于取消时恢复
-    let originalStartDate = '';
-    let originalEndDate = '';
-    
-    // 输入框获得焦点时保存原始值
-    if (startDateInput) {
-        startDateInput.addEventListener('focus', function() {
-            originalStartDate = this.value || '';
-        });
-    }
-    
-    if (endDateInput) {
-        endDateInput.addEventListener('focus', function() {
-            originalEndDate = this.value || '';
-        });
-    }
-    
-    // 应用按钮
-    const applyBtn = document.getElementById('apply-records-filter');
-    if (applyBtn) {
-        applyBtn.addEventListener('click', function() {
-            const startDate = startDateInput ? startDateInput.value : '';
-            const endDate = endDateInput ? endDateInput.value : '';
-            
-            // 如果两个日期都选择了，验证日期范围
-            if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
-                customAlert('开始日期不能晚于结束日期', '提示', 'warning');
-                return;
-            }
-            
-            // 应用筛选，重新加载记录
-            loadRecords(1);
-        });
-    }
-    
-    // 清除按钮（带回弹效果）
-    const clearBtn = document.getElementById('clear-records-filter');
-    if (clearBtn) {
-        clearBtn.addEventListener('click', function() {
-            // 添加回弹动画
-            this.classList.add('bounce');
-            setTimeout(() => {
-                this.classList.remove('bounce');
-            }, 600);
-            
-            if (startDateInput) startDateInput.value = '';
-            if (endDateInput) endDateInput.value = '';
-            // 清除后也要查询（显示所有数据）
-            loadRecords(1);
-        });
-    }
-    
-    // 标记是否点击了应用按钮
-    let applyClicked = false;
-    let clearClicked = false;
-    
-    if (applyBtn) {
-        applyBtn.addEventListener('mousedown', function() {
-            applyClicked = true;
-        });
-    }
-    
-    if (clearBtn) {
-        clearBtn.addEventListener('mousedown', function() {
-            clearClicked = true;
-        });
-    }
-    
-    // 检查是否应该清空输入框
-    const checkAndReset = () => {
-        setTimeout(() => {
-            // 如果点击了应用或清除按钮，不执行清空操作
-            if (applyClicked || clearClicked) {
-                applyClicked = false;
-                clearClicked = false;
-                return;
-            }
-            
-            // 如果两个输入框都失去焦点，且没有点击应用按钮，则清空
-            const startFocused = document.activeElement === startDateInput;
-            const endFocused = document.activeElement === endDateInput;
-            
-            if (!startFocused && !endFocused) {
-                if (startDateInput && startDateInput.value !== originalStartDate) {
-                    startDateInput.value = '';
-                }
-                if (endDateInput && endDateInput.value !== originalEndDate) {
-                    endDateInput.value = '';
-                }
-            }
-            
-            applyClicked = false;
-            clearClicked = false;
-        }, 200);
-    };
-    
-    if (startDateInput) {
-        startDateInput.addEventListener('blur', checkAndReset);
-    }
-    
-    if (endDateInput) {
-        endDateInput.addEventListener('blur', checkAndReset);
-    }
-}
-
 // 初始化主标签页
 function initMainTabs() {
     document.querySelectorAll('.main-tab-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
+        btn.addEventListener('click', function () {
             const tabName = this.dataset.tab;
             switchMainTab(tabName);
         });
@@ -494,16 +383,16 @@ async function switchMainTab(tabName) {
         btn.classList.remove('active');
     });
     document.querySelector(`.main-tab-btn[data-tab="${tabName}"]`).classList.add('active');
-    
+
     // 更新内容显示
     document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.remove('active');
     });
     document.getElementById(`tab-${tabName}`).classList.add('active');
-    
+
     // 滚动到页面顶部
     window.scrollTo({ top: 0, behavior: 'instant' });
-    
+
     // 根据标签页加载相应数据
     if (tabName === 'analysis') {
         // 等待DOM渲染完成后再加载数据，确保图表容器已准备好
@@ -526,7 +415,7 @@ async function switchMainTab(tabName) {
 // 初始化时间维度选择器
 function initTimeDimensionSelector() {
     document.querySelectorAll('.dimension-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
+        btn.addEventListener('click', function () {
             const dimension = this.dataset.dimension;
             switchTimeDimension(dimension);
         });
@@ -539,11 +428,11 @@ function initTimeDimensionSelector() {
             if (!isNaN(val)) chartDisplayMaxVisible = val;
         };
         syncFromSelect(); // 初始化时与下拉框默认值一致（前6项 = 6）
-        displayModeSelect.addEventListener('change', function() {
+        displayModeSelect.addEventListener('change', function () {
             syncFromSelect();
             if (lastCategoryStatsForCharts && lastCategoryStatsForCharts.length > 0) {
-                updatePieChart(lastCategoryStatsForCharts).catch(() => {});
-                updateBarChart(lastCategoryStatsForCharts).catch(() => {});
+                updatePieChart(lastCategoryStatsForCharts).catch(() => { });
+                updateBarChart(lastCategoryStatsForCharts).catch(() => { });
             }
         });
     }
@@ -555,7 +444,7 @@ function initTimeDimensionSelector() {
 function initDatePicker() {
     // 初始化显示
     updateDatePickerDisplay();
-    
+
     // 为每个日期选择器添加滑动事件
     initDatePickerSwipe('day-date-picker', 'day');
     initDatePickerSwipe('week-date-picker', 'week');
@@ -566,12 +455,12 @@ function initDatePicker() {
 function initDatePickerSwipe(pickerId, dimension) {
     const picker = document.getElementById(pickerId);
     if (!picker) return;
-    
+
     let startX = 0;
     let currentX = 0;
     let isDragging = false;
     let translateX = 0;
-    
+
     // 触摸事件
     picker.addEventListener('touchstart', (e) => {
         startX = e.touches[0].clientX;
@@ -579,20 +468,20 @@ function initDatePickerSwipe(pickerId, dimension) {
         picker.classList.add('swiping');
         picker.style.transition = 'none';
     });
-    
+
     picker.addEventListener('touchmove', (e) => {
         if (!isDragging) return;
         currentX = e.touches[0].clientX;
         translateX = currentX - startX;
         picker.style.transform = `translateX(${translateX}px)`;
     });
-    
+
     picker.addEventListener('touchend', () => {
         if (!isDragging) return;
         isDragging = false;
         picker.classList.remove('swiping');
         picker.style.transition = 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
-        
+
         const threshold = 50; // 滑动阈值
         if (Math.abs(translateX) > threshold) {
             if (translateX > 0) {
@@ -603,12 +492,12 @@ function initDatePickerSwipe(pickerId, dimension) {
                 navigateDatePicker(dimension, 1);
             }
         }
-        
+
         // 重置位置
         translateX = 0;
         picker.style.transform = 'translateX(0)';
     });
-    
+
     // 鼠标事件（用于桌面端）
     picker.addEventListener('mousedown', (e) => {
         startX = e.clientX;
@@ -617,20 +506,20 @@ function initDatePickerSwipe(pickerId, dimension) {
         picker.style.transition = 'none';
         e.preventDefault();
     });
-    
+
     picker.addEventListener('mousemove', (e) => {
         if (!isDragging) return;
         currentX = e.clientX;
         translateX = currentX - startX;
         picker.style.transform = `translateX(${translateX}px)`;
     });
-    
+
     picker.addEventListener('mouseup', () => {
         if (!isDragging) return;
         isDragging = false;
         picker.classList.remove('swiping');
         picker.style.transition = 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
-        
+
         const threshold = 50;
         if (Math.abs(translateX) > threshold) {
             if (translateX > 0) {
@@ -639,11 +528,11 @@ function initDatePickerSwipe(pickerId, dimension) {
                 navigateDatePicker(dimension, 1);
             }
         }
-        
+
         translateX = 0;
         picker.style.transform = 'translateX(0)';
     });
-    
+
     picker.addEventListener('mouseleave', () => {
         if (isDragging) {
             isDragging = false;
@@ -658,7 +547,7 @@ function initDatePickerSwipe(pickerId, dimension) {
 // 导航日期选择器（direction: -1 减少, 1 增加）
 function navigateDatePicker(dimension, direction) {
     const state = datePickerState[dimension];
-    
+
     if (dimension === 'day') {
         state.month += direction;
         if (state.month > 12) {
@@ -685,7 +574,7 @@ function navigateDatePicker(dimension, direction) {
             state.count = 1;
         }
     }
-    
+
     updateDatePickerDisplay();
     loadAnalysisData();
 }
@@ -696,13 +585,13 @@ function updateDatePickerDisplay() {
     document.querySelectorAll('.date-picker-container').forEach(container => {
         container.style.display = 'none';
     });
-    
+
     // 显示当前维度的日期选择器
     const currentPicker = document.getElementById(`${currentTimeDimension}-date-picker`);
     if (currentPicker) {
         currentPicker.style.display = 'block';
     }
-    
+
     // 更新显示值
     const state = datePickerState[currentTimeDimension];
     if (currentTimeDimension === 'day') {
@@ -725,10 +614,10 @@ function switchTimeDimension(dimension) {
     if (btn) {
         btn.classList.add('active');
     }
-    
+
     // 更新当前维度
     currentTimeDimension = dimension;
-    
+
     // 如果切换到新维度，初始化日期为当前日期
     const now = new Date();
     if (dimension === 'day' && !datePickerState.day.year) {
@@ -738,10 +627,10 @@ function switchTimeDimension(dimension) {
     } else if (dimension === 'month' && !datePickerState.month.count) {
         datePickerState.month = { count: 1 };
     }
-    
+
     // 更新日期选择器显示
     updateDatePickerDisplay();
-    
+
     // 加载数据
     loadAnalysisData();
 }
@@ -751,35 +640,35 @@ function switchTimeDimension(dimension) {
 async function loadAnalysisData() {
     try {
         const { startDate, endDate } = getCurrentAnalysisDateRange();
-        
+
         let url = `${API_BASE}/statistics?`;
         if (startDate) url += `start_date=${startDate}&`;
         if (endDate) url += `end_date=${endDate}&`;
-        
+
         const response = await authFetch(url);
         const data = await response.json();
-        
+
         // 更新分析统计卡片
         const incomeEl = document.getElementById('analysis-total-income');
         const expenseEl = document.getElementById('analysis-total-expense');
         const balanceEl = document.getElementById('analysis-total-balance');
-        
+
         if (incomeEl) incomeEl.textContent = formatMoney(data.total_income);
         if (expenseEl) expenseEl.textContent = formatMoney(data.total_expense);
         if (balanceEl) balanceEl.textContent = formatMoney(data.balance);
-        
+
         // 强制浏览器重新渲染统计卡片，防止模糊
         if (incomeEl) incomeEl.offsetHeight; // 触发重排
         if (expenseEl) expenseEl.offsetHeight;
         if (balanceEl) balanceEl.offsetHeight;
-        
+
         lastCategoryStatsForCharts = data.category_stats || null;
         await Promise.all([
             updateLineChart(data.daily_stats),
             updatePieChart(data.category_stats),
             updateBarChart(data.category_stats)
         ]);
-        
+
         // 图表更新完成后，在下一帧按正确尺寸重绘（解决移动端首次进入时容器未布局导致模糊）
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
@@ -804,9 +693,9 @@ async function loadAnalysisData() {
 function getCurrentAnalysisDateRange() {
     let startDate = '';
     let endDate = '';
-    
+
     const state = datePickerState[currentTimeDimension];
-    
+
     if (currentTimeDimension === 'day') {
         // 选中年月的所有天
         const year = state.year;
@@ -825,11 +714,11 @@ function getCurrentAnalysisDateRange() {
         const thisWeekMonday = new Date(endDateObj);
         thisWeekMonday.setDate(endDateObj.getDate() - daysToMonday);
         thisWeekMonday.setHours(0, 0, 0, 0);
-        
+
         // 计算N周前的周一
         const startDateObj = new Date(thisWeekMonday);
         startDateObj.setDate(thisWeekMonday.getDate() - (count - 1) * 7);
-        
+
         startDate = getLocalDateString(startDateObj);
         endDate = getLocalDateString(endDateObj);
     } else if (currentTimeDimension === 'month') {
@@ -841,11 +730,11 @@ function getCurrentAnalysisDateRange() {
         startDateObj.setMonth(endDateObj.getMonth() - (count - 1));
         startDateObj.setDate(1); // 设置为该月第一天
         startDateObj.setHours(0, 0, 0, 0);
-        
+
         startDate = getLocalDateString(startDateObj);
         endDate = getLocalDateString(endDateObj);
     }
-    
+
     return { startDate, endDate };
 }
 
@@ -864,7 +753,7 @@ async function updateBarChart(categoryStats) {
     const sortedStats = aggregated.chartData;
     const total = aggregated.total;
     if (echartsBar) echartsBar.dispose();
-    
+
     // 等待容器准备好后再初始化
     try {
         const dom = await waitForChartContainer('bar-chart', 20, 50);
@@ -889,7 +778,7 @@ async function updateBarChart(categoryStats) {
                 backgroundColor: 'rgba(0,0,0,0.85)',
                 borderColor: 'rgba(255,255,255,0.1)',
                 textStyle: { fontSize: 12 },
-                formatter: function(params) {
+                formatter: function (params) {
                     if (!params || !params[0]) return '';
                     const idx = params[0].dataIndex;
                     const cat = sortedStats[idx];
@@ -899,7 +788,7 @@ async function updateBarChart(categoryStats) {
                 }
             }
         });
-        echartsBar.on('click', function(params) {
+        echartsBar.on('click', function (params) {
             const idx = params.dataIndex;
             const cat = sortedStats[idx];
             if (!cat) return;
@@ -1098,7 +987,7 @@ async function renderCategoryDetailModal(detailData) {
                     trigger: 'axis',
                     backgroundColor: 'rgba(15,23,42,0.9)',
                     textStyle: { fontSize: 11 },
-                    formatter: function(params) {
+                    formatter: function (params) {
                         if (!params || !params[0]) return '';
                         const idx = params[0].dataIndex;
                         const date = labels[idx];
@@ -1108,13 +997,13 @@ async function renderCategoryDetailModal(detailData) {
                 }
             });
             echartsCategoryDetail.off('click');
-            echartsCategoryDetail.on('click', function(params) {
+            echartsCategoryDetail.on('click', function (params) {
                 const idx = params.dataIndex;
                 const date = labels[idx];
                 if (date && recordsByDate[date]) showDateRecordsInChart(date, recordsByDate[date], category, params.event && params.event.event ? params.event.event : null);
             });
         }
-        requestAnimationFrame(function() {
+        requestAnimationFrame(function () {
             requestAnimationFrame(drawCategoryDetailChart);
         });
     }
@@ -1147,7 +1036,7 @@ function renderCategoryDetailRecords() {
         const note = r.note || '';
         const displayText = note || name; // 没有备注就显示分类名称
         const amount = Number(r.amount || 0).toFixed(2);
-        
+
         return `
             <div class="category-detail-record">
                 <div class="category-detail-record-left">
@@ -1167,7 +1056,7 @@ function renderCategoryDetailRecords() {
     if (totalPages > 1) {
         const prevDisabled = categoryDetailCurrentPage === 1 ? 'disabled' : '';
         const nextDisabled = categoryDetailCurrentPage === totalPages ? 'disabled' : '';
-        
+
         paginationHtml = `
             <div class="category-detail-pagination">
                 <button class="category-detail-pagination-btn" ${prevDisabled} onclick="categoryDetailChangePage(${categoryDetailCurrentPage - 1})">
@@ -1187,23 +1076,23 @@ function renderCategoryDetailRecords() {
         </div>
         ${paginationHtml}
     `;
-    
+
     // 防止滚动穿透：当在表格内滚动时，阻止事件传播到背景页面
     let touchStartY = 0;
     let lastScrollTop = recordsEl.scrollTop;
-    
+
     recordsEl.addEventListener('touchstart', (e) => {
         touchStartY = e.touches[0].clientY;
         lastScrollTop = recordsEl.scrollTop;
     }, { passive: true });
-    
+
     recordsEl.addEventListener('touchmove', (e) => {
         const currentY = e.touches[0].clientY;
         const deltaY = currentY - touchStartY;
         const { scrollTop, scrollHeight, clientHeight } = recordsEl;
         const isAtTop = scrollTop === 0;
         const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1;
-        
+
         // 如果表格可以滚动，且不在边界处，或者虽然在边界但滚动方向是向内的，都阻止传播
         if (scrollHeight > clientHeight) {
             if (!isAtTop && !isAtBottom) {
@@ -1221,13 +1110,13 @@ function renderCategoryDetailRecords() {
             e.stopPropagation();
         }
     }, { passive: false });
-    
+
     // 鼠标滚轮事件处理（桌面端）
     recordsEl.addEventListener('wheel', (e) => {
         const { scrollTop, scrollHeight, clientHeight } = recordsEl;
         const isAtTop = scrollTop === 0;
         const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1;
-        
+
         // 如果表格可以滚动，且不在边界处，或者虽然在边界但滚动方向是向内的，都阻止传播
         if (scrollHeight > clientHeight) {
             if (!isAtTop && !isAtBottom) {
@@ -1252,12 +1141,12 @@ function categoryDetailChangePage(page) {
     if (!currentCategoryDetailData) return;
     const records = Array.isArray(currentCategoryDetailData.records) ? currentCategoryDetailData.records : [];
     const totalPages = Math.ceil(records.length / categoryDetailPageSize);
-    
+
     if (page < 1 || page > totalPages) return;
-    
+
     categoryDetailCurrentPage = page;
     renderCategoryDetailRecords();
-    
+
     // 滚动到列表顶部
     const recordsEl = document.getElementById('category-detail-records');
     if (recordsEl) {
@@ -1268,10 +1157,10 @@ function categoryDetailChangePage(page) {
 // 在折线图上显示某日的记录（点击或悬停时）
 function showDateRecordsInChart(date, dayRecords, category, event) {
     if (!dayRecords || dayRecords.length === 0) return;
-    
+
     const icon = category.icon || '📦';
     const name = category.name || category.key || '分类';
-    
+
     // 创建或更新悬浮提示框
     let tooltipEl = document.getElementById('chart-date-tooltip');
     if (!tooltipEl) {
@@ -1280,7 +1169,7 @@ function showDateRecordsInChart(date, dayRecords, category, event) {
         tooltipEl.className = 'chart-date-tooltip';
         document.body.appendChild(tooltipEl);
     }
-    
+
     const recordsHtml = dayRecords.map(r => {
         const note = r.note || name;
         const amount = Number(r.amount || 0).toFixed(2);
@@ -1292,9 +1181,9 @@ function showDateRecordsInChart(date, dayRecords, category, event) {
             </div>
         `;
     }).join('');
-    
+
     const totalAmount = dayRecords.reduce((sum, r) => sum + Number(r.amount || 0), 0);
-    
+
     tooltipEl.innerHTML = `
         <div class="chart-date-tooltip-header">
             <span class="chart-date-tooltip-date">${date}</span>
@@ -1304,9 +1193,9 @@ function showDateRecordsInChart(date, dayRecords, category, event) {
             ${recordsHtml}
         </div>
     `;
-    
+
     tooltipEl.style.display = 'block';
-    
+
     // 定位提示框（跟随鼠标/触摸位置）
     if (event) {
         const x = event.clientX || (event.touches && event.touches[0]?.clientX) || 0;
@@ -1315,10 +1204,10 @@ function showDateRecordsInChart(date, dayRecords, category, event) {
         const tooltipHeight = tooltipEl.offsetHeight || 200;
         const windowWidth = window.innerWidth;
         const windowHeight = window.innerHeight;
-        
+
         let left = x + 10;
         let top = y + 10;
-        
+
         // 防止超出右边界
         if (left + tooltipWidth > windowWidth) {
             left = x - tooltipWidth - 10;
@@ -1335,11 +1224,11 @@ function showDateRecordsInChart(date, dayRecords, category, event) {
         if (top < 0) {
             top = 10;
         }
-        
+
         tooltipEl.style.left = `${left}px`;
         tooltipEl.style.top = `${top}px`;
     }
-    
+
     // 清除之前的自动隐藏定时器
     clearTimeout(window.chartTooltipTimeout);
     // 触摸时延长显示时间
@@ -1356,39 +1245,42 @@ let numberKeyboardValue = '0.00';
 let numberKeyboardExpression = '';
 let selectedRecordDate = null; // 记账时选择的日期，null表示使用今天
 let currentEditingRecord = null; // 当前正在编辑的记录（用于记录列表中的编辑）
+// 记录列表的内部日期筛选（不再使用可见的日期输入框）
+let recordsFilterStartDate = null;
+let recordsFilterEndDate = null;
 
 // 绑定事件
 function bindEvents() {
     // 记账按钮点击事件 - 先打开记账流程（选分类），选完再进金额
     const btnOpenKeyboard = document.getElementById('btn-open-keyboard');
     if (btnOpenKeyboard) {
-        btnOpenKeyboard.addEventListener('click', function(e) {
+        btnOpenKeyboard.addEventListener('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
             openRecordFlow();
         });
     }
     bindRecordFlowEvents();
-    
+
     // 编辑模态框中的金额输入框
     const editAmountInput = document.getElementById('edit-amount');
     if (editAmountInput) {
-        editAmountInput.addEventListener('click', function(e) {
+        editAmountInput.addEventListener('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
             openNumberKeyboard('edit-amount');
         });
-        editAmountInput.addEventListener('focus', function(e) {
+        editAmountInput.addEventListener('focus', function (e) {
             e.preventDefault();
             this.blur();
             openNumberKeyboard('edit-amount');
         });
     }
-    
+
     // 编辑模态框中的备注输入框 - 打开键盘并聚焦到备注输入框
     const editNoteInput = document.getElementById('edit-note');
     if (editNoteInput) {
-        editNoteInput.addEventListener('click', function(e) {
+        editNoteInput.addEventListener('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
             openNumberKeyboard('edit-amount');
@@ -1400,7 +1292,7 @@ function bindEvents() {
                 }
             }, 300);
         });
-        editNoteInput.addEventListener('focus', function(e) {
+        editNoteInput.addEventListener('focus', function (e) {
             e.preventDefault();
             this.blur();
             openNumberKeyboard('edit-amount');
@@ -1412,22 +1304,22 @@ function bindEvents() {
             }, 300);
         });
     }
-    
+
     // 确保键盘中的备注输入框可以正常使用系统键盘
     const keyboardNoteInput = document.getElementById('keyboard-note-input');
     if (keyboardNoteInput) {
         // 允许正常聚焦，使用系统键盘
-        keyboardNoteInput.addEventListener('focus', function() {
+        keyboardNoteInput.addEventListener('focus', function () {
             // 不做任何阻止，让系统键盘正常弹出
         });
     }
-    
+
     // 初始化键盘事件
     initKeyboardEvents();
-    
+
     // 类型切换按钮（首页与记账流程内共用，流程内需同步更新流程分类列表）
     document.querySelectorAll('.type-btn-compact').forEach(btn => {
-        btn.addEventListener('click', function() {
+        btn.addEventListener('click', function () {
             // 移除同组 active：首页一组，流程内一组
             const isFlow = this.dataset.context === 'record-flow';
             document.querySelectorAll(isFlow ? '.type-btn-compact[data-context="record-flow"]' : '.type-btn-compact:not([data-context])').forEach(b => b.classList.remove('active'));
@@ -1442,23 +1334,56 @@ function bindEvents() {
             }
         });
     });
-    
-    
-    
+    // 记录列表搜索
+    const recordsSearchInput = document.getElementById('records-search-input');
+    const recordsSearchClear = document.getElementById('records-search-clear');
+    if (recordsSearchInput) {
+        // 回车触发搜索
+        recordsSearchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                // 搜索时清除日期筛选，按关键字搜索全部
+                recordsFilterStartDate = null;
+                recordsFilterEndDate = null;
+                loadRecords(1);
+            }
+        });
+        // 输入变化时，空字符串自动恢复全部
+        recordsSearchInput.addEventListener('input', () => {
+            const val = recordsSearchInput.value.trim();
+            if (!val) {
+                recordsFilterStartDate = null;
+                recordsFilterEndDate = null;
+                loadRecords(1);
+            }
+        });
+    }
+    if (recordsSearchClear) {
+        recordsSearchClear.addEventListener('click', () => {
+            if (recordsSearchInput) {
+                recordsSearchInput.value = '';
+            }
+            // 清空搜索时也清空日期筛选
+            recordsFilterStartDate = null;
+            recordsFilterEndDate = null;
+            loadRecords(1);
+        });
+    }
+
     // 导出导入
     document.getElementById('btn-export').addEventListener('click', handleExport);
     document.getElementById('file-import').addEventListener('change', handleImport);
-    
+
     // 分类管理模态框
     document.getElementById('category-modal').addEventListener('click', (e) => {
         if (e.target.id === 'category-modal') {
             closeCategoryModal();
         }
     });
-    
+
     // 分类标签切换
     document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
+        btn.addEventListener('click', function () {
             const tab = this.dataset.tab;
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             this.classList.add('active');
@@ -1468,36 +1393,36 @@ function bindEvents() {
             loadCategoryList(tab);
         });
     });
-    
+
     // 添加分类表单
     document.getElementById('add-category-form').addEventListener('submit', handleAddCategory);
-    
+
     // 编辑分类表单
     document.getElementById('edit-category-form').addEventListener('submit', handleEditCategory);
-    
+
     // 图标选择器
     document.getElementById('icon-selector-btn').addEventListener('click', openIconPicker);
-    document.getElementById('edit-icon-selector-btn').addEventListener('click', function() {
+    document.getElementById('edit-icon-selector-btn').addEventListener('click', function () {
         openIconPicker('edit');
     });
-    
+
     // 图标选择器模态框
     document.getElementById('icon-picker-modal').addEventListener('click', (e) => {
         if (e.target.id === 'icon-picker-modal') {
             closeIconPicker();
         }
     });
-    
+
     document.querySelectorAll('#icon-picker-modal .modal-close').forEach(btn => {
         btn.addEventListener('click', closeIconPicker);
     });
-    
+
     // 初始化图标选择器
     initIconPicker();
-    
+
     // 模态框
     document.querySelectorAll('.modal-close, .modal-close-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
+        btn.addEventListener('click', function () {
             if (this.closest('#category-modal')) {
                 closeCategoryModal();
             } else if (this.closest('#edit-category-modal')) {
@@ -1507,14 +1432,14 @@ function bindEvents() {
             }
         });
     });
-    
+
     // 编辑分类模态框点击外部关闭
     document.getElementById('edit-category-modal').addEventListener('click', (e) => {
         if (e.target.id === 'edit-category-modal') {
             document.getElementById('edit-category-modal').classList.remove('show');
         }
     });
-    
+
     // 点击模态框外部关闭
     document.getElementById('edit-modal').addEventListener('click', (e) => {
         if (e.target.id === 'edit-modal') {
@@ -1536,7 +1461,7 @@ function bindEvents() {
             if (e.target.id === 'others-detail-modal') closeModal();
         });
     }
-    
+
     // 编辑表单
     document.getElementById('edit-form').addEventListener('submit', handleUpdateRecord);
     // 编辑模态框内「选择日期」使用与记账相同的日期选择弹窗
@@ -1608,7 +1533,7 @@ function goToRecordFlowStep2() {
     const displayVal = (amountVal && amountVal !== '0') ? parseFloat(amountVal.replace(/[¥\s]/g, '')).toFixed(2) : '0.00';
     const amountValueEl = document.getElementById('record-flow-amount-value');
     if (amountValueEl) amountValueEl.textContent = displayVal;
-    setTimeout(function() {
+    setTimeout(function () {
         openNumberKeyboard('record-amount');
     }, 320);
 }
@@ -1640,7 +1565,7 @@ function updateRecordFlowCategorySelector() {
     }).join('');
     container.querySelectorAll('.category-btn').forEach(btn => {
         const isOther = btn.dataset.isOther === 'true';
-        btn.addEventListener('click', function(e) {
+        btn.addEventListener('click', function (e) {
             if (isOther && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 openCategoryModal();
@@ -1653,17 +1578,17 @@ function updateRecordFlowCategorySelector() {
             goToRecordFlowStep2();
         });
         if (isOther) {
-            btn.addEventListener('contextmenu', function(e) { e.preventDefault(); openCategoryModal(); });
+            btn.addEventListener('contextmenu', function (e) { e.preventDefault(); openCategoryModal(); });
             let longPressTimer = null;
-            btn.addEventListener('mousedown', function() {
-                longPressTimer = setTimeout(function() { longPressTimer = null; openCategoryModal(); }, 800);
+            btn.addEventListener('mousedown', function () {
+                longPressTimer = setTimeout(function () { longPressTimer = null; openCategoryModal(); }, 800);
             });
-            btn.addEventListener('mouseup', function() { if (longPressTimer) clearTimeout(longPressTimer); longPressTimer = null; });
-            btn.addEventListener('mouseleave', function() { if (longPressTimer) clearTimeout(longPressTimer); longPressTimer = null; });
-            btn.addEventListener('touchstart', function(e) {
-                longPressTimer = setTimeout(function() { e.preventDefault(); longPressTimer = null; openCategoryModal(); }, 800);
+            btn.addEventListener('mouseup', function () { if (longPressTimer) clearTimeout(longPressTimer); longPressTimer = null; });
+            btn.addEventListener('mouseleave', function () { if (longPressTimer) clearTimeout(longPressTimer); longPressTimer = null; });
+            btn.addEventListener('touchstart', function (e) {
+                longPressTimer = setTimeout(function () { e.preventDefault(); longPressTimer = null; openCategoryModal(); }, 800);
             });
-            btn.addEventListener('touchend', function() { if (longPressTimer) clearTimeout(longPressTimer); longPressTimer = null; });
+            btn.addEventListener('touchend', function () { if (longPressTimer) clearTimeout(longPressTimer); longPressTimer = null; });
         }
     });
     // 切换类型后清空选择，需重新选分类
@@ -1682,12 +1607,12 @@ function bindRecordFlowEvents() {
     var SWIPE_THRESHOLD = 60;
     var SWIPE_MAX_VERTICAL_RATIO = 0.5; // 垂直位移不超过水平的此比例，避免和列表滚动冲突
     if (sheet) {
-        sheet.addEventListener('touchstart', function(e) {
+        sheet.addEventListener('touchstart', function (e) {
             if (e.touches.length !== 1) return;
             swipeStartX = e.touches[0].clientX;
             swipeStartY = e.touches[0].clientY;
         }, { passive: true });
-        sheet.addEventListener('touchend', function(e) {
+        sheet.addEventListener('touchend', function (e) {
             if (e.changedTouches.length !== 1) return;
             var endX = e.changedTouches[0].clientX;
             var endY = e.changedTouches[0].clientY;
@@ -1723,7 +1648,7 @@ function bindRecordFlowEvents() {
 function updateEditCategorySelect() {
     const select = document.getElementById('edit-category');
     select.innerHTML = '';
-    
+
     // 添加支出分类
     categories.expense.forEach(cat => {
         const option = document.createElement('option');
@@ -1731,7 +1656,7 @@ function updateEditCategorySelect() {
         option.textContent = `${cat.icon} ${cat.name}`;
         select.appendChild(option);
     });
-    
+
     // 添加收入分类
     categories.income.forEach(cat => {
         const option = document.createElement('option');
@@ -1746,20 +1671,20 @@ async function handleAddRecord(e) {
     if (e) {
         e.preventDefault();
     }
-    
+
     const typeInput = document.getElementById('record-type');
     const categoryValue = document.getElementById('category-selected-value').value;
     if (!categoryValue) {
         customAlert('请选择分类', '提示', 'warning');
         return;
     }
-    
+
     // 查找分类名称
     const type = typeInput ? typeInput.value : 'expense';
     const categoryList = categories[type] || [];
     const cat = categoryList.find(c => (c.id && c.id.toString() === categoryValue) || c.name === categoryValue);
     const categoryName = cat ? (cat.name || cat.id) : categoryValue;
-    
+
     // 获取金额值，处理可能的加减运算
     let amountValue = document.getElementById('record-amount').value;
     amountValue = amountValue.replace(/[¥\s]/g, '');
@@ -1772,16 +1697,16 @@ async function handleAddRecord(e) {
             return;
         }
     }
-    
+
     const amount = parseFloat(amountValue);
     if (isNaN(amount) || amount <= 0) {
         customAlert('请输入有效的金额', '输入错误', 'warning');
         return;
     }
-    
+
     // 使用选择的日期，如果没有选择则使用今天
     const recordDate = selectedRecordDate || getLocalDateString();
-    
+
     const formData = {
         date: recordDate,
         type: typeInput ? typeInput.value : 'expense',
@@ -1789,20 +1714,20 @@ async function handleAddRecord(e) {
         category: categoryName,
         note: document.getElementById('record-note').value.trim()
     };
-    
+
     try {
         const response = await authFetch(`${API_BASE}/records`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(formData)
         });
-        
+
         const result = await response.json();
-        
+
         if (response.ok) {
             // 关闭键盘（如果打开）
             closeNumberKeyboard();
-            
+
             // 重置表单
             document.getElementById('quick-add-form').reset();
             document.getElementById('record-amount').value = '';
@@ -1832,7 +1757,7 @@ async function handleAddRecord(e) {
                 }
             });
             document.getElementById('record-type').value = 'expense';
-            
+
             // 重新加载数据
             loadStatistics();
             loadTodayRecords(); // 刷新今日记录
@@ -1844,7 +1769,7 @@ async function handleAddRecord(e) {
             if (document.getElementById('tab-analysis').classList.contains('active')) {
                 loadAnalysisData();
             }
-            
+
             // 提示
             showMessage('添加成功！', 'success');
         } else {
@@ -1861,10 +1786,10 @@ async function loadTodayRecords() {
     try {
         const today = getLocalDateString();
         const url = `${API_BASE}/records?start_date=${today}&end_date=${today}&per_page=100`;
-        
+
         const response = await authFetch(url);
         const data = await response.json();
-        
+
         renderTodayRecords(data.records || []);
     } catch (error) {
         console.error('加载今日记录失败:', error);
@@ -1879,7 +1804,7 @@ async function loadTodayRecords() {
 function renderTodayRecords(records) {
     const container = document.getElementById('today-records-list');
     if (!container) return;
-    
+
     if (records.length === 0) {
         container.innerHTML = `
             <div class="empty-state" style="padding: 20px; text-align: center; color: #999; font-size: 12px;">
@@ -1888,7 +1813,7 @@ function renderTodayRecords(records) {
         `;
         return;
     }
-    
+
     let html = '';
     records.forEach(record => {
         // 查找分类
@@ -1898,10 +1823,10 @@ function renderTodayRecords(records) {
         const icon = category?.icon || '📦';
         const name = category?.name || record.category;
         const typeClass = record.type === 'income' ? 'income' : 'expense';
-        
+
         // 如果有备注，显示备注；否则显示类别
         const displayName = record.note ? escapeHtml(record.note) : name;
-        
+
         html += `
             <div class="today-record-item">
                 <div class="today-record-icon">${icon}</div>
@@ -1914,7 +1839,7 @@ function renderTodayRecords(records) {
             </div>
         `;
     });
-    
+
     container.innerHTML = html;
 }
 
@@ -1933,21 +1858,21 @@ async function loadStatistics() {
         const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
         let url = `${API_BASE}/statistics?start_date=${startDate}&end_date=${endDate}`;
-        
+
         const response = await authFetch(url);
         const data = await response.json();
-        
+
         // 更新统计卡片
         document.getElementById('total-income').textContent = formatMoney(data.total_income);
         document.getElementById('total-expense').textContent = formatMoney(data.total_expense);
         document.getElementById('total-balance').textContent = formatMoney(data.balance);
-        
+
         // 更新当日支出（如果存在）
         const todayExpenseEl = document.getElementById('today-expense');
         if (todayExpenseEl && data.today_expense !== undefined) {
             todayExpenseEl.textContent = formatMoney(data.today_expense);
         }
-        
+
         lastCategoryStatsForCharts = data.category_stats || null;
         setTimeout(() => {
             updateLineChart(data.daily_stats).catch(err => console.error('更新折线图失败:', err));
@@ -1968,35 +1893,35 @@ let preloadPromise = null; // 预加载Promise，避免重复预加载
 // 预加载所有日期的分类数据
 async function preloadDailyCategoryData(dailyStats) {
     if (!dailyStats || dailyStats.length === 0) return;
-    
+
     // 如果正在预加载，等待完成
     if (preloadPromise) {
         await preloadPromise;
         return;
     }
-    
+
     // 开始预加载
     preloadPromise = (async () => {
         const dates = dailyStats.map(d => d.date);
         const uncachedDates = dates.filter(date => !dailyRecordsCache[date]);
-        
+
         if (uncachedDates.length === 0) {
             preloadPromise = null;
             return; // 所有数据都已缓存
         }
-        
+
         // 批量查询（每次查询一个日期，但并发执行）
         const promises = uncachedDates.map(date => getDailyRecordsByCategory(date, false));
-        
+
         try {
             await Promise.all(promises);
         } catch (error) {
             console.error('预加载分类数据失败:', error);
         }
-        
+
         preloadPromise = null;
     })();
-    
+
     // 不等待预加载完成，让它在后台执行
     preloadPromise.catch(() => {
         preloadPromise = null;
@@ -2008,12 +1933,12 @@ async function getDailyRecordsByCategory(date, useCache = true) {
     if (useCache && dailyRecordsCache[date]) {
         return dailyRecordsCache[date];
     }
-    
+
     try {
         const response = await authFetch(`${API_BASE}/records?start_date=${date}&end_date=${date}&per_page=1000`);
         const data = await response.json();
         const records = data.records || [];
-        
+
         // 按分类分组
         const categoryGroups = {};
         records.forEach(record => {
@@ -2027,7 +1952,7 @@ async function getDailyRecordsByCategory(date, useCache = true) {
                     count: 0,
                     type: record.type
                 };
-                
+
                 // 查找分类信息
                 const allCategories = [...categories.expense, ...categories.income];
                 const categoryInfo = allCategories.find(c => c.name === categoryName || c.id === categoryName);
@@ -2039,16 +1964,16 @@ async function getDailyRecordsByCategory(date, useCache = true) {
             categoryGroups[categoryName].amount += Number(record.amount || 0);
             categoryGroups[categoryName].count += 1;
         });
-        
+
         // 转换为数组并排序
         const result = Object.values(categoryGroups).sort((a, b) => b.amount - a.amount);
-        
+
         // 缓存结果（5分钟过期）
         dailyRecordsCache[date] = result;
         setTimeout(() => {
             delete dailyRecordsCache[date];
         }, 5 * 60 * 1000);
-        
+
         return result;
     } catch (error) {
         console.error('获取每日记录失败:', error);
@@ -2066,12 +1991,12 @@ function showDateDetailTooltip(date, categoryGroups, event) {
         hideDateDetailTooltip();
         return;
     }
-    
+
     // 取消之前的动画
     if (tooltipAnimationFrame) {
         cancelAnimationFrame(tooltipAnimationFrame);
     }
-    
+
     // 创建或获取 tooltip 元素
     let tooltipEl = document.getElementById('date-detail-tooltip');
     const isNewTooltip = !tooltipEl;
@@ -2081,7 +2006,7 @@ function showDateDetailTooltip(date, categoryGroups, event) {
         tooltipEl.className = 'date-detail-tooltip';
         document.body.appendChild(tooltipEl);
     }
-    
+
     // 保存数据
     currentTooltipData = {
         date: date,
@@ -2097,22 +2022,22 @@ function showDateDetailTooltip(date, categoryGroups, event) {
             totalExpense += group.amount;
         }
     });
-    
+
     // 格式化日期显示
     const dateObj = new Date(date);
     const month = dateObj.getMonth() + 1;
     const day = dateObj.getDate();
     const dateStr = `${month}月${day}日`;
-    
+
     // 先移除旧的事件监听器（通过克隆节点）
     const oldTooltipEl = tooltipEl;
     const newTooltipEl = tooltipEl.cloneNode(false); // 只克隆节点本身，不克隆内容
     oldTooltipEl.parentNode.replaceChild(newTooltipEl, oldTooltipEl);
     tooltipEl = newTooltipEl;
-    
+
     // 渲染 tooltip 内容
     renderTooltipContent(tooltipEl, dateStr, totalIncome, totalExpense, categoryGroups);
-    
+
     // 定位 tooltip（触摸移动时不使用平滑动画，直接跟随）
     if (event) {
         const x = event.clientX || (event.touches && event.touches[0]?.clientX) || 0;
@@ -2131,16 +2056,16 @@ function showDateDetailTooltip(date, categoryGroups, event) {
     } else {
         showTooltipSmooth(tooltipEl, '50%', '50%', 'translate(-50%, -50%)', isNewTooltip);
     }
-    
+
     // 绑定点击事件
     tooltipEl.addEventListener('click', handleTooltipClick);
-    
+
     // 点击外部区域隐藏 tooltip
     if (hideOnOutsideClickHandler) {
         document.removeEventListener('click', hideOnOutsideClickHandler);
         document.removeEventListener('touchstart', hideOnOutsideClickHandler);
     }
-    
+
     hideOnOutsideClickHandler = (e) => {
         if (tooltipEl && !tooltipEl.contains(e.target)) {
             // 检查是否点击的是图表区域
@@ -2151,13 +2076,13 @@ function showDateDetailTooltip(date, categoryGroups, event) {
             hideDateDetailTooltip();
         }
     };
-    
+
     // 延迟绑定，避免立即触发
     setTimeout(() => {
         document.addEventListener('click', hideOnOutsideClickHandler);
         document.addEventListener('touchstart', hideOnOutsideClickHandler);
     }, 100);
-    
+
     // 清除之前的自动隐藏定时器
     clearTimeout(window.dateDetailTooltipTimeout);
     window.dateDetailTooltipTimeout = setTimeout(() => {
@@ -2169,7 +2094,7 @@ function showDateDetailTooltip(date, categoryGroups, event) {
 function renderTooltipContent(tooltipEl, dateStr, totalIncome, totalExpense, categoryGroups) {
     // 检查是否是内容更新（tooltip已存在且有内容）
     const isUpdate = tooltipEl.innerHTML.trim().length > 0;
-    
+
     // 生成所有分类的HTML
     const categoriesHtml = categoryGroups.map((category, index) => {
         const typeLabel = category.type === 'income' ? '收入' : '支出';
@@ -2184,12 +2109,12 @@ function renderTooltipContent(tooltipEl, dateStr, totalIncome, totalExpense, cat
             </div>
         `;
     }).join('');
-    
+
     // 如果是在更新内容，先淡出再淡入
     if (isUpdate) {
         tooltipEl.style.transition = 'opacity 0.1s ease';
         tooltipEl.style.opacity = '0.7';
-        
+
         requestAnimationFrame(() => {
             tooltipEl.innerHTML = `
                 <div class="date-detail-tooltip-header">
@@ -2206,7 +2131,7 @@ function renderTooltipContent(tooltipEl, dateStr, totalIncome, totalExpense, cat
                     <span class="date-detail-tooltip-click-hint">点击查看详细记录</span>
                 </div>
             `;
-            
+
             requestAnimationFrame(() => {
                 tooltipEl.style.opacity = '1';
             });
@@ -2240,17 +2165,17 @@ function showTooltipSmooth(tooltipEl, left, top, transform, isNew) {
     tooltipEl.style.display = 'block';
     tooltipEl.style.opacity = '0';
     tooltipEl.style.visibility = 'visible';
-    
+
     // 如果是新 tooltip，添加缩放效果
     if (isNew) {
         tooltipEl.style.transform = `${transform || 'none'} scale(0.9)`;
     }
-    
+
     // 使用 requestAnimationFrame 确保样式已应用
     tooltipAnimationFrame = requestAnimationFrame(() => {
         // 触发重排
         tooltipEl.offsetHeight;
-        
+
         // 平滑显示
         tooltipEl.style.transition = 'opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
         tooltipEl.style.opacity = '1';
@@ -2269,16 +2194,16 @@ function positionTooltipInstant(tooltipEl, x, y, isNew) {
     tooltipEl.style.left = `${x + 15}px`;
     tooltipEl.style.top = `${y + 15}px`;
     tooltipEl.style.transition = 'none'; // 禁用过渡动画
-    
+
     tooltipAnimationFrame = requestAnimationFrame(() => {
         const tooltipWidth = tooltipEl.offsetWidth || 240;
         const tooltipHeight = tooltipEl.offsetHeight || 200;
         const windowWidth = window.innerWidth;
         const windowHeight = window.innerHeight;
-        
+
         let left = x + 15;
         let top = y + 15;
-        
+
         // 防止超出右边界
         if (left + tooltipWidth > windowWidth - 10) {
             left = x - tooltipWidth - 15;
@@ -2295,7 +2220,7 @@ function positionTooltipInstant(tooltipEl, x, y, isNew) {
         if (top < 10) {
             top = 10;
         }
-        
+
         // 立即设置新位置，无动画
         tooltipEl.style.left = `${left}px`;
         tooltipEl.style.top = `${top}px`;
@@ -2313,21 +2238,21 @@ function positionTooltipSmooth(tooltipEl, x, y, isNew) {
     tooltipEl.style.opacity = '0';
     tooltipEl.style.left = `${x + 15}px`;
     tooltipEl.style.top = `${y + 15}px`;
-    
+
     // 如果是新 tooltip，添加缩放效果
     if (isNew) {
         tooltipEl.style.transform = 'scale(0.9)';
     }
-    
+
     tooltipAnimationFrame = requestAnimationFrame(() => {
         const tooltipWidth = tooltipEl.offsetWidth || 240;
         const tooltipHeight = tooltipEl.offsetHeight || 200;
         const windowWidth = window.innerWidth;
         const windowHeight = window.innerHeight;
-        
+
         let left = x + 15;
         let top = y + 15;
-        
+
         // 防止超出右边界
         if (left + tooltipWidth > windowWidth - 10) {
             left = x - tooltipWidth - 15;
@@ -2344,21 +2269,21 @@ function positionTooltipSmooth(tooltipEl, x, y, isNew) {
         if (top < 10) {
             top = 10;
         }
-        
+
         // 获取当前位置（如果已存在）
         const currentLeft = tooltipEl.style.left ? parseFloat(tooltipEl.style.left) : left;
         const currentTop = tooltipEl.style.top ? parseFloat(tooltipEl.style.top) : top;
-        
+
         // 计算位置变化
         const deltaX = Math.abs(left - currentLeft);
         const deltaY = Math.abs(top - currentTop);
-        
+
         // 设置新位置
         tooltipEl.style.left = `${left}px`;
         tooltipEl.style.top = `${top}px`;
         tooltipEl.style.transform = 'none';
         tooltipEl.style.visibility = 'visible';
-        
+
         // 根据移动距离调整过渡时间
         const maxDelta = Math.max(deltaX, deltaY);
         let transitionDuration = '0.15s';
@@ -2371,10 +2296,10 @@ function positionTooltipSmooth(tooltipEl, x, y, isNew) {
         } else {
             transitionDuration = '0.12s';
         }
-        
+
         // 添加平滑过渡
         tooltipEl.style.transition = `opacity ${transitionDuration} cubic-bezier(0.4, 0, 0.2, 1), transform ${transitionDuration} cubic-bezier(0.4, 0, 0.2, 1), left ${transitionDuration} cubic-bezier(0.4, 0, 0.2, 1), top ${transitionDuration} cubic-bezier(0.4, 0, 0.2, 1)`;
-        
+
         // 触发重排后显示
         requestAnimationFrame(() => {
             tooltipEl.style.opacity = '1';
@@ -2388,27 +2313,25 @@ function positionTooltipSmooth(tooltipEl, x, y, isNew) {
 // 处理 tooltip 点击事件
 function handleTooltipClick(e) {
     if (!currentTooltipData) return;
-    
-    // 跳转到记录列表并筛选日期
-    const startDateInput = document.getElementById('records-start-date');
-    const endDateInput = document.getElementById('records-end-date');
-    if (startDateInput && endDateInput) {
-        startDateInput.value = currentTooltipData.date;
-        endDateInput.value = currentTooltipData.date;
-    }
-    
+
+    // 将该日期写入记录列表内部筛选
+    const date = currentTooltipData.date;
+    recordsFilterStartDate = date;
+    recordsFilterEndDate = date;
+
     // 切换到记录列表标签页
     switchMainTab('records');
-    
+
     // 加载该日期的记录
     loadRecords(1);
-    
+
     // 格式化日期显示
-    const dateObj = new Date(currentTooltipData.date);
+    const dateObj = new Date(date);
     const month = dateObj.getMonth() + 1;
     const day = dateObj.getDate();
     showMessage(`已筛选 ${month}月${day}日 的记录`, 'info');
-    
+
+
     // 隐藏 tooltip
     hideDateDetailTooltip();
 }
@@ -2421,12 +2344,12 @@ function hideDateDetailTooltip() {
         if (tooltipAnimationFrame) {
             cancelAnimationFrame(tooltipAnimationFrame);
         }
-        
+
         // 平滑隐藏
         tooltipEl.style.transition = 'opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), transform 0.15s cubic-bezier(0.4, 0, 0.2, 1)';
         tooltipEl.style.opacity = '0';
         tooltipEl.style.transform = 'scale(0.95)';
-        
+
         // 动画完成后隐藏
         setTimeout(() => {
             if (tooltipEl && tooltipEl.style.opacity === '0') {
@@ -2437,7 +2360,7 @@ function hideDateDetailTooltip() {
     }
     currentTooltipData = null;
     clearTimeout(window.dateDetailTooltipTimeout);
-    
+
     // 移除外部点击监听器
     if (hideOnOutsideClickHandler) {
         document.removeEventListener('click', hideOnOutsideClickHandler);
@@ -2453,26 +2376,26 @@ async function updateLineChart(dailyStats) {
     }
     currentDailyStats = dailyStats || [];
     dailyRecordsCache = {};
-    
+
     if (!dailyStats || dailyStats.length === 0) {
         if (echartsLine) { echartsLine.dispose(); echartsLine = null; }
         setChartPlaceholder('line-chart', '暂无数据');
         return;
     }
-    
+
     // 提前预加载所有日期的分类数据
     preloadDailyCategoryData(dailyStats);
-    
+
     if (echartsLine) echartsLine.dispose();
-    
+
     // 检测是否为移动端（在函数内部定义，确保作用域正确）
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth <= 768);
-    
+
     // 移动端禁用emphasis的scale效果，避免显示放大的数据点（绿色X标记）
-    const emphasisConfig = isMobile 
+    const emphasisConfig = isMobile
         ? { focus: 'series', scale: false, itemStyle: { borderColor: '#fff', borderWidth: 1 } }  // 移动端禁用scale，避免显示放大点
         : { focus: 'series', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } };  // 桌面端保持原样
-    
+
     // 等待容器准备好后再初始化
     try {
         const dom = await waitForChartContainer('line-chart', 20, 50);
@@ -2495,13 +2418,13 @@ function continueLineChartSetup(emphasisConfig) {
         setChartPlaceholder('line-chart', '暂无数据');
         return;
     }
-    
+
     const dom = document.getElementById('line-chart');
     if (!dom) {
         setChartPlaceholder('line-chart', '图表容器不存在', true);
         return;
     }
-    
+
     try {
         const labels = (currentDailyStats || []).map(d => {
             const date = new Date(d.date);
@@ -2516,15 +2439,15 @@ function continueLineChartSetup(emphasisConfig) {
             const value = Number(d.expense) || 0;
             return isNaN(value) ? 0 : value;
         });
-        
+
         // 如果没有传入emphasisConfig，则重新计算（兜底处理）
         if (!emphasisConfig) {
             const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth <= 768);
-            emphasisConfig = isMobile 
+            emphasisConfig = isMobile
                 ? { focus: 'series', scale: false, itemStyle: { borderColor: '#fff', borderWidth: 1 } }
                 : { focus: 'series', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } };
         }
-        
+
         echartsLine.setOption({
             animation: true,
             animationDuration: 400,
@@ -2541,13 +2464,13 @@ function continueLineChartSetup(emphasisConfig) {
                 show: false // 禁用默认 tooltip
             }
         });
-        
+
         // 确保图表正确渲染：立即resize，然后延迟多次resize以确保容器尺寸已计算
         // 先立即resize一次
         if (echartsLine) {
             echartsLine.resize();
         }
-        
+
         // 延迟resize，确保容器尺寸已计算（移动端特别需要）
         requestAnimationFrame(() => {
             if (echartsLine) {
@@ -2573,15 +2496,15 @@ function continueLineChartSetup(emphasisConfig) {
         setChartPlaceholder('line-chart', '图表加载失败，请刷新页面', true);
         return;
     }
-    
+
     // 添加鼠标移动事件（桌面端）- 精确计算每一天
     let lastMouseIndex = -1;
     let mouseMoveTimer = null;
-    
+
     // 根据鼠标X坐标精确计算日期索引
     function getDataIndexFromMouseX(x, chartDom) {
         if (!chartDom || !currentDailyStats || currentDailyStats.length === 0) return -1;
-        
+
         try {
             // 使用 ECharts 的 convertFromPixel 方法
             const point = echartsLine.convertFromPixel({ seriesIndex: 0 }, [x, 0]);
@@ -2597,7 +2520,7 @@ function continueLineChartSetup(emphasisConfig) {
             const relativeX = x - rect.left;
             const chartWidth = rect.width;
             const dataLength = currentDailyStats.length;
-            
+
             if (dataLength > 0 && chartWidth > 0) {
                 // 考虑图表的 padding，grid 配置是 left: '8%', right: '8%'
                 const effectiveWidth = chartWidth * 0.84; // 减去左右边距
@@ -2611,14 +2534,14 @@ function continueLineChartSetup(emphasisConfig) {
         }
         return -1;
     }
-    
+
     echartsLine.off('mousemove');
-    echartsLine.on('mousemove', async function(params) {
+    echartsLine.on('mousemove', async function (params) {
         if (!params || !params.event) {
             hideDateDetailTooltip();
             return;
         }
-        
+
         // 获取鼠标的实际X坐标
         let mouseX = 0;
         if (params.event.event) {
@@ -2628,32 +2551,32 @@ function continueLineChartSetup(emphasisConfig) {
         } else if (params.event.clientX !== undefined) {
             mouseX = params.event.clientX;
         }
-        
+
         // 如果无法获取X坐标，尝试使用 dataIndex
         let idx = -1;
         if (mouseX > 0) {
             idx = getDataIndexFromMouseX(mouseX, dom);
         }
-        
+
         // 如果还是无法获取，使用 params.dataIndex（可能为 undefined）
         if (idx < 0 && params.dataIndex !== undefined) {
             idx = params.dataIndex;
         }
-        
+
         if (idx < 0 || idx >= currentDailyStats.length) {
             hideDateDetailTooltip();
             return;
         }
-        
+
         // 如果索引没变化，不重复加载
         if (lastMouseIndex === idx) return;
         lastMouseIndex = idx;
-        
+
         // 防抖，避免频繁更新
         if (mouseMoveTimer) {
             clearTimeout(mouseMoveTimer);
         }
-        
+
         mouseMoveTimer = setTimeout(() => {
             const date = currentDailyStats[idx].date;
             // 直接从缓存获取，不需要等待
@@ -2672,24 +2595,24 @@ function continueLineChartSetup(emphasisConfig) {
             showDateDetailTooltip(date, categoryGroups, ev);
         }, 16); // 减少防抖时间到16ms（约60fps），让响应更灵敏
     });
-    
+
     // 鼠标离开图表时隐藏 tooltip
     echartsLine.off('mouseout');
-    echartsLine.on('mouseout', function() {
+    echartsLine.on('mouseout', function () {
         hideDateDetailTooltip();
         lastMouseIndex = -1;
     });
-    
+
     // 添加触摸移动事件（移动端）
     let touchMoveTimer = null;
     let lastTouchIndex = -1;
-    
+
     // 获取触摸点对应的数据索引（精确计算每一天）
     function getTouchDataIndex(touch) {
         const rect = dom.getBoundingClientRect();
         const x = touch.clientX - rect.left;
         const y = touch.clientY - rect.top;
-        
+
         // 使用 ECharts 的 convertFromPixel 方法
         try {
             const point = echartsLine.convertFromPixel({ seriesIndex: 0 }, [x, y]);
@@ -2716,18 +2639,18 @@ function continueLineChartSetup(emphasisConfig) {
         }
         return -1;
     }
-    
+
     let touchStartX = 0;
     let touchStartY = 0;
     let isHorizontalSwipe = false;
-    
-    dom.addEventListener('touchstart', function(e) {
+
+    dom.addEventListener('touchstart', function (e) {
         const touch = e.touches[0];
         touchStartX = touch.clientX;
         touchStartY = touch.clientY;
         isHorizontalSwipe = false;
         isTouchMoving = false; // 触摸开始时重置标记
-        
+
         const idx = getTouchDataIndex(touch);
         if (idx >= 0) {
             lastTouchIndex = idx;
@@ -2739,22 +2662,22 @@ function continueLineChartSetup(emphasisConfig) {
             }
         }
     }, { passive: true });
-    
-    dom.addEventListener('touchmove', function(e) {
+
+    dom.addEventListener('touchmove', function (e) {
         const touch = e.touches[0];
         const deltaX = Math.abs(touch.clientX - touchStartX);
         const deltaY = Math.abs(touch.clientY - touchStartY);
-        
+
         // 判断是否为水平滑动（水平距离大于垂直距离的1.5倍）
         if (deltaX > deltaY * 1.5 && deltaX > 10) {
             isHorizontalSwipe = true;
             isTouchMoving = true; // 标记正在触摸移动
             e.preventDefault(); // 只阻止水平滑动的默认行为
-            
+
             const idx = getTouchDataIndex(touch);
             if (idx >= 0 && idx !== lastTouchIndex) {
                 lastTouchIndex = idx;
-                
+
                 // 立即更新，因为数据已经在缓存中，使用即时定位
                 const date = currentDailyStats[idx].date;
                 const categoryGroups = dailyRecordsCache[date] || [];
@@ -2773,8 +2696,8 @@ function continueLineChartSetup(emphasisConfig) {
         }
         // 如果是垂直滑动，不阻止默认行为，允许页面滚动
     }, { passive: false });
-    
-    dom.addEventListener('touchend', function() {
+
+    dom.addEventListener('touchend', function () {
         isTouchMoving = false; // 触摸结束，重置标记
         if (touchMoveTimer) {
             clearTimeout(touchMoveTimer);
@@ -2786,34 +2709,32 @@ function continueLineChartSetup(emphasisConfig) {
             hideDateDetailTooltip();
         }, 3000);
     }, { passive: true });
-    
+
     // 添加点击事件（跳转到详细记录）
     echartsLine.off('click');
-    echartsLine.on('click', async function(params) {
+    echartsLine.on('click', async function (params) {
         const idx = params.dataIndex;
         if (!currentDailyStats || idx < 0 || idx >= currentDailyStats.length) return;
         const date = currentDailyStats[idx].date;
-        
-        // 跳转到记录列表并筛选日期
-        const startDateInput = document.getElementById('records-start-date');
-        const endDateInput = document.getElementById('records-end-date');
-        if (startDateInput && endDateInput) {
-            startDateInput.value = date;
-            endDateInput.value = date;
-        }
-        
+
+        // 将该日期写入记录列表内部筛选
+        recordsFilterStartDate = date;
+        recordsFilterEndDate = date;
+
+
         // 切换到记录列表标签页
         switchMainTab('records');
-        
+
         // 加载该日期的记录
         loadRecords(1);
-        
+
         // 格式化日期显示
         const dateObj = new Date(date);
         const month = dateObj.getMonth() + 1;
         const day = dateObj.getDate();
         showMessage(`已筛选 ${month}月${day}日 的记录`, 'info');
-        
+
+
         // 隐藏 tooltip
         hideDateDetailTooltip();
     });
@@ -2834,48 +2755,48 @@ async function updatePieChart(categoryStats) {
     const chartData = aggregated.chartData;
     const total = aggregated.total;
     if (echartsPie) echartsPie.dispose();
-    
+
     // 等待容器准备好后再初始化
     try {
         const dom = await waitForChartContainer('pie-chart', 20, 50);
         dom.innerHTML = '';
         echartsPie = echarts.init(dom, null, getEChartsInitOpts());
-    const pieData = chartData.map((c, i) => ({
-        name: `${c.icon} ${c.name} ${total > 0 ? ((c.amount / total) * 100).toFixed(1) : 0}%`,
-        value: c.amount,
-        itemStyle: { color: c.color },
-        _isOther: c._isOther,
-        _others: c._others
-    }));
-    echartsPie.setOption({
-        animation: true,
-        animationDuration: 400,
-        animationEasing: 'cubicOut',
-        legend: { orient: 'vertical', right: '8%', top: 'center', textStyle: { fontSize: 11 }, itemWidth: 10, itemHeight: 10, itemGap: 10 },
-        series: [{
-            type: 'pie',
-            radius: ['40%', '68%'],
-            center: ['38%', '50%'],
-            data: pieData,
-            label: { show: false },
-            labelLine: { show: false },
-            itemStyle: { borderColor: '#fff', borderWidth: 2 },
-            emphasis: { scale: true, scaleSize: 6, itemStyle: { borderColor: '#fff', borderWidth: 2, shadowBlur: 10, shadowOffsetY: 3 } }
-        }],
-        tooltip: {
-            trigger: 'item',
-            backgroundColor: 'rgba(0,0,0,0.85)',
-            borderColor: 'rgba(255,255,255,0.1)',
-            textStyle: { fontSize: 12 },
-            formatter: function(params) {
-                const val = params.value;
-                const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
-                return `${params.name}<br/>金额: ¥${val.toFixed(2)} (${pct}%)<br/>总计: ¥${total.toFixed(2)}`;
+        const pieData = chartData.map((c, i) => ({
+            name: `${c.icon} ${c.name} ${total > 0 ? ((c.amount / total) * 100).toFixed(1) : 0}%`,
+            value: c.amount,
+            itemStyle: { color: c.color },
+            _isOther: c._isOther,
+            _others: c._others
+        }));
+        echartsPie.setOption({
+            animation: true,
+            animationDuration: 400,
+            animationEasing: 'cubicOut',
+            legend: { orient: 'vertical', right: '8%', top: 'center', textStyle: { fontSize: 11 }, itemWidth: 10, itemHeight: 10, itemGap: 10 },
+            series: [{
+                type: 'pie',
+                radius: ['40%', '68%'],
+                center: ['38%', '50%'],
+                data: pieData,
+                label: { show: false },
+                labelLine: { show: false },
+                itemStyle: { borderColor: '#fff', borderWidth: 2 },
+                emphasis: { scale: true, scaleSize: 6, itemStyle: { borderColor: '#fff', borderWidth: 2, shadowBlur: 10, shadowOffsetY: 3 } }
+            }],
+            tooltip: {
+                trigger: 'item',
+                backgroundColor: 'rgba(0,0,0,0.85)',
+                borderColor: 'rgba(255,255,255,0.1)',
+                textStyle: { fontSize: 12 },
+                formatter: function (params) {
+                    const val = params.value;
+                    const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+                    return `${params.name}<br/>金额: ¥${val.toFixed(2)} (${pct}%)<br/>总计: ¥${total.toFixed(2)}`;
+                }
             }
-        }
-    });
+        });
         echartsPie.off('click');
-        echartsPie.on('click', function(params) {
+        echartsPie.on('click', function (params) {
             const item = params.data;
             if (item && item._isOther && item._others && item._others.length > 0) openOthersDetailModal(item._others, total);
         });
@@ -2888,20 +2809,22 @@ async function updatePieChart(categoryStats) {
 // 加载记录列表
 async function loadRecords(page = 1) {
     try {
-        // 获取日期筛选的值
-        const startDateInput = document.getElementById('records-start-date');
-        const endDateInput = document.getElementById('records-end-date');
-        const startDate = startDateInput ? startDateInput.value : '';
-        const endDate = endDateInput ? endDateInput.value : '';
-        
         let url = `${API_BASE}/records?page=${page}&per_page=100`;
-        // 只选择起始日期：显示起始日期之后的数据
-        // 只选择结束日期：显示结束日期之前的数据
-        // 两个都选：显示范围内的数据
-        // 都不选：显示所有数据
-        if (startDate) url += `&start_date=${startDate}`;
-        if (endDate) url += `&end_date=${endDate}`;
-        
+        // 内部日期筛选（从图表/tooltip 点击带入）
+        if (recordsFilterStartDate) {
+            url += `&start_date=${encodeURIComponent(recordsFilterStartDate)}`;
+        }
+        if (recordsFilterEndDate) {
+            url += `&end_date=${encodeURIComponent(recordsFilterEndDate)}`;
+        }
+        // 搜索关键字（名称 / 金额）
+        const recordsSearchInput = document.getElementById('records-search-input');
+        const keyword = recordsSearchInput ? recordsSearchInput.value.trim() : '';
+        if (keyword) {
+            const encoded = encodeURIComponent(keyword);
+            url += `&q=${encoded}`;
+        }
+
         const response = await authFetch(url);
         const data = await response.json();
 
@@ -2917,7 +2840,7 @@ async function loadRecords(page = 1) {
 // 渲染记录列表
 function renderRecords(records) {
     const container = document.getElementById('records-list');
-    
+
     if (records.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
@@ -2927,36 +2850,36 @@ function renderRecords(records) {
         `;
         return;
     }
-    
+
     // 按日期分组
     const groupedByDate = {};
     records.forEach(record => {
         const dateKey = record.date; // 使用 YYYY-MM-DD 格式作为key
-        
+
         if (!groupedByDate[dateKey]) {
             groupedByDate[dateKey] = [];
         }
         groupedByDate[dateKey].push(record);
     });
-    
+
     // 获取所有日期并排序（从近到远）
     const sortedDates = Object.keys(groupedByDate).sort((a, b) => {
         return new Date(b) - new Date(a); // 降序，最新的在前
     });
-    
+
     // 生成HTML
     let html = '';
     sortedDates.forEach(dateKey => {
         const dateRecords = groupedByDate[dateKey];
         const date = new Date(dateKey);
-        
+
         // 格式化日期：几月几号 星期几
         const month = date.getMonth() + 1;
         const day = date.getDate();
         const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
         const weekday = weekdays[date.getDay()];
         const dateHeader = `${month}月${day}日 星期${weekday}`;
-        
+
         // 判断是否是今天
         const today = new Date();
         const isToday = date.toDateString() === today.toDateString();
@@ -2965,19 +2888,19 @@ function renderRecords(records) {
             yesterday.setDate(yesterday.getDate() - 1);
             return date.toDateString() === yesterday.toDateString();
         })();
-        
+
         let dateLabel = dateHeader;
         if (isToday) {
             dateLabel = `今天 ${dateHeader}`;
         } else if (isYesterday) {
             dateLabel = `昨天 ${dateHeader}`;
         }
-        
+
         // 计算当日支出总额（只计算支出类型）
         const dailyExpense = dateRecords
             .filter(r => r.type === 'expense')
             .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
-        
+
         // 添加日期标题
         html += `
             <div class="date-section" data-date="${dateKey}">
@@ -2990,7 +2913,7 @@ function renderRecords(records) {
                 </div>
                 <div class="date-records">
         `;
-        
+
         // 添加该日期的所有记录
         dateRecords.forEach(record => {
             // 查找分类（支持ID和名称匹配）
@@ -3000,10 +2923,10 @@ function renderRecords(records) {
             const icon = category?.icon || '📦';
             const name = category?.name || record.category;
             const typeClass = record.type === 'income' ? 'income' : 'expense';
-            
+
             // 如果有备注，显示备注；否则显示类别
             const displayName = record.note ? escapeHtml(record.note) : name;
-            
+
             html += `
                 <div class="record-item" data-id="${record.id}">
                     <div class="record-icon">${icon}</div>
@@ -3021,18 +2944,18 @@ function renderRecords(records) {
                 </div>
             `;
         });
-        
+
         html += `
                 </div>
             </div>
         `;
     });
-    
+
     container.innerHTML = html;
-    
+
     // 绑定金额点击事件，打开数字键盘进行编辑
     container.querySelectorAll('.record-amount').forEach(amountEl => {
-        amountEl.addEventListener('click', function(e) {
+        amountEl.addEventListener('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
             const recordId = this.dataset.recordId;
@@ -3041,7 +2964,7 @@ function renderRecords(records) {
             const recordDate = this.dataset.recordDate;
             const recordNote = this.dataset.recordNote || '';
             const recordAmount = this.textContent.replace(/[^0-9.]/g, ''); // 提取金额数字
-            
+
             if (recordId) {
                 openRecordEditKeyboard({
                     id: recordId,
@@ -3059,38 +2982,38 @@ function renderRecords(records) {
 // 渲染分页
 function renderPagination(currentPage, totalPages) {
     const container = document.getElementById('pagination');
-    
+
     if (totalPages <= 1) {
         container.innerHTML = '';
         return;
     }
-    
+
     let html = '';
-    
+
     // 上一页
     html += `<button onclick="loadRecords(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>上一页</button>`;
-    
+
     // 页码
     const startPage = Math.max(1, currentPage - 2);
     const endPage = Math.min(totalPages, currentPage + 2);
-    
+
     if (startPage > 1) {
         html += `<button onclick="loadRecords(1)">1</button>`;
         if (startPage > 2) html += `<button disabled>...</button>`;
     }
-    
+
     for (let i = startPage; i <= endPage; i++) {
         html += `<button onclick="loadRecords(${i})" class="${i === currentPage ? 'active' : ''}">${i}</button>`;
     }
-    
+
     if (endPage < totalPages) {
         if (endPage < totalPages - 1) html += `<button disabled>...</button>`;
         html += `<button onclick="loadRecords(${totalPages})">${totalPages}</button>`;
     }
-    
+
     // 下一页
     html += `<button onclick="loadRecords(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>下一页</button>`;
-    
+
     container.innerHTML = html;
 }
 
@@ -3099,16 +3022,16 @@ async function openEditModal(recordId) {
     try {
         // 关闭所有键盘
         closeNumberKeyboard();
-        
+
         const response = await authFetch(`${API_BASE}/records/${recordId}`);
         const data = await response.json();
         const record = data.record;
-        
+
         if (!record) {
             customAlert('记录不存在', '错误', 'error');
             return;
         }
-        
+
         document.getElementById('edit-id').value = record.id;
         document.getElementById('edit-type').value = record.type;
         const editDateVal = (record.date || getLocalDateString()).trim();
@@ -3118,9 +3041,9 @@ async function openEditModal(recordId) {
         document.getElementById('edit-amount').value = parseFloat(record.amount).toFixed(2);
         document.getElementById('edit-category').value = record.category;
         document.getElementById('edit-note').value = record.note || '';
-        
+
         // 类型改变时更新分类选择
-        document.getElementById('edit-type').addEventListener('change', function() {
+        document.getElementById('edit-type').addEventListener('change', function () {
             updateEditCategorySelect();
             // 尝试保持当前分类，如果不存在则选择第一个
             const currentCategory = record.category;
@@ -3131,11 +3054,11 @@ async function openEditModal(recordId) {
                 select.value = currentCategory;
             }
         }, { once: true });
-        
+
         // 更新分类选择（根据类型）
         updateEditCategorySelect();
         document.getElementById('edit-category').value = record.category;
-        
+
         document.getElementById('edit-modal').classList.add('show');
     } catch (error) {
         console.error('加载记录失败:', error);
@@ -3156,12 +3079,12 @@ function closeModal() {
 // 更新记录
 async function handleUpdateRecord(e) {
     e.preventDefault();
-    
+
     // 关闭键盘
     closeNumberKeyboard();
-    
+
     const recordId = document.getElementById('edit-id').value;
-    
+
     // 获取金额值，处理可能的加减运算
     let amountValue = document.getElementById('edit-amount').value;
     amountValue = amountValue.replace(/[¥\s]/g, '');
@@ -3174,13 +3097,13 @@ async function handleUpdateRecord(e) {
             return;
         }
     }
-    
+
     const amount = parseFloat(amountValue);
     if (isNaN(amount) || amount <= 0) {
         customAlert('请输入有效的金额', '输入错误', 'warning');
         return;
     }
-    
+
     const formData = {
         date: document.getElementById('edit-date').value,
         type: document.getElementById('edit-type').value,
@@ -3188,16 +3111,16 @@ async function handleUpdateRecord(e) {
         category: document.getElementById('edit-category').value,
         note: document.getElementById('edit-note').value.trim()
     };
-    
+
     try {
         const response = await authFetch(`${API_BASE}/records/${recordId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(formData)
         });
-        
+
         const result = await response.json();
-        
+
         if (response.ok) {
             closeModal();
             loadStatistics();
@@ -3219,19 +3142,19 @@ async function handleDeleteRecord(event, recordId) {
         event.stopPropagation();
         event.preventDefault();
     }
-    
+
     const confirmed = await customConfirm('确定要删除这条记录吗？', '确认删除');
     if (!confirmed) {
         return;
     }
-    
+
     try {
         const response = await authFetch(`${API_BASE}/records/${recordId}`, {
             method: 'DELETE'
         });
-        
+
         const result = await response.json();
-        
+
         if (response.ok) {
             loadStatistics();
             loadRecords(currentPage);
@@ -3248,22 +3171,14 @@ async function handleDeleteRecord(event, recordId) {
 
 // 导出数据
 async function handleExport() {
-    // 使用记录列表的日期筛选
-    const startDateInput = document.getElementById('records-start-date');
-    const endDateInput = document.getElementById('records-end-date');
-    const startDate = startDateInput ? startDateInput.value : '';
-    const endDate = endDateInput ? endDateInput.value : '';
-    
-    let url = `${API_BASE}/export?`;
-    if (startDate) url += `start_date=${startDate}&`;
-    if (endDate) url += `end_date=${endDate}&`;
-    
+    const url = `${API_BASE}/export`;
+
     try {
         const response = await authFetch(url);
         if (!response.ok) {
             throw new Error('导出失败');
         }
-        
+
         // 获取文件名
         const contentDisposition = response.headers.get('Content-Disposition');
         let filename = 'expense_records.csv';
@@ -3273,7 +3188,7 @@ async function handleExport() {
                 filename = filenameMatch[1];
             }
         }
-        
+
         // 下载文件
         const blob = await response.blob();
         const downloadUrl = window.URL.createObjectURL(blob);
@@ -3284,7 +3199,7 @@ async function handleExport() {
         a.click();
         document.body.removeChild(a);
         window.URL.revokeObjectURL(downloadUrl);
-        
+
         customAlert('导出成功', '提示', 'success');
     } catch (error) {
         console.error('导出失败:', error);
@@ -3297,32 +3212,32 @@ let isImporting = false; // 防止重复提交
 async function handleImport(e) {
     const file = e.target.files[0];
     if (!file) return;
-    
+
     // 防止重复提交
     if (isImporting) {
         customAlert('正在导入中，请稍候...', '提示', 'info');
         e.target.value = '';
         return;
     }
-    
+
     const confirmed = await customConfirm('导入数据将添加到现有记录中，确定继续吗？', '确认导入');
     if (!confirmed) {
         e.target.value = '';
         return;
     }
-    
+
     isImporting = true;
     const formData = new FormData();
     formData.append('file', file);
-    
+
     try {
         const response = await authFetch(`${API_BASE}/import`, {
             method: 'POST',
             body: formData
         });
-        
+
         const result = await response.json();
-        
+
         if (response.ok) {
             const message = `导入成功！共导入 ${result.imported} 条记录${result.errors.length > 0 ? `，${result.errors.length} 条失败` : ''}`;
             customAlert(message, '导入成功', result.errors.length > 0 ? 'warning' : 'success');
@@ -3377,14 +3292,14 @@ function showDialog(options) {
         // 创建对话框元素
         const dialog = document.createElement('div');
         dialog.className = `custom-dialog ${type}`;
-        
+
         const icons = {
             info: 'ℹ️',
             success: '✓',
             warning: '⚠️',
             error: '✕'
         };
-        
+
         dialog.innerHTML = `
             <div class="custom-dialog-content">
                 <div class="custom-dialog-icon">${icons[type] || icons.info}</div>
@@ -3396,16 +3311,16 @@ function showDialog(options) {
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(dialog);
-        
+
         // 显示动画
         setTimeout(() => dialog.classList.add('show'), 10);
-        
+
         // 绑定事件
         const confirmBtn = dialog.querySelector('.custom-dialog-btn-primary, .custom-dialog-btn-danger');
         const cancelBtn = dialog.querySelector('.custom-dialog-btn-secondary');
-        
+
         const closeDialog = (result) => {
             dialog.classList.remove('show');
             setTimeout(() => {
@@ -3413,13 +3328,13 @@ function showDialog(options) {
                 resolve(result);
             }, 300);
         };
-        
+
         confirmBtn.addEventListener('click', () => closeDialog(true));
-        
+
         if (cancelBtn) {
             cancelBtn.addEventListener('click', () => closeDialog(false));
         }
-        
+
         // 点击背景关闭（仅当有取消按钮时）
         if (showCancel) {
             dialog.addEventListener('click', (e) => {
@@ -3432,10 +3347,10 @@ function showDialog(options) {
 }
 
 // 替换 alert 和 confirm
-const customAlert = (message, title = '提示', type = 'info') => 
+const customAlert = (message, title = '提示', type = 'info') =>
     showDialog({ title, message, type, showCancel: false });
 
-const customConfirm = (message, title = '确认') => 
+const customConfirm = (message, title = '确认') =>
     showDialog({ title, message, type: 'warning', confirmText: '确定', cancelText: '取消', showCancel: true });
 
 // 分类管理功能
@@ -3454,7 +3369,7 @@ async function loadCategoryList(type) {
         const response = await authFetch(`${API_BASE}/categories`);
         const data = await response.json();
         const categoryList = data[type] || [];
-        
+
         // 按 sort_order 降序排序（置顶的显示在前面）
         const sortedList = [...categoryList].sort((a, b) => {
             const orderA = a.sort_order || 0;
@@ -3464,7 +3379,7 @@ async function loadCategoryList(type) {
             }
             return (a.id || 0) - (b.id || 0); // 如果 sort_order 相同，按 id 升序
         });
-        
+
         container.innerHTML = sortedList.map(cat => `
             <div class="category-item" data-id="${cat.id}">
                 <div class="category-item-icon" style="background: ${cat.color}20; color: ${cat.color}">
@@ -3488,28 +3403,28 @@ async function loadCategoryList(type) {
 
 async function handleAddCategory(e) {
     e.preventDefault();
-    
+
     const formData = {
         type: document.getElementById('new-category-type').value,
         name: document.getElementById('new-category-name').value.trim(),
         icon: document.getElementById('new-category-icon').value.trim() || '📦',
         color: document.getElementById('new-category-color').value
     };
-    
+
     if (!formData.name) {
         customAlert('请输入分类名称', '提示', 'warning');
         return;
     }
-    
+
     try {
         const response = await authFetch(`${API_BASE}/categories`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(formData)
         });
-        
+
         const result = await response.json();
-        
+
         if (response.ok) {
             // 重置表单
             document.getElementById('add-category-form').reset();
@@ -3517,7 +3432,7 @@ async function handleAddCategory(e) {
             document.getElementById('new-category-icon').value = '📦';
             document.getElementById('selected-icon-preview').textContent = '📦';
             document.getElementById('new-category-color').value = '#C7CEEA';
-            
+
             // 重新加载分类列表和分类选择器
             const currentTab = document.querySelector('.tab-btn.active').dataset.tab;
             loadCategoryList(currentTab);
@@ -3539,12 +3454,12 @@ async function editCategory(categoryId, type) {
         const data = await response.json();
         const categoryList = data[type] || [];
         const category = categoryList.find(cat => cat.id === categoryId);
-        
+
         if (!category) {
             customAlert('分类不存在', '错误', 'error');
             return;
         }
-        
+
         // 填充编辑表单
         document.getElementById('edit-category-id').value = category.id;
         document.getElementById('edit-category-type').value = type;
@@ -3552,7 +3467,7 @@ async function editCategory(categoryId, type) {
         document.getElementById('edit-category-icon').value = category.icon;
         document.getElementById('edit-selected-icon-preview').textContent = category.icon;
         document.getElementById('edit-category-color').value = category.color;
-        
+
         // 打开编辑模态框
         document.getElementById('edit-category-modal').classList.add('show');
     } catch (error) {
@@ -3563,32 +3478,32 @@ async function editCategory(categoryId, type) {
 
 async function handleEditCategory(e) {
     e.preventDefault();
-    
+
     const categoryId = document.getElementById('edit-category-id').value;
     const formData = {
         name: document.getElementById('edit-category-name').value.trim(),
         icon: document.getElementById('edit-category-icon').value.trim() || '📦',
         color: document.getElementById('edit-category-color').value
     };
-    
+
     if (!formData.name) {
         customAlert('请输入分类名称', '提示', 'warning');
         return;
     }
-    
+
     try {
         const response = await authFetch(`${API_BASE}/categories/${categoryId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(formData)
         });
-        
+
         const result = await response.json();
-        
+
         if (response.ok) {
             // 关闭编辑模态框
             document.getElementById('edit-category-modal').classList.remove('show');
-            
+
             // 重新加载分类列表和分类选择器
             const type = document.getElementById('edit-category-type').value;
             loadCategoryList(type);
@@ -3608,14 +3523,14 @@ async function deleteCategory(categoryId) {
     if (!confirmed) {
         return;
     }
-    
+
     try {
         const response = await authFetch(`${API_BASE}/categories/${categoryId}`, {
             method: 'DELETE'
         });
-        
+
         const result = await response.json();
-        
+
         if (response.ok) {
             const currentTab = document.querySelector('.tab-btn.active').dataset.tab;
             loadCategoryList(currentTab);
@@ -3637,24 +3552,24 @@ async function pinCategoryToTop(categoryId, type) {
         const response = await authFetch(`${API_BASE}/categories`);
         const data = await response.json();
         const categoryList = data[type] || [];
-        
+
         // 找到当前最大的 sort_order
-        const maxSortOrder = categoryList.length > 0 
+        const maxSortOrder = categoryList.length > 0
             ? Math.max(...categoryList.map(cat => cat.sort_order || 0))
             : 0;
-        
+
         // 将目标分类的 sort_order 设置为最大值 + 1
         const newSortOrder = maxSortOrder + 1;
-        
+
         // 更新分类的 sort_order
         const updateResponse = await authFetch(`${API_BASE}/categories/${categoryId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sort_order: newSortOrder })
         });
-        
+
         const result = await updateResponse.json();
-        
+
         if (updateResponse.ok) {
             // 重新加载分类列表和分类选择器
             const currentTab = document.querySelector('.tab-btn.active')?.dataset.tab || type;
@@ -3675,49 +3590,49 @@ async function pinCategoryToTop(categoryId, type) {
 const ICON_LIBRARY = {
     // 餐饮美食
     food: ['🍔', '🍕', '🍜', '🍱', '🍝', '🍲', '🥘', '🍳', '🥗', '🍞', '🥐', '🥖', '🥨', '🥯', '🥞', '🧇', '🍗', '🍖', '🥩', '🥓', '🍟', '🍿', '🌮', '🌯', '🥙', '🥪', '🌭', '🍰', '🎂', '🧁', '🍮', '🍭', '🍬', '🍫', '🍪', '🍩', '🥤', '☕', '🍵', '🧃', '🥛', '🍼', '🍺', '🍻', '🍷', '🍸', '🍹', '🥢', '🍴', '🥄'],
-    
+
     // 交通出行
     transport: ['🚗', '🚕', '🚙', '🚌', '🚎', '🚓', '🚐', '🚚', '🚛', '🛴', '🚲', '🛵', '🏍️', '🛺', '✈️', '🛫', '🛬', '💺', '🚁', '🚂', '🚃', '🚄', '🚅', '🚆', '🚇', '🚈', '🚉', '🚊', '🚝', '🚞', '🚋', '⛴️', '🚤', '🛥️', '🛳️', '🚢', '⛽', '🅿️'],
-    
+
     // 购物消费
     shopping: ['🛍️', '🛒', '🛏️', '🛋️', '🪑', '🚪', '🪟', '🪞', '🖼️', '🛠️', '⚙️', '🔧', '🔨', '🔩', '🧰', '🧹', '🪠', '🧺', '🧻', '🚽', '🚿', '🛁', '🛀', '🧼', '🪥', '🪒', '🧽', '🪣', '🧴', '🔑', '🗝️', '🛌', '🛎️', '💳', '🧾'],
-    
+
     // 娱乐休闲
     entertainment: ['🎬', '🎭', '🎨', '🎪', '🎤', '🎧', '🎼', '🎹', '🥁', '🎷', '🎺', '🎸', '🪗', '🎻', '🎲', '🎯', '🎳', '🎮', '🎰', '🃏', '🀄', '🎴', '🧩', '♟️', '🎡', '🎢', '🎠', '🎟️', '🎫'],
-    
+
     // 医疗健康
     medical: ['🏥', '⚕️', '🩺', '💊', '💉', '🩸', '🩹', '🧬', '🧪', '🌡️', '🦷', '👁️', '👂', '👃', '🫀', '🫁', '🧠', '💪', '🦵', '🦶'],
-    
+
     // 教育学习
     education: ['📚', '📖', '📕', '📗', '📘', '📙', '📓', '📔', '📒', '📃', '📜', '📄', '📰', '🗞️', '📑', '🔖', '🏷️', '✏️', '✒️', '🖊️', '🖋️', '🖌️', '🖍️', '📝', '💼', '📁', '📂', '🗂️', '📅', '📆', '🗒️', '🗓️', '📇', '📈', '📉', '📊', '📋', '📌', '📍', '📎', '🖇️', '📏', '📐', '✂️', '🗃️', '🗄️', '🗑️', '🎓'],
-    
+
     // 住房物业
     housing: ['🏠', '🏡', '🏘️', '🏚️', '🏗️', '🏭', '🏢', '🏬', '🏣', '🏤', '🏦', '🏨', '🏪', '🏫', '🏩', '💒', '🏛️', '⛪', '🕌', '🕍', '🛕'],
-    
+
     // 水电通讯
     utilities: ['💡', '🔦', '🕯️', '🪔', '🧯', '⚡', '🔥', '💧', '🌊', '💨', '❄️', '☀️', '🌤️', '⛅', '🌥️', '☁️', '🌦️', '🌧️', '⛈️', '🌩️', '☔', '📱', '☎️', '📞', '📟', '📠', '💻', '🖥️', '🖨️', '⌨️', '🖱️', '🖲️', '🕹️', '🗜️', '💾', '💿', '📀', '📼', '📷', '📸', '📹', '🎥', '📺', '📻', '🔊', '🔉', '🔈', '🔇', '📢', '📣', '📯', '🔔', '🔕', '📡', '🌐'],
-    
+
     // 生活服务
     life: ['💇', '💇‍♀️', '💇‍♂️', '💆', '💆‍♀️', '💆‍♂️', '🧖', '🧖‍♀️', '🧖‍♂️', '👕', '👔', '👖', '🧥', '🧦', '👗', '👘', '👙', '👚', '👛', '👜', '👝', '🎒', '👞', '👟', '🥾', '🥿', '👠', '👡', '🩴', '👢', '👑', '👒', '🎩', '🎓', '🧢', '⛑️', '🪖', '💄', '💍', '💎'],
-    
+
     // 宠物动物
     pets: ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐽', '🐸', '🐵', '🐔', '🐧', '🐦', '🐤', '🦆', '🦅', '🦉', '🦇', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛', '🦋', '🐌', '🐞', '🐜', '🦟', '🦗', '🕷️', '🦂', '🐢', '🐍', '🦎', '🐙', '🦑', '🦐', '🦞', '🦀', '🐡', '🐠', '🐟', '🐬', '🐳', '🐋', '🦈', '🐊', '🐅', '🐆', '🦓', '🦍', '🦧', '🐘', '🦛', '🦏', '🐪', '🐫', '🦒', '🦘', '🦬', '🐃', '🐂', '🐄', '🐎', '🐖', '🐏', '🐑', '🦙', '🐐', '🦌', '🐕', '🐩', '🦮', '🐕‍🦺', '🐈', '🐈‍⬛', '🪶', '🐓', '🦃', '🦤', '🦚', '🦜', '🦢', '🦩', '🕊️', '🐇', '🦝', '🦨', '🦡', '🦫', '🦦', '🦥', '🐁', '🐀', '🐿️', '🦔'],
-    
+
     // 运动健身
     sports: ['⚽', '🏀', '🏈', '⚾', '🥎', '🎾', '🏐', '🏉', '🥏', '🎱', '🏓', '🏸', '🏒', '🏑', '🥍', '🏏', '🥅', '⛳', '🏹', '🎣', '🥊', '🥋', '🎽', '🛹', '🛷', '⛸️', '🥌', '🎿', '⛷️', '🏂', '🪂', '🏋️', '🤼', '🤸', '🤺', '⛹️', '🤾', '🏌️', '🏇', '🧘', '🏄', '🏊', '🤽', '🚣', '🧗', '🚵', '🚴', '🏆', '🥇', '🥈', '🥉', '🏅', '🎖️', '🏵️', '🎗️'],
-    
+
     // 旅行度假
     travel: ['🧳', '✈️', '🛫', '🛬', '🛩️', '💺', '🚁', '🌍', '🌎', '🌏', '🌐', '🗺️', '🧭', '🏔️', '⛰️', '🌋', '🗻', '🏕️', '🏖️', '🏜️', '🏝️', '🏞️', '🏟️', '🏛️', '🏗️', '🧱', '🏘️', '🏚️', '🏠', '🏡', '🏢', '🏣', '🏤', '🏥', '🏦', '🏨', '🏩', '🏪', '🏫', '🏬', '🏭', '🏯', '🏰', '💒', '🗼', '🗽', '⛪', '🕌', '🛕', '🕍', '⛩️', '🕋', '⛲', '⛺', '🌁', '🌃', '🏙️', '🌄', '🌅', '🌆', '🌇', '🌉', '🌊'],
-    
+
     // 礼物人情
     gifts: ['🎁', '🎉', '🎊', '🎈', '🎀', '💐', '🌸', '💮', '🏵️', '🌹', '🥀', '🌺', '🌻', '🌼', '🌷', '🌱', '🌲', '🌳', '🌴', '🌵', '🌶️', '🌾', '🌿', '☘️', '🍀', '🍁', '🍂', '🍃'],
-    
+
     // 快递物流
     delivery: ['📦', '📮', '📯', '📪', '📫', '📬', '📭', '📤', '📥', '✉️', '📧', '📨', '📩', '🚚', '🚛', '🚜', '🛻', '🚐'],
-    
+
     // 收入相关
     income: ['💰', '💴', '💵', '💶', '💷', '💸', '💳', '🧾', '💹', '📈', '📊', '📉', '💼', '🎁', '🎉', '🎊', '🏆', '🥇', '🥈', '🥉', '🏅', '🎖️', '🎗️', '🎫', '🎟️', '💎', '💍', '👑'],
-    
+
     // 其他常用
     other: ['📦', '📮', '📯', '📪', '📫', '📬', '📭', '📤', '📥', '🗳️', '✉️', '📧', '📨', '📩', '📰', '🗞️', '📑', '🔖', '🏷️', '🔒', '🔓', '🔐', '🔑', '🗝️', '🪧', '🪪', '📱', '☎️', '📞', '📟', '📠', '💻', '🖥️', '🖨️', '⌨️', '🖱️', '🖲️', '🕹️', '🗜️', '💾', '💿', '📀', '📼', '📷', '📸', '📹', '🎥', '📺', '📻', '🔊', '🔉', '🔈', '🔇', '📢', '📣', '📯', '🔔', '🔕', '📡', '🌐', '💬', '💭']
 };
@@ -3726,7 +3641,7 @@ const ICON_LIBRARY = {
 function initIconPicker() {
     const container = document.getElementById('icon-picker-container');
     if (!container) return;
-    
+
     // 按类别组织图标
     const categories = [
         { name: '餐饮美食', icons: ICON_LIBRARY.food },
@@ -3746,7 +3661,7 @@ function initIconPicker() {
         { name: '收入相关', icons: ICON_LIBRARY.income },
         { name: '其他常用', icons: ICON_LIBRARY.other }
     ];
-    
+
     container.innerHTML = categories.map(cat => `
         <div class="icon-category-section">
             <div class="icon-category-title">${cat.name}</div>
@@ -3759,10 +3674,10 @@ function initIconPicker() {
             </div>
         </div>
     `).join('');
-    
+
     // 绑定图标选择事件
     container.querySelectorAll('.icon-option').forEach(btn => {
-        btn.addEventListener('click', function() {
+        btn.addEventListener('click', function () {
             const icon = this.dataset.icon;
             selectIcon(icon);
         });
@@ -3798,32 +3713,32 @@ function selectIcon(icon) {
 function openRecordEditKeyboard(record) {
     // 保存当前编辑的记录信息
     currentEditingRecord = record;
-    
+
     const keyboard = document.getElementById('number-keyboard');
     if (!keyboard) return;
-    
+
     // 使用特殊的inputId标识这是记录编辑模式
     keyboard.dataset.targetInput = `record-edit-${record.id}`;
-    
+
     // 设置金额值
     numberKeyboardValue = parseFloat(record.amount || 0).toFixed(2);
     numberKeyboardExpression = '';
-    
+
     // 设置日期
     selectedRecordDate = record.date || getLocalDateString();
-    
+
     // 设置备注
     const keyboardNoteInput = document.getElementById('keyboard-note-input');
     if (keyboardNoteInput) {
         keyboardNoteInput.value = record.note || '';
     }
-    
+
     // 显示日期选择区域，并切换为编辑模式（显示"选择日期"按钮）
     const dateSection = document.querySelector('.keyboard-date-section');
     const quickButtons = document.getElementById('keyboard-date-quick-buttons');
     const selectWrapper = document.getElementById('keyboard-date-select-wrapper');
     const selectText = document.getElementById('keyboard-date-select-text');
-    
+
     if (dateSection) {
         dateSection.style.display = 'block';
         // 隐藏快捷日期按钮，显示"选择日期"按钮
@@ -3836,10 +3751,10 @@ function openRecordEditKeyboard(record) {
             }
         }
     }
-    
+
     // 更新显示
     updateNumberKeyboardDisplay();
-    
+
     // 显示键盘和背景遮罩
     keyboard.classList.add('show');
     const backdrop = document.getElementById('number-keyboard-backdrop');
@@ -3854,10 +3769,10 @@ function openNumberKeyboard(inputId = 'record-amount') {
     const keyboard = document.getElementById('number-keyboard');
     const amountInput = document.getElementById(inputId);
     if (!amountInput) return;
-    
+
     // 保存当前输入框ID，用于关闭时更新
     keyboard.dataset.targetInput = inputId;
-    
+
     // 获取当前值
     let currentValue = amountInput.value || '0.00';
     // 移除可能的¥符号和空格
@@ -3870,7 +3785,7 @@ function openNumberKeyboard(inputId = 'record-amount') {
         const num = parseFloat(currentValue);
         currentValue = num.toFixed(2);
     }
-    
+
     // 如果是首页的记账按钮打开的，重置键盘状态
     const dateSection = document.querySelector('.keyboard-date-section');
     if (inputId === 'record-amount') {
@@ -3914,10 +3829,10 @@ function openNumberKeyboard(inputId = 'record-amount') {
             keyboardNoteInput.value = editNoteInput.value || '';
         }
     }
-    
+
     // 更新显示
     updateNumberKeyboardDisplay();
-    
+
     // 显示键盘和背景遮罩
     keyboard.classList.add('show');
     const backdrop = document.getElementById('number-keyboard-backdrop');
@@ -3931,14 +3846,14 @@ function openNumberKeyboard(inputId = 'record-amount') {
 function closeNumberKeyboard() {
     const keyboard = document.getElementById('number-keyboard');
     const inputId = keyboard.dataset.targetInput || 'record-amount';
-    
+
     // 如果是记录编辑模式，清除编辑状态
     if (inputId && inputId.startsWith('record-edit-')) {
         currentEditingRecord = null;
     }
-    
+
     const amountInput = document.getElementById(inputId);
-    
+
     // 如果inputId不是标准的input元素（如record-edit-xxx），直接关闭键盘
     if (!amountInput && inputId.startsWith('record-edit-')) {
         keyboard.classList.remove('show');
@@ -3949,10 +3864,10 @@ function closeNumberKeyboard() {
         document.body.classList.remove('keyboard-open');
         return;
     }
-    
+
     // 如果inputId不是标准的input元素且不是记录编辑模式，直接返回
     if (!amountInput) return;
-    
+
     // 如果有未完成的表达式，先计算结果
     if (numberKeyboardExpression) {
         try {
@@ -3965,7 +3880,7 @@ function closeNumberKeyboard() {
             // 忽略错误，使用当前值
         }
     }
-    
+
     // 确保格式正确
     let finalValue = numberKeyboardValue;
     if (finalValue && finalValue !== '0.00') {
@@ -3976,10 +3891,10 @@ function closeNumberKeyboard() {
     } else {
         finalValue = '';
     }
-    
+
     // 更新输入框值
     amountInput.value = finalValue;
-    
+
     // 同步备注输入框的值（支持首页和编辑模态框）
     const keyboardNoteInput = document.getElementById('keyboard-note-input');
     const noteInput = document.getElementById('record-note');
@@ -3992,7 +3907,7 @@ function closeNumberKeyboard() {
             noteInput.value = keyboardNoteInput.value || '';
         }
     }
-    
+
     // 隐藏键盘和背景遮罩
     keyboard.classList.remove('show');
     const backdrop = document.getElementById('number-keyboard-backdrop');
@@ -4007,14 +3922,14 @@ async function submitRecordFromKeyboard() {
     // 先同步数据到隐藏输入框
     const keyboard = document.getElementById('number-keyboard');
     const inputId = keyboard.dataset.targetInput || 'record-amount';
-    
+
     // 获取amountInput（记录编辑模式可能不存在）
     let amountInput = null;
     if (!inputId || !inputId.startsWith('record-edit-')) {
         amountInput = document.getElementById(inputId);
         if (!amountInput) return;
     }
-    
+
     // 如果有未完成的表达式，先计算结果（仅 + -）
     if (numberKeyboardExpression) {
         try {
@@ -4026,7 +3941,7 @@ async function submitRecordFromKeyboard() {
             // 忽略错误，使用当前值
         }
     }
-    
+
     // 确保格式正确
     let finalValue = numberKeyboardValue;
     if (finalValue && finalValue !== '0.00') {
@@ -4037,26 +3952,26 @@ async function submitRecordFromKeyboard() {
     } else {
         finalValue = '';
     }
-    
+
     // 更新金额输入框值（如果存在）
     if (amountInput) {
         amountInput.value = finalValue;
     }
-    
+
     // 同步备注输入框的值
     const keyboardNoteInput = document.getElementById('keyboard-note-input');
     const noteInput = document.getElementById('record-note');
     if (keyboardNoteInput && noteInput) {
         noteInput.value = keyboardNoteInput.value || '';
     }
-    
+
     // 验证金额
     const amount = parseFloat(finalValue);
     if (isNaN(amount) || amount <= 0) {
         customAlert('请输入有效的金额', '输入错误', 'warning');
         return;
     }
-    
+
     // 如果是编辑模态框，只关闭键盘，不提交
     if (inputId === 'edit-amount') {
         // 关闭键盘
@@ -4064,7 +3979,7 @@ async function submitRecordFromKeyboard() {
         document.body.classList.remove('keyboard-open');
         return;
     }
-    
+
     // 如果是记录列表中的编辑模式
     if (inputId && inputId.startsWith('record-edit-')) {
         if (!currentEditingRecord) {
@@ -4072,21 +3987,21 @@ async function submitRecordFromKeyboard() {
             closeNumberKeyboard();
             return;
         }
-        
+
         // 获取备注
         const keyboardNoteInput = document.getElementById('keyboard-note-input');
         const note = keyboardNoteInput ? keyboardNoteInput.value.trim() : '';
-        
+
         // 获取日期（使用选择的日期或原日期）
         const date = selectedRecordDate || currentEditingRecord.date || getLocalDateString();
-        
+
         // 验证金额
         const amount = parseFloat(finalValue);
         if (isNaN(amount) || amount <= 0) {
             customAlert('请输入有效的金额', '输入错误', 'warning');
             return;
         }
-        
+
         // 关闭键盘和背景遮罩
         keyboard.classList.remove('show');
         const backdrop = document.getElementById('number-keyboard-backdrop');
@@ -4094,7 +4009,7 @@ async function submitRecordFromKeyboard() {
             backdrop.classList.remove('show');
         }
         document.body.classList.remove('keyboard-open');
-        
+
         // 更新记录
         try {
             const response = await authFetch(`${API_BASE}/records/${currentEditingRecord.id}`, {
@@ -4108,9 +4023,9 @@ async function submitRecordFromKeyboard() {
                     note: note
                 })
             });
-            
+
             const result = await response.json();
-            
+
             if (response.ok) {
                 showMessage('更新成功！', 'success');
                 // 刷新数据
@@ -4126,17 +4041,17 @@ async function submitRecordFromKeyboard() {
             console.error('更新记录失败:', error);
             customAlert('更新失败，请重试', '错误', 'error');
         }
-        
+
         return;
     }
-    
+
     // 验证分类（仅首页记账需要）
     const categoryValue = document.getElementById('category-selected-value').value;
     if (!categoryValue) {
         customAlert('请选择分类', '提示', 'warning');
         return;
     }
-    
+
     // 关闭键盘和背景遮罩
     keyboard.classList.remove('show');
     const backdrop = document.getElementById('number-keyboard-backdrop');
@@ -4144,7 +4059,7 @@ async function submitRecordFromKeyboard() {
         backdrop.classList.remove('show');
     }
     document.body.classList.remove('keyboard-open');
-    
+
     // 提交表单
     await handleAddRecord(null);
     // 关闭记账流程浮层
@@ -4180,15 +4095,15 @@ function initKeyboardEvents() {
     if (numberKeyboard) {
         // 键盘按钮事件
         numberKeyboard.querySelectorAll('.keyboard-key').forEach(key => {
-            key.addEventListener('click', function() {
+            key.addEventListener('click', function () {
                 const keyValue = this.dataset.key;
                 handleNumberKeyPress(keyValue);
             });
         });
-        
+
         // 日期选择按钮事件（只支持前天、昨天、今天、明天）
         numberKeyboard.querySelectorAll('.keyboard-date-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
+            btn.addEventListener('click', function () {
                 const offset = this.dataset.dateOffset;
                 if (offset !== undefined) {
                     const offsetNum = parseInt(offset, 10);
@@ -4196,15 +4111,15 @@ function initKeyboardEvents() {
                 }
             });
         });
-        
+
         // 编辑模式下的日期选择按钮事件
         const dateSelectBtn = document.getElementById('keyboard-date-select-btn');
         if (dateSelectBtn) {
-            dateSelectBtn.addEventListener('click', function(e) {
+            dateSelectBtn.addEventListener('click', function (e) {
                 e.stopPropagation(); // 阻止事件冒泡，避免触发数字键盘的关闭事件
                 const keyboard = document.getElementById('number-keyboard');
                 const inputId = keyboard.dataset.targetInput || '';
-                
+
                 // 只有在编辑记录模式下才打开日期选择器
                 if (inputId && inputId.startsWith('record-edit-')) {
                     const currentDate = selectedRecordDate || getLocalDateString();
@@ -4233,11 +4148,11 @@ function initKeyboardEvents() {
             });
         }
     }
-    
+
     // 点击背景遮罩关闭键盘
     const backdrop = document.getElementById('number-keyboard-backdrop');
     if (backdrop) {
-        backdrop.addEventListener('click', function(e) {
+        backdrop.addEventListener('click', function (e) {
             // 如果日期选择器正在显示，不关闭数字键盘
             const datePickerModal = document.getElementById('date-picker-modal');
             if (datePickerModal && datePickerModal.classList.contains('show')) {
@@ -4249,22 +4164,22 @@ function initKeyboardEvents() {
             closeNumberKeyboard();
         });
     }
-    
+
     // 点击键盘外部关闭
-    document.addEventListener('click', function(e) {
+    document.addEventListener('click', function (e) {
         const numberKeyboard = document.getElementById('number-keyboard');
         const keyboardNoteInput = document.getElementById('keyboard-note-input');
         const datePickerModal = document.getElementById('date-picker-modal');
-        
+
         // 如果日期选择器正在显示，不关闭数字键盘
         if (datePickerModal && datePickerModal.classList.contains('show')) {
             return;
         }
-        
+
         if (numberKeyboard && numberKeyboard.classList.contains('show')) {
             const inputId = numberKeyboard.dataset.targetInput || 'record-amount';
             const targetInput = document.getElementById(inputId);
-            if (!numberKeyboard.contains(e.target) && 
+            if (!numberKeyboard.contains(e.target) &&
                 (!targetInput || !targetInput.contains(e.target)) &&
                 (!keyboardNoteInput || !keyboardNoteInput.contains(e.target))) {
                 closeNumberKeyboard();
@@ -4322,7 +4237,7 @@ function handleNumberKeyPress(key) {
         if (numberKeyboardExpression && numberKeyboardValue === '0.00') {
             numberKeyboardValue = '';
         }
-        
+
         if (numberKeyboardValue === '0.00' || numberKeyboardValue === '0' || numberKeyboardValue === '') {
             if (key === '.') {
                 numberKeyboardValue = '0.';
@@ -4354,18 +4269,18 @@ function updateKeyboardDateSelection(offset) {
     document.querySelectorAll('.keyboard-date-btn').forEach(btn => {
         btn.classList.remove('active');
     });
-    
+
     // 计算选择的日期
     const today = new Date();
     today.setDate(today.getDate() + offset);
     selectedRecordDate = getLocalDateString(today);
-    
+
     // 激活对应的按钮
     const targetBtn = document.querySelector(`.keyboard-date-btn[data-date-offset="${offset}"]`);
     if (targetBtn) {
         targetBtn.classList.add('active');
     }
-    
+
 }
 
 // ========== 日期选择功能（记录列表改日期 / 编辑模态框共用同一弹窗）==========
@@ -4394,26 +4309,26 @@ function renderCalendar(year, month, selectedDate) {
     const daysContainer = document.getElementById('calendar-days');
     const monthYearEl = document.getElementById('calendar-month-year');
     if (!daysContainer || !monthYearEl) return;
-    
+
     // 更新月份年份显示
     monthYearEl.textContent = `${year}年${month}月`;
-    
+
     // 清空日期容器
     daysContainer.innerHTML = '';
-    
+
     // 获取当月第一天和最后一天
     const firstDay = new Date(year, month - 1, 1);
     const lastDay = new Date(year, month, 0);
     const firstDayOfWeek = firstDay.getDay(); // 0=周日, 6=周六
     const daysInMonth = lastDay.getDate();
-    
+
     // 获取上个月的最后几天（用于填充第一周）
     const prevMonthLastDay = new Date(year, month - 1, 0).getDate();
-    
+
     // 获取今天的日期
     const today = new Date();
     const todayStr = getLocalDateString(today);
-    
+
     // 渲染日期
     // 上个月的日期（灰色）
     for (let i = firstDayOfWeek - 1; i >= 0; i--) {
@@ -4428,28 +4343,28 @@ function renderCalendar(year, month, selectedDate) {
         dayEl.dataset.date = dateStr;
         daysContainer.appendChild(dayEl);
     }
-    
+
     // 当月的日期
     for (let day = 1; day <= daysInMonth; day++) {
         const dateStr = getLocalDateString(new Date(year, month - 1, day));
         const dayEl = document.createElement('div');
         dayEl.className = 'calendar-day';
-        
+
         // 判断是否是今天
         if (dateStr === todayStr) {
             dayEl.classList.add('calendar-day-today');
         }
-        
+
         // 判断是否被选中
         if (selectedDate && dateStr === selectedDate) {
             dayEl.classList.add('calendar-day-selected');
         }
-        
+
         dayEl.textContent = day;
         dayEl.dataset.date = dateStr;
         daysContainer.appendChild(dayEl);
     }
-    
+
     // 下个月的日期（填充到6行）
     const totalCells = daysContainer.children.length;
     const remainingCells = 42 - totalCells; // 6行 x 7列 = 42
@@ -4464,17 +4379,17 @@ function renderCalendar(year, month, selectedDate) {
         dayEl.dataset.date = dateStr;
         daysContainer.appendChild(dayEl);
     }
-    
+
     // 绑定日期点击事件
     daysContainer.querySelectorAll('.calendar-day').forEach(dayEl => {
-        dayEl.addEventListener('click', function(e) {
+        dayEl.addEventListener('click', function (e) {
             e.stopPropagation(); // 阻止事件冒泡，避免触发数字键盘的关闭事件
             const date = this.dataset.date;
             if (!date) return;
-            
+
             calendarSelectedDate = date;
             const dateObj = new Date(date + 'T00:00:00');
-            
+
             // 如果点击的是其他月份的日期，切换到那个月份
             if (dateObj.getMonth() + 1 !== month || dateObj.getFullYear() !== year) {
                 calendarCurrentDate = dateObj;
@@ -4484,7 +4399,7 @@ function renderCalendar(year, month, selectedDate) {
                 daysContainer.querySelectorAll('.calendar-day-selected').forEach(el => {
                     el.classList.remove('calendar-day-selected');
                 });
-                
+
                 // 添加选中状态
                 this.classList.add('calendar-day-selected');
             }
@@ -4496,7 +4411,7 @@ function renderCalendar(year, month, selectedDate) {
 function ensureDatePickerModal() {
     const modal = document.getElementById('date-picker-modal');
     if (!modal) return null;
-    
+
     // 只绑定一次事件
     if (!modal.dataset.initialized) {
         const confirmBtn = document.getElementById('date-picker-confirm');
@@ -4504,7 +4419,7 @@ function ensureDatePickerModal() {
         const closeBtn = document.getElementById('date-picker-close');
         const prevMonthBtn = document.getElementById('calendar-prev-month');
         const nextMonthBtn = document.getElementById('calendar-next-month');
-        
+
         // 确认按钮
         if (confirmBtn) {
             confirmBtn.addEventListener('click', (e) => {
@@ -4532,7 +4447,7 @@ function ensureDatePickerModal() {
                 }, 10);
             });
         }
-        
+
         // 取消和关闭按钮
         [cancelBtn, closeBtn].forEach(btn => {
             if (btn) btn.addEventListener('click', (e) => {
@@ -4556,7 +4471,7 @@ function ensureDatePickerModal() {
                 }, 10);
             });
         });
-        
+
         // 月份导航
         if (prevMonthBtn) {
             prevMonthBtn.addEventListener('click', (e) => {
@@ -4568,7 +4483,7 @@ function ensureDatePickerModal() {
                 renderCalendar(newDate.getFullYear(), newDate.getMonth() + 1, calendarSelectedDate);
             });
         }
-        
+
         if (nextMonthBtn) {
             nextMonthBtn.addEventListener('click', (e) => {
                 e.stopPropagation(); // 阻止事件冒泡
@@ -4579,16 +4494,16 @@ function ensureDatePickerModal() {
                 renderCalendar(newDate.getFullYear(), newDate.getMonth() + 1, calendarSelectedDate);
             });
         }
-        
+
         // 快捷操作按钮
         const quickBtns = document.querySelectorAll('.calendar-quick-btn');
         quickBtns.forEach(btn => {
-            btn.addEventListener('click', function(e) {
+            btn.addEventListener('click', function (e) {
                 e.stopPropagation(); // 阻止事件冒泡
                 const action = this.dataset.action;
                 let targetDate = null;
                 const today = new Date();
-                
+
                 if (action === 'today') {
                     targetDate = getLocalDateString(today);
                 } else if (action === 'yesterday') {
@@ -4600,7 +4515,7 @@ function ensureDatePickerModal() {
                     tomorrow.setDate(tomorrow.getDate() + 1);
                     targetDate = getLocalDateString(tomorrow);
                 }
-                
+
                 if (targetDate) {
                     calendarSelectedDate = targetDate;
                     const dateObj = new Date(targetDate + 'T00:00:00');
@@ -4609,7 +4524,7 @@ function ensureDatePickerModal() {
                 }
             });
         });
-        
+
         // 点击背景关闭
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
@@ -4618,7 +4533,7 @@ function ensureDatePickerModal() {
                 closeDatePickerModal();
             }
         });
-        
+
         // 阻止日期选择器内容区域的点击事件冒泡
         const modalContent = modal.querySelector('.date-picker-modal-content');
         if (modalContent) {
@@ -4626,10 +4541,10 @@ function ensureDatePickerModal() {
                 e.stopPropagation(); // 阻止事件冒泡
             });
         }
-        
+
         modal.dataset.initialized = 'true';
     }
-    
+
     return modal;
 }
 
@@ -4639,10 +4554,10 @@ function openSharedDatePicker(options) {
     const modal = ensureDatePickerModal();
     const titleEl = document.getElementById('date-picker-title');
     if (!modal) return;
-    
+
     pendingDatePickerOnConfirm = onConfirm || null;
     if (titleEl) titleEl.textContent = title;
-    
+
     // 解析初始日期
     let initialDate = null;
     if (initialValue && /^\d{4}-\d{2}-\d{2}$/.test(String(initialValue).trim())) {
@@ -4653,18 +4568,18 @@ function openSharedDatePicker(options) {
     } else {
         initialDate = getLocalDateString();
     }
-    
+
     // 设置当前显示的月份和选中的日期
     const dateObj = new Date(initialDate + 'T00:00:00');
     calendarCurrentDate = dateObj;
     calendarSelectedDate = initialDate;
-    
+
     // 渲染日历
     renderCalendar(dateObj.getFullYear(), dateObj.getMonth() + 1, initialDate);
-    
+
     // 显示模态框
     modal.classList.add('show');
-    
+
     // 确保数字键盘仍然显示（如果在编辑模式下）
     const keyboard = document.getElementById('number-keyboard');
     const inputId = keyboard ? keyboard.dataset.targetInput || '' : '';
@@ -4706,7 +4621,7 @@ function formatKeyboardDateDisplay(dateOrStr) {
         tomorrow.setDate(tomorrow.getDate() + 1);
         return d.toDateString() === tomorrow.toDateString();
     })();
-    
+
     // 如果是今天、昨天、明天，显示相对日期
     if (isToday) {
         return `今天 ${d.getMonth() + 1}月${d.getDate()}日`;
