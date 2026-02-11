@@ -2191,9 +2191,9 @@ function positionTooltipInstant(tooltipEl, x, y, isNew) {
     tooltipEl.style.visibility = 'hidden';
     tooltipEl.style.display = 'block';
     tooltipEl.style.opacity = '1';
-    tooltipEl.style.left = `${x + 15}px`;
-    tooltipEl.style.top = `${y + 15}px`;
-    tooltipEl.style.transition = 'none'; // 禁用过渡动画
+    
+    // 使用平滑过渡，但时间很短，让跟随更流畅
+    tooltipEl.style.transition = 'left 0.08s cubic-bezier(0.25, 0.46, 0.45, 0.94), top 0.08s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
 
     tooltipAnimationFrame = requestAnimationFrame(() => {
         const tooltipWidth = tooltipEl.offsetWidth || 240;
@@ -2201,27 +2201,28 @@ function positionTooltipInstant(tooltipEl, x, y, isNew) {
         const windowWidth = window.innerWidth;
         const windowHeight = window.innerHeight;
 
+        // 默认显示在触摸点上方（防止手挡住）
         let left = x + 15;
-        let top = y + 15;
+        let top = y - tooltipHeight - 20; // 默认在上方，留出20px间距
 
         // 防止超出右边界
         if (left + tooltipWidth > windowWidth - 10) {
             left = x - tooltipWidth - 15;
         }
+        // 如果上方空间不足，显示在下方
+        if (top < 10) {
+            top = y + 20; // 显示在下方，留出20px间距
+        }
         // 防止超出下边界
         if (top + tooltipHeight > windowHeight - 10) {
-            top = y - tooltipHeight - 15;
+            top = windowHeight - tooltipHeight - 10;
         }
         // 防止超出左边界
         if (left < 10) {
             left = 10;
         }
-        // 防止超出上边界
-        if (top < 10) {
-            top = 10;
-        }
 
-        // 立即设置新位置，无动画
+        // 设置新位置，使用平滑过渡
         tooltipEl.style.left = `${left}px`;
         tooltipEl.style.top = `${top}px`;
         tooltipEl.style.transform = 'none';
@@ -2236,6 +2237,8 @@ function positionTooltipSmooth(tooltipEl, x, y, isNew) {
     tooltipEl.style.visibility = 'hidden';
     tooltipEl.style.display = 'block';
     tooltipEl.style.opacity = '0';
+    
+    // 临时位置，用于计算
     tooltipEl.style.left = `${x + 15}px`;
     tooltipEl.style.top = `${y + 15}px`;
 
@@ -2250,24 +2253,25 @@ function positionTooltipSmooth(tooltipEl, x, y, isNew) {
         const windowWidth = window.innerWidth;
         const windowHeight = window.innerHeight;
 
+        // 默认显示在触摸点上方（防止手挡住）
         let left = x + 15;
-        let top = y + 15;
+        let top = y - tooltipHeight - 20; // 默认在上方，留出20px间距
 
         // 防止超出右边界
         if (left + tooltipWidth > windowWidth - 10) {
             left = x - tooltipWidth - 15;
         }
+        // 如果上方空间不足，显示在下方
+        if (top < 10) {
+            top = y + 20; // 显示在下方，留出20px间距
+        }
         // 防止超出下边界
         if (top + tooltipHeight > windowHeight - 10) {
-            top = y - tooltipHeight - 15;
+            top = windowHeight - tooltipHeight - 10;
         }
         // 防止超出左边界
         if (left < 10) {
             left = 10;
-        }
-        // 防止超出上边界
-        if (top < 10) {
-            top = 10;
         }
 
         // 获取当前位置（如果已存在）
@@ -2284,7 +2288,7 @@ function positionTooltipSmooth(tooltipEl, x, y, isNew) {
         tooltipEl.style.transform = 'none';
         tooltipEl.style.visibility = 'visible';
 
-        // 根据移动距离调整过渡时间
+        // 根据移动距离调整过渡时间，使用更流畅的缓动函数
         const maxDelta = Math.max(deltaX, deltaY);
         let transitionDuration = '0.15s';
         if (maxDelta > 50) {
@@ -2297,8 +2301,8 @@ function positionTooltipSmooth(tooltipEl, x, y, isNew) {
             transitionDuration = '0.12s';
         }
 
-        // 添加平滑过渡
-        tooltipEl.style.transition = `opacity ${transitionDuration} cubic-bezier(0.4, 0, 0.2, 1), transform ${transitionDuration} cubic-bezier(0.4, 0, 0.2, 1), left ${transitionDuration} cubic-bezier(0.4, 0, 0.2, 1), top ${transitionDuration} cubic-bezier(0.4, 0, 0.2, 1)`;
+        // 使用更流畅的缓动函数，让动画更丝滑
+        tooltipEl.style.transition = `opacity ${transitionDuration} cubic-bezier(0.25, 0.46, 0.45, 0.94), transform ${transitionDuration} cubic-bezier(0.25, 0.46, 0.45, 0.94), left ${transitionDuration} cubic-bezier(0.25, 0.46, 0.45, 0.94), top ${transitionDuration} cubic-bezier(0.25, 0.46, 0.45, 0.94)`;
 
         // 触发重排后显示
         requestAnimationFrame(() => {
@@ -2678,18 +2682,19 @@ function continueLineChartSetup(emphasisConfig) {
             if (idx >= 0 && idx !== lastTouchIndex) {
                 lastTouchIndex = idx;
 
-                // 立即更新，因为数据已经在缓存中，使用即时定位
+                // 数据变化时，使用平滑定位更新内容
                 const date = currentDailyStats[idx].date;
                 const categoryGroups = dailyRecordsCache[date] || [];
                 if (categoryGroups.length > 0) {
                     showDateDetailTooltip(date, categoryGroups, e);
                 }
             } else if (idx >= 0) {
-                // 即使索引没变化，也要更新位置，让tooltip跟随手指
+                // 即使索引没变化，也要更新位置，让tooltip流畅跟随手指
                 const tooltipEl = document.getElementById('date-detail-tooltip');
-                if (tooltipEl) {
+                if (tooltipEl && tooltipEl.style.display !== 'none') {
                     const x = touch.clientX;
                     const y = touch.clientY;
+                    // 使用即时定位，但保持平滑过渡效果
                     positionTooltipInstant(tooltipEl, x, y, false);
                 }
             }
