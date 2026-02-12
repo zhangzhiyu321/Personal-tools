@@ -250,82 +250,13 @@ const RECORDS_PER_PAGE = 12;
 let totalPagesRecords = 0;
 let isLoadingRecords = false;
 let recordsScrollObserver = null;
-let echartsLine = null;
-let echartsPie = null;
-let echartsBar = null;
 let currentTimeDimension = 'day'; // day, week, month
-let currentDailyStats = null; // 保存当前的每日统计数据，用于图表点击
-// 图表展示：缓存原始分类数据，用于切换「展示方式」时重绘
-let lastCategoryStatsForCharts = null;
-// 图表中最多单独显示的分类数，超出部分合并为「其他」；设为很大则显示全部
-let chartDisplayMaxVisible = 6;
-
-// 图表占位提示（暂无数据 / 加载失败）
-function setChartPlaceholder(domId, message, isError) {
-    const dom = document.getElementById(domId);
-    if (!dom) return;
-    dom.innerHTML = '<div class="chart-placeholder' + (isError ? ' chart-placeholder-error' : '') + '">' + (message || '暂无数据') + '</div>';
-}
-
-// 等待图表容器准备好（支持重试机制）
-function waitForChartContainer(domId, maxRetries = 10, retryDelay = 50) {
-    return new Promise((resolve, reject) => {
-        const dom = document.getElementById(domId);
-        if (!dom) {
-            reject(new Error(`图表容器 ${domId} 不存在`));
-            return;
-        }
-
-        let retries = 0;
-        const checkContainer = () => {
-            const rect = dom.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) {
-                resolve(dom);
-                return;
-            }
-
-            retries++;
-            if (retries >= maxRetries) {
-                reject(new Error(`图表容器 ${domId} 未准备好`));
-                return;
-            }
-
-            setTimeout(checkContainer, retryDelay);
-        };
-
-        // 使用 requestAnimationFrame 确保DOM已渲染
-        requestAnimationFrame(() => {
-            requestAnimationFrame(checkContainer);
-        });
-    });
-}
-
-/** 将分类统计聚合为「前 N 项 + 其他」，便于分类多时图表更清晰 */
-function aggregateCategoryStats(categoryStats, options) {
-    const maxVisible = options && options.maxVisible != null ? options.maxVisible : chartDisplayMaxVisible;
-    if (!categoryStats || categoryStats.length === 0) {
-        return { chartData: [], others: [], total: 0 };
-    }
-    const sorted = [...categoryStats].sort((a, b) => b.amount - a.amount);
-    const total = sorted.reduce((s, c) => s + c.amount, 0);
-    if (total <= 0) return { chartData: [], others: [], total: 0 };
-    if (sorted.length <= maxVisible) {
-        return { chartData: sorted, others: [], total };
-    }
-    const main = sorted.slice(0, maxVisible);
-    const rest = sorted.slice(maxVisible);
-    const otherAmount = rest.reduce((s, c) => s + c.amount, 0);
-    const otherItem = {
-        category: '__OTHER__',
-        name: '其他',
-        icon: '📋',
-        color: '#9E9E9E',
-        amount: otherAmount,
-        _isOther: true,
-        _others: rest
-    };
-    return { chartData: [...main, otherItem], others: rest, total };
-}
+// 图表相关
+let trendChart = null;
+let categoryChart = null;
+let analysisCache = null; // 缓存后端返回的全量统计数据
+let currentCategoryChartType = 'expense'; // 环形图当前显示的类型
+let recordsCategoryFilter = null; // 从图表点击跳转用的分类过滤
 
 // 日期选择器状态
 let datePickerState = {
@@ -334,11 +265,6 @@ let datePickerState = {
     month: { count: 1 } // 近N月，最多24个月
 };
 
-// ECharts 初始化选项：SVG 渲染 + 高 DPI，移动端清晰
-function getEChartsInitOpts() {
-    const dpr = typeof window !== 'undefined' ? Math.max(2, window.devicePixelRatio || 1) : 2;
-    return { renderer: 'svg', devicePixelRatio: dpr };
-}
 // ========== 统一初始化入口 ==========
 document.addEventListener('DOMContentLoaded', async () => {
     const isAuthenticated = await checkAuthStatus();
@@ -360,6 +286,7 @@ function init(authenticated) {
     bindEvents();
     initMainTabs();
     initTimeDimensionSelector();
+    initCategoryChartSwitch();
 
     if (authenticated) {
         loadCategories().then(() => loadTodayRecords());
@@ -396,12 +323,10 @@ async function switchMainTab(tabName) {
 
     // 根据标签页加载相应数据
     if (tabName === 'analysis') {
-        // 等待DOM渲染完成后再加载数据，确保图表容器已准备好
+        updateDatePickerDisplay();
+        // 等待 DOM 布局完成（tab 从 hidden 变为 visible），确保图表容器有尺寸
         requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                updateDatePickerDisplay(); // 更新日期选择器显示
-                loadAnalysisData();
-            });
+            requestAnimationFrame(() => { loadAnalysisData(); });
         });
     } else if (tabName === 'records') {
         loadRecords();
@@ -421,22 +346,6 @@ function initTimeDimensionSelector() {
             switchTimeDimension(dimension);
         });
     });
-    // 图表展示方式：前N项+其他 / 全部（value 即 N：6 表示前6项+其他，999 表示全部）
-    const displayModeSelect = document.getElementById('chart-display-mode');
-    if (displayModeSelect) {
-        const syncFromSelect = () => {
-            const val = parseInt(displayModeSelect.value, 10);
-            if (!isNaN(val)) chartDisplayMaxVisible = val;
-        };
-        syncFromSelect(); // 初始化时与下拉框默认值一致（前6项 = 6）
-        displayModeSelect.addEventListener('change', function () {
-            syncFromSelect();
-            if (lastCategoryStatsForCharts && lastCategoryStatsForCharts.length > 0) {
-                updatePieChart(lastCategoryStatsForCharts).catch(() => { });
-                updateBarChart(lastCategoryStatsForCharts).catch(() => { });
-            }
-        });
-    }
     // 初始化日期选择器
     initDatePicker();
 }
@@ -637,6 +546,14 @@ function switchTimeDimension(dimension) {
 }
 
 
+// ========== 数据分析模块 ==========
+
+// ECharts 初始化配置
+function getChartInitOpts() {
+    const dpr = Math.max(2, window.devicePixelRatio || 1);
+    return { renderer: 'svg', devicePixelRatio: dpr };
+}
+
 // 加载数据分析
 async function loadAnalysisData() {
     try {
@@ -648,47 +565,388 @@ async function loadAnalysisData() {
 
         const response = await authFetch(url);
         const data = await response.json();
+        analysisCache = data; // 缓存全量数据
 
-        // 更新分析统计卡片
+        // 更新主统计卡片
         const incomeEl = document.getElementById('analysis-total-income');
         const expenseEl = document.getElementById('analysis-total-expense');
         const balanceEl = document.getElementById('analysis-total-balance');
-
         if (incomeEl) incomeEl.textContent = formatMoney(data.total_income);
         if (expenseEl) expenseEl.textContent = formatMoney(data.total_expense);
         if (balanceEl) balanceEl.textContent = formatMoney(data.balance);
 
-        // 强制浏览器重新渲染统计卡片，防止模糊
-        if (incomeEl) incomeEl.offsetHeight; // 触发重排
-        if (expenseEl) expenseEl.offsetHeight;
-        if (balanceEl) balanceEl.offsetHeight;
+        // 更新洞察指标卡片
+        updateInsightCards(data.summary);
 
-        lastCategoryStatsForCharts = data.category_stats || null;
-        await Promise.all([
-            updateLineChart(data.daily_stats),
-            updatePieChart(data.category_stats),
-            updateBarChart(data.category_stats)
-        ]);
+        // 重置环形图标题
+        const titleEl = document.getElementById('category-chart-title');
+        if (titleEl) titleEl.textContent = currentCategoryChartType === 'income' ? '收入分类' : '支出分类';
 
-        // 图表更新完成后，在下一帧按正确尺寸重绘（解决移动端首次进入时容器未布局导致模糊）
+        // 渲染图表（等待 DOM 布局完成）
         requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                if (echartsLine) echartsLine.resize();
-                if (echartsPie) echartsPie.resize();
-                if (echartsBar) echartsBar.resize();
-            });
-            const chartContainers = document.querySelectorAll('.chart-container');
-            chartContainers.forEach(container => {
-                container.style.transform = 'translateZ(0)';
-            });
+            renderTrendChart(data.daily_stats);
+            renderCategoryChart(data.category_stats, currentCategoryChartType);
         });
+
     } catch (error) {
         console.error('加载分析数据失败:', error);
-        setChartPlaceholder('line-chart', '数据加载失败，请刷新重试', true);
-        setChartPlaceholder('pie-chart', '数据加载失败，请刷新重试', true);
-        setChartPlaceholder('bar-chart', '数据加载失败，请刷新重试', true);
     }
 }
+
+// 更新洞察指标卡片
+function updateInsightCards(summary) {
+    const avgEl = document.getElementById('insight-avg-expense');
+    const maxEl = document.getElementById('insight-max-day');
+    const topEl = document.getElementById('insight-top-cat');
+    if (!summary) {
+        if (avgEl) avgEl.textContent = '--';
+        if (maxEl) maxEl.textContent = '--';
+        if (topEl) topEl.textContent = '--';
+        return;
+    }
+    if (avgEl) avgEl.textContent = formatMoney(summary.avg_daily_expense);
+    if (maxEl) {
+        if (summary.max_expense_day) {
+            const d = new Date(summary.max_expense_day.date);
+            maxEl.textContent = `${d.getMonth() + 1}/${d.getDate()} ${formatMoney(summary.max_expense_day.amount)}`;
+        } else {
+            maxEl.textContent = '--';
+        }
+    }
+    if (topEl) {
+        if (summary.top_expense_category) {
+            topEl.textContent = `${summary.top_expense_category.icon} ${summary.top_expense_category.name}`;
+        } else {
+            topEl.textContent = '--';
+        }
+    }
+}
+
+// ========== 收支趋势复合图 ==========
+function renderTrendChart(dailyStats) {
+    const dom = document.getElementById('trend-chart');
+    if (!dom) return;
+    if (typeof echarts === 'undefined') { dom.innerHTML = '<div class="chart-empty">图表库加载失败</div>'; return; }
+    if (!dailyStats || dailyStats.length === 0) {
+        if (trendChart) { trendChart.dispose(); trendChart = null; }
+        dom.innerHTML = '<div class="chart-empty">暂无数据</div>';
+        return;
+    }
+
+    if (trendChart) trendChart.dispose();
+    dom.innerHTML = '';
+    trendChart = echarts.init(dom, null, getChartInitOpts());
+
+    const dates = dailyStats.map(d => {
+        const dt = new Date(d.date);
+        return `${dt.getMonth() + 1}/${dt.getDate()}`;
+    });
+    const incomeData = dailyStats.map(d => d.income || 0);
+    const expenseData = dailyStats.map(d => d.expense || 0);
+    const balanceData = dailyStats.map(d => d.balance || 0);
+
+    // 计算日均支出参考线
+    const totalExpense = expenseData.reduce((a, b) => a + b, 0);
+    const avgExpense = expenseData.length > 0 ? totalExpense / expenseData.length : 0;
+
+    const isMobile = window.innerWidth <= 768;
+
+    trendChart.setOption({
+        animation: true,
+        animationDuration: 500,
+        animationEasing: 'cubicOut',
+        legend: {
+            top: 0, left: 'center',
+            data: ['收入', '支出', '结余'],
+            textStyle: { fontSize: 11, color: '#666' },
+            itemWidth: 12, itemHeight: 8, itemGap: 16,
+        },
+        grid: { left: 8, right: 8, top: 40, bottom: isMobile ? 10 : 20, containLabel: true },
+        dataZoom: [{ type: 'inside', xAxisIndex: 0, minValueSpan: 3 }],
+        xAxis: {
+            type: 'category', data: dates, boundaryGap: true,
+            axisLabel: { fontSize: 10, color: '#999', interval: dates.length > 15 ? 'auto' : 0 },
+            axisLine: { lineStyle: { color: '#eee' } }, axisTick: { show: false },
+        },
+        yAxis: [
+            {
+                type: 'value', name: '', min: 0,
+                axisLabel: { fontSize: 10, color: '#999', formatter: v => v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v },
+                splitLine: { lineStyle: { color: 'rgba(0,0,0,0.04)' } },
+                axisLine: { show: false }, axisTick: { show: false },
+            },
+            {
+                type: 'value', name: '',
+                axisLabel: { show: false },
+                splitLine: { show: false },
+                axisLine: { show: false }, axisTick: { show: false },
+            }
+        ],
+        series: [
+            {
+                name: '收入', type: 'line', smooth: 0.4, symbol: 'circle', symbolSize: 6,
+                data: incomeData,
+                lineStyle: { width: 2.5, color: '#16a34a' },
+                itemStyle: { color: '#16a34a', borderColor: '#fff', borderWidth: 1.5 },
+                areaStyle: {
+                    color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                        colorStops: [{ offset: 0, color: 'rgba(22,163,74,0.18)' }, { offset: 1, color: 'rgba(22,163,74,0.02)' }] }
+                },
+                emphasis: { scale: !isMobile, scaleSize: isMobile ? 0 : 6 },
+            },
+            {
+                name: '支出', type: 'line', smooth: 0.4, symbol: 'circle', symbolSize: 6,
+                data: expenseData,
+                lineStyle: { width: 2.5, color: '#dc2626' },
+                itemStyle: { color: '#dc2626', borderColor: '#fff', borderWidth: 1.5 },
+                areaStyle: {
+                    color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                        colorStops: [{ offset: 0, color: 'rgba(220,38,38,0.18)' }, { offset: 1, color: 'rgba(220,38,38,0.02)' }] }
+                },
+                emphasis: { scale: !isMobile, scaleSize: isMobile ? 0 : 6 },
+                markLine: avgExpense > 0 ? {
+                    silent: true, symbol: 'none',
+                    lineStyle: { type: 'dashed', color: '#f59e0b', width: 1 },
+                    label: { formatter: '日均', fontSize: 9, color: '#f59e0b', position: 'insideEndTop' },
+                    data: [{ yAxis: avgExpense }]
+                } : undefined,
+            },
+            {
+                name: '结余', type: 'bar', yAxisIndex: 1,
+                data: balanceData.map(v => ({
+                    value: v,
+                    itemStyle: { color: v >= 0 ? 'rgba(22,163,74,0.35)' : 'rgba(220,38,38,0.35)' }
+                })),
+                barMaxWidth: 20, barBorderRadius: [4, 4, 0, 0],
+                emphasis: { itemStyle: { borderColor: '#fff', borderWidth: 1 } },
+            }
+        ],
+        tooltip: {
+            trigger: 'axis', confine: true,
+            backgroundColor: 'rgba(255,255,255,0.96)',
+            borderColor: '#eee', borderWidth: 1,
+            textStyle: { color: '#333', fontSize: 12 },
+            extraCssText: 'border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);padding:12px 14px;max-width:220px;',
+            formatter: function (params) {
+                if (!params || params.length === 0) return '';
+                const idx = params[0].dataIndex;
+                const day = dailyStats[idx];
+                if (!day) return '';
+                const dt = new Date(day.date);
+                const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+                let html = `<div style="font-weight:600;margin-bottom:6px;font-size:13px;">📅 ${dt.getMonth() + 1}月${dt.getDate()}日 周${weekdays[dt.getDay()]}</div>`;
+                html += `<div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="color:#16a34a;">💰 收入</span><span style="font-weight:500;">¥${day.income.toFixed(2)}</span></div>`;
+                html += `<div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="color:#dc2626;">💸 支出</span><span style="font-weight:500;">¥${day.expense.toFixed(2)}</span></div>`;
+                // 分类明细（最多显示4项支出分类）
+                const expenseCats = (day.categories || []).filter(c => !c.type || c.type !== 'income');
+                if (expenseCats.length > 0) {
+                    html += '<div style="border-top:1px solid #f0f0f0;margin:6px 0 4px;"></div>';
+                    const showCats = expenseCats.slice(0, 4);
+                    showCats.forEach(c => {
+                        html += `<div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:2px;"><span>${c.icon} ${c.name}</span><span>¥${c.amount.toFixed(2)}</span></div>`;
+                    });
+                    if (expenseCats.length > 4) {
+                        html += `<div style="font-size:10px;color:#999;text-align:center;">还有${expenseCats.length - 4}个分类...</div>`;
+                    }
+                }
+                html += `<div style="font-size:10px;color:#3b82f6;text-align:center;margin-top:6px;cursor:pointer;">点击查看当日明细</div>`;
+                return html;
+            }
+        }
+    });
+
+    // 点击某天 -> 联动环形图 + 跳转记录列表
+    trendChart.on('click', function (params) {
+        if (params.componentType === 'series') {
+            const idx = params.dataIndex;
+            const day = dailyStats[idx];
+            if (day) {
+                // 构建当天的分类数据用于环形图
+                const expenseCats = (day.categories || []).filter(c => !c.type || c.type !== 'income');
+                const totalExp = day.expense || 0;
+                const dayCatStats = expenseCats.map(c => ({
+                    name: c.name, icon: c.icon, color: c.color,
+                    amount: c.amount, count: 1, avg_per_day: c.amount,
+                    percent: totalExp > 0 ? Math.round(c.amount / totalExp * 1000) / 10 : 0,
+                }));
+                // 更新环形图为当天的分类占比
+                const dt = new Date(day.date);
+                const titleEl = document.getElementById('category-chart-title');
+                if (titleEl) titleEl.textContent = `${dt.getMonth() + 1}月${dt.getDate()}日 支出分类`;
+                renderCategoryChart({ expense: dayCatStats, income: [] }, 'expense');
+                // 同时跳转到记录列表查看当天明细
+                navigateToRecordsByDate(day.date, day.date);
+            }
+        }
+    });
+
+    // 确保图表尺寸正确
+    setTimeout(() => { if (trendChart) trendChart.resize(); }, 150);
+}
+
+// ========== 分类占比环形图 ==========
+function renderCategoryChart(categoryStats, type) {
+    const dom = document.getElementById('category-chart');
+    if (!dom) return;
+    if (typeof echarts === 'undefined') { dom.innerHTML = '<div class="chart-empty">图表库加载失败</div>'; return; }
+
+    const catList = categoryStats && categoryStats[type] ? categoryStats[type] : [];
+    if (catList.length === 0) {
+        if (categoryChart) { categoryChart.dispose(); categoryChart = null; }
+        dom.innerHTML = '<div class="chart-empty">暂无数据</div>';
+        return;
+    }
+
+    if (categoryChart) categoryChart.dispose();
+    dom.innerHTML = '';
+    categoryChart = echarts.init(dom, null, getChartInitOpts());
+
+    const total = catList.reduce((s, c) => s + c.amount, 0);
+
+    // 如果分类超过8个，合并为「其他」
+    let chartData;
+    if (catList.length > 8) {
+        const main = catList.slice(0, 7);
+        const rest = catList.slice(7);
+        const otherAmt = rest.reduce((s, c) => s + c.amount, 0);
+        chartData = [...main, { name: '其他', icon: '📋', color: '#9E9E9E', amount: otherAmt, count: rest.reduce((s, c) => s + c.count, 0), percent: total > 0 ? Math.round(otherAmt / total * 1000) / 10 : 0, _others: rest }];
+    } else {
+        chartData = catList;
+    }
+
+    const pieData = chartData.map(c => ({
+        name: c.name,
+        value: c.amount,
+        itemStyle: { color: c.color },
+        _meta: c,
+    }));
+
+    const isMobile = window.innerWidth <= 768;
+
+    categoryChart.setOption({
+        animation: true,
+        animationDuration: 500,
+        animationEasing: 'cubicOut',
+        legend: {
+            orient: 'vertical', right: isMobile ? '2%' : '6%', top: 'middle',
+            textStyle: { fontSize: 11, color: '#666' },
+            itemWidth: 10, itemHeight: 10, itemGap: 8,
+            formatter: function (name) {
+                const item = chartData.find(c => c.name === name);
+                if (item) {
+                    return `${item.icon} ${name}  ${item.percent}%`;
+                }
+                return name;
+            }
+        },
+        series: [{
+            type: 'pie',
+            radius: ['42%', '70%'],
+            center: [isMobile ? '35%' : '38%', '50%'],
+            data: pieData,
+            label: {
+                show: true, position: 'center',
+                formatter: function () {
+                    return `{total|${formatMoney(total)}}\n{label|${type === 'income' ? '总收入' : '总支出'}}`;
+                },
+                rich: {
+                    total: { fontSize: 18, fontWeight: 'bold', color: '#333', lineHeight: 28 },
+                    label: { fontSize: 11, color: '#999', lineHeight: 18 },
+                }
+            },
+            labelLine: { show: false },
+            itemStyle: { borderColor: '#fff', borderWidth: 2 },
+            emphasis: {
+                scale: true, scaleSize: 8,
+                itemStyle: { borderColor: '#fff', borderWidth: 2, shadowBlur: 15, shadowColor: 'rgba(0,0,0,0.12)' },
+                label: {
+                    show: true, position: 'center',
+                    formatter: function (params) {
+                        const m = params.data._meta;
+                        return `{icon|${m.icon}}\n{name|${m.name}}\n{value|${formatMoney(m.amount)}}\n{pct|${m.percent}%  ${m.count}笔}`;
+                    },
+                    rich: {
+                        icon: { fontSize: 22, lineHeight: 30 },
+                        name: { fontSize: 13, fontWeight: 'bold', color: '#333', lineHeight: 22 },
+                        value: { fontSize: 16, fontWeight: 'bold', color: '#333', lineHeight: 24 },
+                        pct: { fontSize: 11, color: '#999', lineHeight: 18 },
+                    }
+                }
+            }
+        }],
+        tooltip: {
+            trigger: 'item', confine: true,
+            backgroundColor: 'rgba(255,255,255,0.96)',
+            borderColor: '#eee', borderWidth: 1,
+            textStyle: { color: '#333', fontSize: 12 },
+            extraCssText: 'border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);padding:10px 14px;',
+            formatter: function (params) {
+                const m = params.data._meta;
+                let html = `<div style="font-weight:600;margin-bottom:4px;">${m.icon} ${m.name}</div>`;
+                html += `<div>金额: <b>${formatMoney(m.amount)}</b></div>`;
+                html += `<div>占比: ${m.percent}%　共${m.count}笔</div>`;
+                if (m.avg_per_day !== undefined) html += `<div>日均: ${formatMoney(m.avg_per_day)}</div>`;
+                html += `<div style="font-size:10px;color:#3b82f6;text-align:center;margin-top:4px;">点击查看明细</div>`;
+                return html;
+            }
+        }
+    });
+
+    // 点击分类扇区 -> 跳转到记录列表并筛选该分类
+    categoryChart.on('click', function (params) {
+        if (params.data && params.data._meta) {
+            const catName = params.data._meta.name;
+            const { startDate, endDate } = getCurrentAnalysisDateRange();
+            navigateToRecordsByCategory(catName, startDate, endDate);
+        }
+    });
+
+    setTimeout(() => { if (categoryChart) categoryChart.resize(); }, 150);
+}
+
+// 初始化环形图类型切换按钮
+function initCategoryChartSwitch() {
+    document.querySelectorAll('.chart-type-btn').forEach(btn => {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('.chart-type-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            currentCategoryChartType = this.dataset.chartType;
+            const titleEl = document.getElementById('category-chart-title');
+            if (titleEl) titleEl.textContent = currentCategoryChartType === 'income' ? '收入分类' : '支出分类';
+            if (analysisCache && analysisCache.category_stats) {
+                renderCategoryChart(analysisCache.category_stats, currentCategoryChartType);
+            }
+        });
+    });
+}
+
+// ========== 图表跳转联动 ==========
+
+// 跳转到记录列表并按日期筛选
+function navigateToRecordsByDate(startDate, endDate) {
+    recordsFilterStartDate = startDate;
+    recordsFilterEndDate = endDate;
+    recordsCategoryFilter = null;
+    const searchInput = document.getElementById('records-search-input');
+    if (searchInput) searchInput.value = '';
+    switchMainTab('records');
+}
+
+// 跳转到记录列表并按分类+日期筛选
+function navigateToRecordsByCategory(category, startDate, endDate) {
+    recordsFilterStartDate = startDate || null;
+    recordsFilterEndDate = endDate || null;
+    recordsCategoryFilter = category;
+    const searchInput = document.getElementById('records-search-input');
+    if (searchInput) searchInput.value = '';
+    switchMainTab('records');
+}
+
+// 窗口 resize 时重绘图表
+window.addEventListener('resize', function () {
+    if (trendChart) trendChart.resize();
+    if (categoryChart) categoryChart.resize();
+});
 
 // 获取当前数据分析使用的时间范围（与上方“日/周/月/年/自定义”保持一致）
 function getCurrentAnalysisDateRange() {
@@ -737,49 +995,6 @@ function getCurrentAnalysisDateRange() {
     }
 
     return { startDate, endDate };
-}
-
-// 更新柱状图（对比分析）- ECharts SVG 渲染，移动端清晰
-async function updateBarChart(categoryStats) {
-    if (typeof echarts === 'undefined') {
-        setChartPlaceholder('bar-chart', '图表加载失败，请刷新页面', true);
-        return;
-    }
-    if (!categoryStats || categoryStats.length === 0) {
-        if (echartsBar) { echartsBar.dispose(); echartsBar = null; }
-        setChartPlaceholder('bar-chart', '暂无数据');
-        return;
-    }
-    const aggregated = aggregateCategoryStats(categoryStats, {});
-    const sortedStats = aggregated.chartData;
-    const total = aggregated.total;
-    if (echartsBar) echartsBar.dispose();
-
-    // 等待容器准备好后再初始化
-    try {
-        const dom = await waitForChartContainer('bar-chart', 20, 50);
-        dom.innerHTML = '';
-        echartsBar = echarts.init(dom, null, getEChartsInitOpts());
-        echartsBar.setOption({
-            animation: true,
-            animationDuration: 400,
-            animationEasing: 'cubicOut',
-            grid: { left: '8%', right: '4%', top: '8%', bottom: '15%', containLabel: true },
-            xAxis: { type: 'category', data: sortedStats.map(c => `${c.icon} ${c.name}`), axisLabel: { fontSize: 10, color: '#666', rotate: 25 }, axisTick: { show: false }, axisLine: { lineStyle: { color: '#e5e7eb' } } },
-            yAxis: { type: 'value', min: 0, axisLabel: { fontSize: 10, formatter: v => '¥' + v }, splitLine: { lineStyle: { color: 'rgba(0,0,0,0.05)' } }, axisLine: { show: false }, axisTick: { show: false } },
-            series: [{
-                type: 'bar',
-                data: sortedStats.map((c, i) => ({ value: c.amount, itemStyle: { color: c.color } })),
-                barMaxWidth: 44,
-                barBorderRadius: [10, 10, 0, 0],
-                emphasis: { focus: 'self', itemStyle: { borderColor: '#fff', borderWidth: 2 } }
-            }],
-            tooltip: { show: false }
-        });
-    } catch (error) {
-        console.error('初始化柱状图失败:', error);
-        setChartPlaceholder('bar-chart', '图表加载失败，请刷新页面', true);
-    }
 }
 
 // 自定义键盘相关变量
@@ -884,9 +1099,10 @@ function bindEvents() {
         recordsSearchInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                // 搜索时清除日期筛选，按关键字搜索全部
+                // 搜索时清除筛选，按关键字搜索全部
                 recordsFilterStartDate = null;
                 recordsFilterEndDate = null;
+                recordsCategoryFilter = null;
                 loadRecords(1);
             }
         });
@@ -896,6 +1112,7 @@ function bindEvents() {
             if (!val) {
                 recordsFilterStartDate = null;
                 recordsFilterEndDate = null;
+                recordsCategoryFilter = null;
                 loadRecords(1);
             }
         });
@@ -905,9 +1122,10 @@ function bindEvents() {
             if (recordsSearchInput) {
                 recordsSearchInput.value = '';
             }
-            // 清空搜索时也清空日期筛选
+            // 清空搜索时也清空所有筛选
             recordsFilterStartDate = null;
             recordsFilterEndDate = null;
+            recordsCategoryFilter = null;
             loadRecords(1);
         });
     }
@@ -1400,193 +1618,11 @@ async function loadStatistics() {
             todayExpenseEl.textContent = formatMoney(data.today_expense);
         }
 
-        lastCategoryStatsForCharts = data.category_stats || null;
-        setTimeout(() => {
-            updateLineChart(data.daily_stats).catch(err => console.error('更新折线图失败:', err));
-            updatePieChart(data.category_stats).catch(err => console.error('更新饼图失败:', err));
-            updateBarChart(data.category_stats).catch(err => console.error('更新柱状图失败:', err));
-        }, 100);
     } catch (error) {
         console.error('加载统计数据失败:', error);
     }
 }
 
-
-async function updateLineChart(dailyStats) {
-    if (typeof echarts === 'undefined') {
-        setChartPlaceholder('line-chart', '图表加载失败，请刷新页面', true);
-        return;
-    }
-    currentDailyStats = dailyStats || [];
-
-    if (!dailyStats || dailyStats.length === 0) {
-        if (echartsLine) { echartsLine.dispose(); echartsLine = null; }
-        setChartPlaceholder('line-chart', '暂无数据');
-        return;
-    }
-
-    if (echartsLine) echartsLine.dispose();
-
-    // 检测是否为移动端（在函数内部定义，确保作用域正确）
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth <= 768);
-
-    // 移动端禁用emphasis的scale效果，避免显示放大的数据点（绿色X标记）
-    const emphasisConfig = isMobile
-        ? { focus: 'series', scale: false, itemStyle: { borderColor: '#fff', borderWidth: 1 } }  // 移动端禁用scale，避免显示放大点
-        : { focus: 'series', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } };  // 桌面端保持原样
-
-    // 等待容器准备好后再初始化
-    try {
-        const dom = await waitForChartContainer('line-chart', 20, 50);
-        dom.innerHTML = '';
-        echartsLine = echarts.init(dom, null, getEChartsInitOpts());
-        continueLineChartSetup(emphasisConfig);
-    } catch (error) {
-        console.error('初始化折线图失败:', error);
-        setChartPlaceholder('line-chart', '图表加载失败，请刷新页面', true);
-    }
-}
-
-// 继续折线图设置（分离出来以便延迟初始化时调用）
-function continueLineChartSetup(emphasisConfig) {
-    if (!echartsLine || !currentDailyStats || currentDailyStats.length === 0) {
-        if (echartsLine) {
-            echartsLine.dispose();
-            echartsLine = null;
-        }
-        setChartPlaceholder('line-chart', '暂无数据');
-        return;
-    }
-
-    const dom = document.getElementById('line-chart');
-    if (!dom) {
-        setChartPlaceholder('line-chart', '图表容器不存在', true);
-        return;
-    }
-
-    try {
-        const labels = (currentDailyStats || []).map(d => {
-            const date = new Date(d.date);
-            return `${date.getMonth() + 1}/${date.getDate()}`;
-        });
-        // 确保数据都是数字，将 null/undefined 转为 0，避免线段断裂
-        const incomeData = (currentDailyStats || []).map(d => {
-            const value = Number(d.income) || 0;
-            return isNaN(value) ? 0 : value;
-        });
-        const expenseData = (currentDailyStats || []).map(d => {
-            const value = Number(d.expense) || 0;
-            return isNaN(value) ? 0 : value;
-        });
-
-        // 如果没有传入emphasisConfig，则重新计算（兜底处理）
-        if (!emphasisConfig) {
-            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth <= 768);
-            emphasisConfig = isMobile
-                ? { focus: 'series', scale: false, itemStyle: { borderColor: '#fff', borderWidth: 1 } }
-                : { focus: 'series', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } };
-        }
-
-        echartsLine.setOption({
-            animation: true,
-            animationDuration: 400,
-            animationEasing: 'cubicOut',
-            legend: { top: 0, left: 'center', data: ['收入', '支出'], textStyle: { fontSize: 11 }, itemWidth: 10, itemHeight: 10 },
-            grid: { left: '8%', right: '8%', top: '15%', bottom: '15%', containLabel: true },
-            xAxis: { type: 'category', boundaryGap: false, data: labels, axisLabel: { fontSize: 10, color: '#666' }, axisLine: { lineStyle: { color: '#e5e7eb' } }, axisTick: { show: false } },
-            yAxis: { type: 'value', min: 0, axisLabel: { fontSize: 10, formatter: v => '¥' + v }, splitLine: { lineStyle: { color: 'rgba(0,0,0,0.05)' } }, axisLine: { show: false }, axisTick: { show: false } },
-            series: [
-                { name: '收入', type: 'line', smooth: 0.35, data: incomeData, connectNulls: true, symbol: 'circle', symbolSize: 8, lineStyle: { width: 2.5, color: '#16a34a', cap: 'round', join: 'round' }, itemStyle: { color: '#16a34a', borderColor: '#fff', borderWidth: 1 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(22,163,74,0.2)' }, { offset: 1, color: 'rgba(22,163,74,0.03)' }] } }, emphasis: emphasisConfig },
-                { name: '支出', type: 'line', smooth: 0.35, data: expenseData, connectNulls: true, symbol: 'circle', symbolSize: 8, lineStyle: { width: 2.5, color: '#dc2626', cap: 'round', join: 'round' }, itemStyle: { color: '#dc2626', borderColor: '#fff', borderWidth: 1 }, areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(220,38,38,0.2)' }, { offset: 1, color: 'rgba(220,38,38,0.03)' }] } }, emphasis: emphasisConfig }
-            ],
-            tooltip: {
-                show: false // 禁用默认 tooltip
-            }
-        });
-
-        // 确保图表正确渲染：立即resize，然后延迟多次resize以确保容器尺寸已计算
-        // 先立即resize一次
-        if (echartsLine) {
-            echartsLine.resize();
-        }
-
-        // 延迟resize，确保容器尺寸已计算（移动端特别需要）
-        requestAnimationFrame(() => {
-            if (echartsLine) {
-                echartsLine.resize();
-                // 再次延迟resize，确保在移动端容器完全布局后
-                requestAnimationFrame(() => {
-                    if (echartsLine) {
-                        echartsLine.resize();
-                        // 最后一次延迟resize，确保所有布局完成
-                        setTimeout(() => {
-                            if (echartsLine) echartsLine.resize();
-                        }, 200);
-                    }
-                });
-            }
-        });
-    } catch (error) {
-        console.error('设置折线图选项失败:', error);
-        if (echartsLine) {
-            echartsLine.dispose();
-            echartsLine = null;
-        }
-        setChartPlaceholder('line-chart', '图表加载失败，请刷新页面', true);
-        return;
-    }
-}
-
-// 更新饼图（支出分类）- ECharts SVG 渲染，移动端清晰
-async function updatePieChart(categoryStats) {
-    if (typeof echarts === 'undefined') {
-        setChartPlaceholder('pie-chart', '图表加载失败，请刷新页面', true);
-        return;
-    }
-    if (!categoryStats || categoryStats.length === 0) {
-        if (echartsPie) { echartsPie.dispose(); echartsPie = null; }
-        setChartPlaceholder('pie-chart', '暂无数据');
-        return;
-    }
-    const aggregated = aggregateCategoryStats(categoryStats, {});
-    const chartData = aggregated.chartData;
-    const total = aggregated.total;
-    if (echartsPie) echartsPie.dispose();
-
-    // 等待容器准备好后再初始化
-    try {
-        const dom = await waitForChartContainer('pie-chart', 20, 50);
-        dom.innerHTML = '';
-        echartsPie = echarts.init(dom, null, getEChartsInitOpts());
-        const pieData = chartData.map((c, i) => ({
-            name: `${c.icon} ${c.name} ${total > 0 ? ((c.amount / total) * 100).toFixed(1) : 0}%`,
-            value: c.amount,
-            itemStyle: { color: c.color },
-            _isOther: c._isOther,
-            _others: c._others
-        }));
-        echartsPie.setOption({
-            animation: true,
-            animationDuration: 400,
-            animationEasing: 'cubicOut',
-            legend: { orient: 'vertical', right: '8%', top: 'center', textStyle: { fontSize: 11 }, itemWidth: 10, itemHeight: 10, itemGap: 10 },
-            series: [{
-                type: 'pie',
-                radius: ['40%', '68%'],
-                center: ['38%', '50%'],
-                data: pieData,
-                label: { show: false },
-                labelLine: { show: false },
-                itemStyle: { borderColor: '#fff', borderWidth: 2 },
-                emphasis: { scale: true, scaleSize: 6, itemStyle: { borderColor: '#fff', borderWidth: 2, shadowBlur: 10, shadowOffsetY: 3 } }
-            }],
-            tooltip: { show: false }
-        });
-    } catch (error) {
-        console.error('初始化饼图失败:', error);
-        setChartPlaceholder('pie-chart', '图表加载失败，请刷新页面', true);
-    }
-}
 
 // 加载记录列表（支持无限滚动：第1页替换，后续页追加）
 async function loadRecords(page = 1) {
@@ -1612,6 +1648,7 @@ async function loadRecords(page = 1) {
         let url = `${API_BASE}/records?page=${page}&per_page=${RECORDS_PER_PAGE}`;
         if (recordsFilterStartDate) url += `&start_date=${encodeURIComponent(recordsFilterStartDate)}`;
         if (recordsFilterEndDate) url += `&end_date=${encodeURIComponent(recordsFilterEndDate)}`;
+        if (recordsCategoryFilter) url += `&category=${encodeURIComponent(recordsCategoryFilter)}`;
         const recordsSearchInput = document.getElementById('records-search-input');
         const keyword = recordsSearchInput ? recordsSearchInput.value.trim() : '';
         if (keyword) url += `&q=${encodeURIComponent(keyword)}`;

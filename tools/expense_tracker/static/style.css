@@ -418,6 +418,136 @@ input, textarea {
     color: #4a5568; /* 降低对比度 */
 }
 
+/* ========== 数据分析 - 洞察指标卡片 ========== */
+.insight-cards {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+
+.insight-card {
+    flex: 1;
+    min-width: 0;
+    background: #fefefe;
+    border-radius: 8px;
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    border: 1px solid #f0f1f3;
+    cursor: default;
+}
+
+.insight-icon {
+    font-size: 16px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.insight-info {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.insight-label {
+    font-size: 9px;
+    color: #aaa;
+    margin-bottom: 1px;
+    white-space: nowrap;
+}
+
+.insight-value {
+    font-size: 12px;
+    font-weight: 600;
+    color: #555;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ========== 数据分析 - 图表区域 ========== */
+.analysis-chart-section {
+    background: #fefefe;
+    border-radius: 14px;
+    padding: 14px 12px 16px;
+    margin-bottom: 14px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    border: 1px solid #f0f1f3;
+}
+
+.chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.chart-header h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #5a6578;
+    margin: 0;
+}
+
+.chart-hint {
+    font-size: 10px;
+    color: #bbb;
+    transition: opacity 0.3s;
+}
+
+.chart-hint-bottom {
+    font-size: 10px;
+    color: #bbb;
+    text-align: center;
+    margin-top: 6px;
+}
+
+.analysis-chart {
+    width: 100%;
+    height: 240px;
+    min-height: 200px;
+}
+
+.chart-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    min-height: 200px;
+    color: #bbb;
+    font-size: 13px;
+}
+
+/* 图表类型切换按钮（收入/支出） */
+.chart-type-switch {
+    display: flex;
+    gap: 4px;
+    background: #f5f5f5;
+    border-radius: 8px;
+    padding: 2px;
+}
+
+.chart-type-btn {
+    padding: 4px 12px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #888;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    font-weight: 500;
+}
+
+.chart-type-btn.active {
+    background: #fff;
+    color: #333;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
 /* 快速记账表单 - 紧凑无标签设计 */
 .quick-add-section {
     background: #fefefe; /* 柔和的白色 */
@@ -840,118 +970,6 @@ input, textarea {
     box-shadow: 0 2px 6px rgba(239, 68, 68, 0.2); /* 更淡的阴影 */
 }
 
-/* 图表区域 */
-.charts-section {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    margin-bottom: 30px; /* 增加底部间距，避免被导航栏遮挡 */
-}
-
-/* 图表展示方式：前N项+其他 / 全部 */
-.chart-display-options {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 0;
-    flex-wrap: wrap;
-}
-.chart-display-options label {
-    font-size: 13px;
-    color: #5a6578;
-    font-weight: 500;
-}
-.chart-display-select {
-    font-size: 13px;
-    padding: 6px 10px;
-    border-radius: 8px;
-    border: 1px solid #e5e7eb;
-    background: #fff;
-    color: #374151;
-    cursor: pointer;
-    min-width: 140px;
-}
-.chart-display-select:focus {
-    outline: none;
-    border-color: #93c5fd;
-}
-
-.chart-container {
-    background: #fefefe;
-    border-radius: 16px;
-    padding: 16px;
-    padding-bottom: 20px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-    border: 1px solid #f0f1f3;
-    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-    width: 100%;
-    margin-bottom: 12px;
-    position: relative;
-    overflow: hidden;
-}
-
-#chart-container-trend {
-    overflow: visible;
-}
-#chart-container-trend .echarts-chart {
-    margin-right: 0;
-}
-
-.chart-container:hover {
-    transform: translateY(-4px) scale(1.01);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
-    border-color: #93c5fd;
-}
-
-/* 图表加载动画 */
-@keyframes chartFadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(20px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-.chart-container .echarts-chart {
-    width: 100%;
-    height: 200px;
-    min-height: 180px;
-    animation: chartFadeIn 0.2s ease-out;
-}
-
-/* 图表占位：加载中 / 暂无数据 / 加载失败 */
-.chart-placeholder {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 100%;
-    min-height: 160px;
-    color: #888;
-    font-size: 14px;
-    text-align: center;
-    padding: 16px;
-    box-sizing: border-box;
-}
-.chart-placeholder-error {
-    color: #c62828;
-}
-
-.chart-container h3 {
-    font-size: 14px;
-    margin-bottom: 12px;
-    color: #5a6578; /* 降低对比度 */
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    position: relative;
-    padding-bottom: 8px;
-    border-bottom: 1px solid #f0f1f3; /* 更淡的分隔线 */
-}
 
 /* 今日记录区域 */
 .today-records-section {
@@ -1672,6 +1690,33 @@ input, textarea {
         grid-template-columns: 1fr;
         gap: 6px;
     }
+
+    .insight-cards {
+        gap: 4px;
+    }
+
+    .insight-card {
+        padding: 6px 8px;
+        gap: 4px;
+    }
+
+    .insight-icon {
+        font-size: 14px;
+    }
+
+    .insight-value {
+        font-size: 11px;
+    }
+
+    .analysis-chart {
+        height: 220px;
+        min-height: 180px;
+    }
+
+    .analysis-chart-section {
+        padding: 12px 10px 14px;
+        margin-bottom: 12px;
+    }
     
     .quick-add-header {
         margin-bottom: 10px;
@@ -1686,10 +1731,6 @@ input, textarea {
     }
     
     .form-row {
-        grid-template-columns: 1fr;
-    }
-
-    .charts-section {
         grid-template-columns: 1fr;
     }
 

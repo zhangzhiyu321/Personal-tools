@@ -190,6 +190,7 @@ def get_records():
         return jsonify({'error': '未登录'}), 401
     
     type_filter = request.args.get('type')
+    category_filter = request.args.get('category')
     # 日期范围（用于今日记录、按日查看等）
     start, end = parse_date_range(request.args.get('start_date'), request.args.get('end_date'))
   
@@ -203,6 +204,8 @@ def get_records():
     query = Expense.query.filter_by(user_id=user_id)
     if type_filter:
         query = query.filter(Expense.type == type_filter)
+    if category_filter:
+        query = query.filter(Expense.category == category_filter)
     if start:
         query = query.filter(Expense.date >= start)
     if end:

@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>记账工具</title>
     <link rel="stylesheet" href="{{ url_for('expense_tracker_page.static', filename='style.css') }}">
-    <!-- ECharts 5：本地静态文件，打开页面即可用，不依赖外网 -->
     <script src="{{ url_for('expense_tracker_page.static', filename='echarts.min.js') }}"></script>
 </head>
 <body>
@@ -187,7 +186,7 @@
                 </div>
             </div>
 
-            <!-- 分析统计卡片 -->
+            <!-- 主统计卡片 -->
             <div class="stats-cards" id="analysis-stats-cards">
                 <div class="stat-card income">
                     <div class="stat-icon">💰</div>
@@ -212,30 +211,53 @@
                 </div>
             </div>
 
-            <!-- 图表区域 - ECharts SVG 渲染，移动端清晰 -->
-            <div class="charts-section">
-                <div class="chart-container" id="chart-container-trend">
-                    <h3>收支趋势</h3>
-                    <div id="line-chart" class="echarts-chart"></div>
+            <!-- 洞察指标卡片 -->
+            <div class="insight-cards" id="analysis-insight-cards">
+                <div class="insight-card">
+                    <div class="insight-icon">📉</div>
+                    <div class="insight-info">
+                        <div class="insight-label">日均支出</div>
+                        <div class="insight-value" id="insight-avg-expense">--</div>
+                    </div>
                 </div>
-                <div class="chart-display-options">
-                    <label for="chart-display-mode">图表展示：</label>
-                    <select id="chart-display-mode" class="chart-display-select" title="分类较多时建议选「前N项+其他」">
-                        <option value="5">前5项 + 其他</option>
-                        <option value="6" selected>前6项 + 其他</option>
-                        <option value="10">前10项 + 其他</option>
-                        <option value="999">全部显示</option>
-                    </select>
+                <div class="insight-card" id="insight-max-day-card">
+                    <div class="insight-icon">🔥</div>
+                    <div class="insight-info">
+                        <div class="insight-label">最高单日</div>
+                        <div class="insight-value" id="insight-max-day">--</div>
+                    </div>
                 </div>
-                <div class="chart-container" id="chart-container-category">
-                    <h3>支出分类</h3>
-                    <div id="pie-chart" class="echarts-chart"></div>
-                </div>
-                <div class="chart-container" id="chart-container-comparison">
-                    <h3>对比分析</h3>
-                    <div id="bar-chart" class="echarts-chart"></div>
+                <div class="insight-card" id="insight-top-cat-card">
+                    <div class="insight-icon">🏆</div>
+                    <div class="insight-info">
+                        <div class="insight-label">最大分类</div>
+                        <div class="insight-value" id="insight-top-cat">--</div>
+                    </div>
                 </div>
             </div>
+
+            <!-- 收支趋势复合图 -->
+            <div class="analysis-chart-section">
+                <div class="chart-header">
+                    <h3>收支趋势</h3>
+                    <span class="chart-hint" id="trend-chart-hint">滑动查看详情</span>
+                </div>
+                <div id="trend-chart" class="analysis-chart"></div>
+            </div>
+
+            <!-- 分类占比环形图 -->
+            <div class="analysis-chart-section">
+                <div class="chart-header">
+                    <h3 id="category-chart-title">支出分类</h3>
+                    <div class="chart-type-switch">
+                        <button class="chart-type-btn active" data-chart-type="expense">支出</button>
+                        <button class="chart-type-btn" data-chart-type="income">收入</button>
+                    </div>
+                </div>
+                <div id="category-chart" class="analysis-chart"></div>
+                <div class="chart-hint-bottom">点击分类查看明细记录</div>
+            </div>
+
         </div>
 
         <!-- 记录列表标签页 -->
