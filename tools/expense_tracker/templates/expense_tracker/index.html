@@ -392,44 +392,6 @@
         </div>
     </div>
 
-    <!-- 分类明细模态框（从柱状图点击某一分类进入） -->
-    <div id="category-detail-modal" class="modal">
-        <div class="modal-content" style="max-width: 520px;">
-            <span class="modal-close">&times;</span>
-            <h2 id="category-detail-title">分类明细</h2>
-            <div class="category-detail-summary">
-                <div class="category-detail-chart-container">
-                    <div id="category-detail-chart" class="echarts-chart"></div>
-                </div>
-                <div class="category-detail-total">
-                    <span class="label">当前时间范围内总支出</span>
-                    <span class="value" id="category-detail-total-amount">¥0.00</span>
-                </div>
-            </div>
-            <div class="category-detail-records" id="category-detail-records">
-                <!-- 动态渲染该分类下的记录列表 -->
-            </div>
-        </div>
-    </div>
-
-    <!-- 「其他」分类明细弹窗（饼图/柱状图点击「其他」时显示） -->
-    <div id="others-detail-modal" class="modal">
-        <div class="modal-content others-detail-content" style="max-width: 520px;">
-            <span class="modal-close" id="others-detail-close">&times;</span>
-            <h2 id="others-detail-title">📋 其他 - 分类明细</h2>
-            <div class="others-detail-total" id="others-detail-total">合计: ¥0.00</div>
-            <ul class="others-detail-list" id="others-detail-list">
-                <!-- 动态渲染小分类列表 -->
-            </ul>
-            <div class="others-detail-records-wrap" id="others-detail-records-wrap">
-                <div class="others-detail-records-label">支出记录</div>
-                <div class="others-detail-records category-detail-records" id="others-detail-records">
-                    <!-- 动态渲染具体记录列表，复用分类明细样式 -->
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- 通用日期选择器模态框（自定义日历） -->
     <div id="date-picker-modal" class="modal">
         <div class="modal-content date-picker-modal-content">

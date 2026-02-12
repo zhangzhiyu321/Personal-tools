@@ -245,13 +245,14 @@ async function checkAuthStatus() {
 // 全局变量
 let categories = { expense: [], income: [] };
 let currentPage = 1;
+// 记录列表无限滚动
+const RECORDS_PER_PAGE = 12;
+let totalPagesRecords = 0;
+let isLoadingRecords = false;
+let recordsScrollObserver = null;
 let echartsLine = null;
 let echartsPie = null;
 let echartsBar = null;
-let echartsCategoryDetail = null; // 分类明细弹窗内趋势图
-let currentCategoryDetailData = null; // 当前分类明细的完整数据
-let categoryDetailCurrentPage = 1; // 分类明细记录列表当前页码
-let categoryDetailPageSize = 20; // 每页显示的记录数
 let currentTimeDimension = 'day'; // day, week, month
 let currentDailyStats = null; // 保存当前的每日统计数据，用于图表点击
 // 图表展示：缓存原始分类数据，用于切换「展示方式」时重绘
@@ -773,471 +774,12 @@ async function updateBarChart(categoryStats) {
                 barBorderRadius: [10, 10, 0, 0],
                 emphasis: { focus: 'self', itemStyle: { borderColor: '#fff', borderWidth: 2 } }
             }],
-            tooltip: {
-                trigger: 'axis',
-                backgroundColor: 'rgba(0,0,0,0.85)',
-                borderColor: 'rgba(255,255,255,0.1)',
-                textStyle: { fontSize: 12 },
-                formatter: function (params) {
-                    if (!params || !params[0]) return '';
-                    const idx = params[0].dataIndex;
-                    const cat = sortedStats[idx];
-                    const val = cat.amount;
-                    const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
-                    return `金额: ¥${val.toFixed(2)} (${pct}%)`;
-                }
-            }
-        });
-        echartsBar.on('click', function (params) {
-            const idx = params.dataIndex;
-            const cat = sortedStats[idx];
-            if (!cat) return;
-            if (cat._isOther && cat._others && cat._others.length > 0) openOthersDetailModal(cat._others, total);
-            else openCategoryDetailFromBarChart(cat);
+            tooltip: { show: false }
         });
     } catch (error) {
         console.error('初始化柱状图失败:', error);
         setChartPlaceholder('bar-chart', '图表加载失败，请刷新页面', true);
     }
-}
-
-// 从柱状图打开某个分类的明细（趋势 + 记录列表）
-async function openCategoryDetailFromBarChart(categoryStat) {
-    if (!categoryStat || !categoryStat.category) return;
-
-    const { startDate, endDate } = getCurrentAnalysisDateRange();
-
-    let url = `${API_BASE}/statistics/category_detail?category=${encodeURIComponent(categoryStat.category)}`;
-    if (startDate) url += `&start_date=${startDate}`;
-    if (endDate) url += `&end_date=${endDate}`;
-
-    try {
-        const response = await authFetch(url);
-        const data = await response.json();
-
-        if (!response.ok || data.error) {
-            console.error('加载分类明细失败:', data.error || response.statusText);
-            customAlert(data.error || '加载分类明细失败', '错误', 'error');
-            return;
-        }
-
-        renderCategoryDetailModal(data);
-    } catch (error) {
-        console.error('加载分类明细失败:', error);
-        customAlert('加载分类明细失败', '错误', 'error');
-    }
-}
-
-/** 打开「其他」分类明细：请求后端获取小分类汇总 + 具体记录，再展示弹窗 */
-async function openOthersDetailModal(others, total) {
-    const { startDate, endDate } = getCurrentAnalysisDateRange();
-    const categoriesParam = others.map(c => c.category).filter(Boolean).join(',');
-    if (!categoriesParam) {
-        showOthersDetailModal(others, total, [], null, null);
-        return;
-    }
-    let url = `${API_BASE}/statistics/others_detail?categories=${encodeURIComponent(categoriesParam)}`;
-    if (startDate) url += `&start_date=${startDate}`;
-    if (endDate) url += `&end_date=${endDate}`;
-    try {
-        const response = await authFetch(url);
-        const data = await response.json().catch(() => ({}));
-        if (response.ok && data) {
-            const breakdown = data.category_breakdown || others;
-            const records = Array.isArray(data.records) ? data.records : [];
-            showOthersDetailModal(breakdown, total, records, data.total_amount, null);
-            return;
-        }
-        // 404 等错误：仍展示分类汇总，仅提示详细记录需更新服务端
-        const recordsLoadHint = response.status === 404
-            ? '详细记录需要更新服务端后查看'
-            : (data.error || '详细记录加载失败');
-        showOthersDetailModal(others, total, [], null, recordsLoadHint);
-        return;
-    } catch (error) {
-        console.error('加载「其他」明细失败:', error);
-        showOthersDetailModal(others, total, [], null, '详细记录加载失败，请稍后重试');
-    }
-}
-
-/** 显示「其他」分类明细弹窗（小分类汇总 + 具体记录列表，风格与分类明细一致） */
-function showOthersDetailModal(others, total, records, totalAmount, recordsLoadHint) {
-    const modal = document.getElementById('others-detail-modal');
-    const totalEl = document.getElementById('others-detail-total');
-    const listEl = document.getElementById('others-detail-list');
-    const recordsWrap = document.getElementById('others-detail-records-wrap');
-    const recordsEl = document.getElementById('others-detail-records');
-    if (!modal || !listEl) return;
-
-    const recordList = Array.isArray(records) ? records : [];
-    const otherAmount = totalAmount != null ? Number(totalAmount) : (others && others.reduce) ? others.reduce((s, c) => s + c.amount, 0) : 0;
-    if (totalEl) totalEl.textContent = `合计: ¥${otherAmount.toFixed(2)}（占总支出的 ${total > 0 ? ((otherAmount / total) * 100).toFixed(1) : 0}%）`;
-    listEl.innerHTML = others.map(c => {
-        const pct = total > 0 ? ((c.amount / total) * 100).toFixed(1) : 0;
-        return `<li class="others-detail-item"><span class="others-detail-icon">${c.icon || '📦'}</span><span class="others-detail-name">${escapeHtml(c.name)}</span><span class="others-detail-amount">¥${Number(c.amount).toFixed(2)}</span><span class="others-detail-pct">${pct}%</span></li>`;
-    }).join('');
-
-    if (recordsWrap && recordsEl) {
-        if (recordList.length === 0) {
-            if (recordsLoadHint) {
-                recordsWrap.style.display = 'block';
-                recordsEl.innerHTML = `<div class="others-detail-records-hint">${escapeHtml(recordsLoadHint)}</div>`;
-            } else {
-                recordsWrap.style.display = 'none';
-                recordsEl.innerHTML = '';
-            }
-        } else {
-            recordsWrap.style.display = 'block';
-            recordsEl.innerHTML = recordList.map(r => {
-                const date = r.date || '';
-                const note = r.note || '';
-                const displayText = note || (r.category_name || '');
-                const amount = Number(r.amount || 0).toFixed(2);
-                const icon = r.category_icon || '📦';
-                return `
-                    <div class="category-detail-record">
-                        <div class="category-detail-record-left">
-                            <div class="category-detail-record-header">
-                                <span class="category-detail-record-icon">${icon}</span>
-                                <span class="category-detail-record-date">${date}</span>
-                            </div>
-                            <div class="category-detail-record-text">${escapeHtml(displayText)}</div>
-                        </div>
-                        <div class="category-detail-record-amount">¥${amount}</div>
-                    </div>
-                `;
-            }).join('');
-        }
-    }
-    modal.classList.add('show');
-}
-
-// 渲染并展示分类明细模态框
-async function renderCategoryDetailModal(detailData) {
-    const modal = document.getElementById('category-detail-modal');
-    if (!modal) return;
-
-    const titleEl = document.getElementById('category-detail-title');
-    const totalEl = document.getElementById('category-detail-total-amount');
-    const recordsEl = document.getElementById('category-detail-records');
-
-    const category = detailData.category || {};
-    const icon = category.icon || '📦';
-    const name = category.name || category.key || '分类明细';
-
-    if (titleEl) {
-        titleEl.textContent = `${icon} ${name} - 分类明细`;
-    }
-
-    if (totalEl) totalEl.textContent = formatMoney(detailData.total_amount ?? 0);
-
-    // 保存完整数据供分页和交互使用
-    currentCategoryDetailData = detailData;
-    categoryDetailCurrentPage = 1;
-
-    if (recordsEl) {
-        renderCategoryDetailRecords();
-    }
-
-    // 先显示模态框，等布局完成后再画图表（避免弹窗未显示时容器宽高为 0，图表挤成一团）
-    modal.classList.add('show');
-
-    const chartDom = document.getElementById('category-detail-chart');
-    if (chartDom && typeof echarts !== 'undefined') {
-        const trend = Array.isArray(detailData.daily_trend) ? detailData.daily_trend : [];
-        const labels = trend.map(item => item.date);
-        const values = trend.map(item => Number(item.amount || 0));
-        const recordsByDate = {};
-        const records = Array.isArray(detailData.records) ? detailData.records : [];
-        records.forEach(r => {
-            const date = r.date || '';
-            if (!recordsByDate[date]) recordsByDate[date] = [];
-            recordsByDate[date].push(r);
-        });
-        function drawCategoryDetailChart() {
-            if (echartsCategoryDetail) echartsCategoryDetail.dispose();
-            echartsCategoryDetail = echarts.init(chartDom, null, getEChartsInitOpts());
-            // 横轴短日期（与收支趋势一致），避免重叠
-            const shortLabels = labels.map(l => {
-                const parts = String(l).split('-');
-                if (parts.length >= 3) return `${parseInt(parts[1], 10)}/${parseInt(parts[2], 10)}`;
-                return l;
-            });
-            const maxVal = values.length ? Math.max(...values) : 0;
-            const yMax = maxVal > 0 ? Math.ceil(maxVal * 1.05) : 100;
-            echartsCategoryDetail.setOption({
-                animation: true,
-                animationDuration: 400,
-                animationEasing: 'cubicOut',
-                grid: { left: '3%', right: '4%', top: '8%', bottom: '12%', containLabel: true },
-                xAxis: { type: 'category', boundaryGap: false, data: shortLabels, axisLabel: { fontSize: 10, color: '#666', interval: 'auto' }, axisLine: { lineStyle: { color: '#e5e7eb' } }, axisTick: { show: false } },
-                yAxis: { type: 'value', min: 0, max: yMax, axisLabel: { fontSize: 10, formatter: v => '¥' + v }, splitLine: { lineStyle: { color: 'rgba(0,0,0,0.05)' } }, axisLine: { show: false }, axisTick: { show: false } },
-                series: [{
-                    type: 'line',
-                    data: values,
-                    smooth: 0.35,
-                    symbol: 'circle',
-                    symbolSize: 8,
-                    lineStyle: { width: 2.5, color: '#ef4444', cap: 'round', join: 'round' },
-                    itemStyle: { color: '#ef4444', borderColor: '#fff', borderWidth: 1 },
-                    areaStyle: { color: 'rgba(239,68,68,0.15)' },
-                    emphasis: { focus: 'self', scale: true, scaleSize: 8, itemStyle: { borderColor: '#fff', borderWidth: 2 } }
-                }],
-                tooltip: {
-                    trigger: 'axis',
-                    backgroundColor: 'rgba(15,23,42,0.9)',
-                    textStyle: { fontSize: 11 },
-                    formatter: function (params) {
-                        if (!params || !params[0]) return '';
-                        const idx = params[0].dataIndex;
-                        const date = labels[idx];
-                        const dayRecords = date && recordsByDate[date] ? recordsByDate[date] : [];
-                        return date + (dayRecords.length ? `<br/>共 ${dayRecords.length} 条记录` : '');
-                    }
-                }
-            });
-            echartsCategoryDetail.off('click');
-            echartsCategoryDetail.on('click', function (params) {
-                const idx = params.dataIndex;
-                const date = labels[idx];
-                if (date && recordsByDate[date]) showDateRecordsInChart(date, recordsByDate[date], category, params.event && params.event.event ? params.event.event : null);
-            });
-        }
-        requestAnimationFrame(function () {
-            requestAnimationFrame(drawCategoryDetailChart);
-        });
-    }
-}
-
-// 渲染分类明细记录列表（支持分页）
-function renderCategoryDetailRecords() {
-    const recordsEl = document.getElementById('category-detail-records');
-    if (!recordsEl || !currentCategoryDetailData) return;
-
-    const records = Array.isArray(currentCategoryDetailData.records) ? currentCategoryDetailData.records : [];
-    const category = currentCategoryDetailData.category || {};
-    const icon = category.icon || '📦';
-    const name = category.name || category.key || '分类';
-
-    if (records.length === 0) {
-        recordsEl.innerHTML = '<div class="analysis-empty-tip">当前时间范围内没有该分类的记录。</div>';
-        return;
-    }
-
-    // 分页计算
-    const totalPages = Math.ceil(records.length / categoryDetailPageSize);
-    const startIndex = (categoryDetailCurrentPage - 1) * categoryDetailPageSize;
-    const endIndex = startIndex + categoryDetailPageSize;
-    const pageRecords = records.slice(startIndex, endIndex);
-
-    // 渲染记录列表
-    const recordsHtml = pageRecords.map(r => {
-        const date = r.date || '';
-        const note = r.note || '';
-        const displayText = note || name; // 没有备注就显示分类名称
-        const amount = Number(r.amount || 0).toFixed(2);
-
-        return `
-            <div class="category-detail-record">
-                <div class="category-detail-record-left">
-                    <div class="category-detail-record-header">
-                        <span class="category-detail-record-icon">${icon}</span>
-                        <span class="category-detail-record-date">${date}</span>
-                    </div>
-                    <div class="category-detail-record-text">${displayText}</div>
-                </div>
-                <div class="category-detail-record-amount">¥${amount}</div>
-            </div>
-        `;
-    }).join('');
-
-    // 分页控件
-    let paginationHtml = '';
-    if (totalPages > 1) {
-        const prevDisabled = categoryDetailCurrentPage === 1 ? 'disabled' : '';
-        const nextDisabled = categoryDetailCurrentPage === totalPages ? 'disabled' : '';
-
-        paginationHtml = `
-            <div class="category-detail-pagination">
-                <button class="category-detail-pagination-btn" ${prevDisabled} onclick="categoryDetailChangePage(${categoryDetailCurrentPage - 1})">
-                    <span>上一页</span>
-                </button>
-                <span class="category-detail-pagination-info">第 ${categoryDetailCurrentPage} / ${totalPages} 页</span>
-                <button class="category-detail-pagination-btn" ${nextDisabled} onclick="categoryDetailChangePage(${categoryDetailCurrentPage + 1})">
-                    <span>下一页</span>
-                </button>
-            </div>
-        `;
-    }
-
-    recordsEl.innerHTML = `
-        <div class="category-detail-records-list">
-            ${recordsHtml}
-        </div>
-        ${paginationHtml}
-    `;
-
-    // 防止滚动穿透：当在表格内滚动时，阻止事件传播到背景页面
-    let touchStartY = 0;
-    let lastScrollTop = recordsEl.scrollTop;
-
-    recordsEl.addEventListener('touchstart', (e) => {
-        touchStartY = e.touches[0].clientY;
-        lastScrollTop = recordsEl.scrollTop;
-    }, { passive: true });
-
-    recordsEl.addEventListener('touchmove', (e) => {
-        const currentY = e.touches[0].clientY;
-        const deltaY = currentY - touchStartY;
-        const { scrollTop, scrollHeight, clientHeight } = recordsEl;
-        const isAtTop = scrollTop === 0;
-        const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1;
-
-        // 如果表格可以滚动，且不在边界处，或者虽然在边界但滚动方向是向内的，都阻止传播
-        if (scrollHeight > clientHeight) {
-            if (!isAtTop && !isAtBottom) {
-                // 在中间位置，完全阻止传播
-                e.stopPropagation();
-            } else if (isAtTop && deltaY > 0) {
-                // 在顶部且向下滑动，阻止传播（防止继续向下滚动背景）
-                e.stopPropagation();
-            } else if (isAtBottom && deltaY < 0) {
-                // 在底部且向上滑动，阻止传播（防止继续向上滚动背景）
-                e.stopPropagation();
-            }
-        } else {
-            // 表格内容不足以滚动，完全阻止传播
-            e.stopPropagation();
-        }
-    }, { passive: false });
-
-    // 鼠标滚轮事件处理（桌面端）
-    recordsEl.addEventListener('wheel', (e) => {
-        const { scrollTop, scrollHeight, clientHeight } = recordsEl;
-        const isAtTop = scrollTop === 0;
-        const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1;
-
-        // 如果表格可以滚动，且不在边界处，或者虽然在边界但滚动方向是向内的，都阻止传播
-        if (scrollHeight > clientHeight) {
-            if (!isAtTop && !isAtBottom) {
-                // 在中间位置，完全阻止传播
-                e.stopPropagation();
-            } else if (isAtTop && e.deltaY < 0) {
-                // 在顶部且向上滚动，阻止传播
-                e.stopPropagation();
-            } else if (isAtBottom && e.deltaY > 0) {
-                // 在底部且向下滚动，阻止传播
-                e.stopPropagation();
-            }
-        } else {
-            // 表格内容不足以滚动，完全阻止传播
-            e.stopPropagation();
-        }
-    }, { passive: false });
-}
-
-// 分类明细分页切换
-function categoryDetailChangePage(page) {
-    if (!currentCategoryDetailData) return;
-    const records = Array.isArray(currentCategoryDetailData.records) ? currentCategoryDetailData.records : [];
-    const totalPages = Math.ceil(records.length / categoryDetailPageSize);
-
-    if (page < 1 || page > totalPages) return;
-
-    categoryDetailCurrentPage = page;
-    renderCategoryDetailRecords();
-
-    // 滚动到列表顶部
-    const recordsEl = document.getElementById('category-detail-records');
-    if (recordsEl) {
-        recordsEl.scrollTop = 0;
-    }
-}
-
-// 在折线图上显示某日的记录（点击或悬停时）
-function showDateRecordsInChart(date, dayRecords, category, event) {
-    if (!dayRecords || dayRecords.length === 0) return;
-
-    const icon = category.icon || '📦';
-    const name = category.name || category.key || '分类';
-
-    // 创建或更新悬浮提示框
-    let tooltipEl = document.getElementById('chart-date-tooltip');
-    if (!tooltipEl) {
-        tooltipEl = document.createElement('div');
-        tooltipEl.id = 'chart-date-tooltip';
-        tooltipEl.className = 'chart-date-tooltip';
-        document.body.appendChild(tooltipEl);
-    }
-
-    const recordsHtml = dayRecords.map(r => {
-        const note = r.note || name;
-        const amount = Number(r.amount || 0).toFixed(2);
-        return `
-            <div class="chart-date-tooltip-record">
-                <span class="chart-date-tooltip-icon">${icon}</span>
-                <span class="chart-date-tooltip-text">${note}</span>
-                <span class="chart-date-tooltip-amount">¥${amount}</span>
-            </div>
-        `;
-    }).join('');
-
-    const totalAmount = dayRecords.reduce((sum, r) => sum + Number(r.amount || 0), 0);
-
-    tooltipEl.innerHTML = `
-        <div class="chart-date-tooltip-header">
-            <span class="chart-date-tooltip-date">${date}</span>
-            <span class="chart-date-tooltip-total">合计: ¥${totalAmount.toFixed(2)}</span>
-        </div>
-        <div class="chart-date-tooltip-records">
-            ${recordsHtml}
-        </div>
-    `;
-
-    tooltipEl.style.display = 'block';
-
-    // 定位提示框（跟随鼠标/触摸位置）
-    if (event) {
-        const x = event.clientX || (event.touches && event.touches[0]?.clientX) || 0;
-        const y = event.clientY || (event.touches && event.touches[0]?.clientY) || 0;
-        const tooltipWidth = tooltipEl.offsetWidth || 280;
-        const tooltipHeight = tooltipEl.offsetHeight || 200;
-        const windowWidth = window.innerWidth;
-        const windowHeight = window.innerHeight;
-
-        let left = x + 10;
-        let top = y + 10;
-
-        // 防止超出右边界
-        if (left + tooltipWidth > windowWidth) {
-            left = x - tooltipWidth - 10;
-        }
-        // 防止超出下边界
-        if (top + tooltipHeight > windowHeight) {
-            top = y - tooltipHeight - 10;
-        }
-        // 防止超出左边界
-        if (left < 0) {
-            left = 10;
-        }
-        // 防止超出上边界
-        if (top < 0) {
-            top = 10;
-        }
-
-        tooltipEl.style.left = `${left}px`;
-        tooltipEl.style.top = `${top}px`;
-    }
-
-    // 清除之前的自动隐藏定时器
-    clearTimeout(window.chartTooltipTimeout);
-    // 触摸时延长显示时间
-    const timeout = event && (event.type === 'touchstart' || event.type === 'touchmove') ? 5000 : 3000;
-    window.chartTooltipTimeout = setTimeout(() => {
-        if (tooltipEl) {
-            tooltipEl.style.display = 'none';
-        }
-    }, timeout);
 }
 
 // 自定义键盘相关变量
@@ -1446,21 +988,6 @@ function bindEvents() {
             closeModal();
         }
     });
-
-    // 分类明细模态框：点击遮罩关闭
-    const categoryDetailModal = document.getElementById('category-detail-modal');
-    if (categoryDetailModal) {
-        categoryDetailModal.addEventListener('click', (e) => {
-            if (e.target.id === 'category-detail-modal') closeModal();
-        });
-    }
-    // 「其他」明细弹窗：点击遮罩关闭
-    const othersDetailModal = document.getElementById('others-detail-modal');
-    if (othersDetailModal) {
-        othersDetailModal.addEventListener('click', (e) => {
-            if (e.target.id === 'others-detail-modal') closeModal();
-        });
-    }
 
     // 编辑表单
     document.getElementById('edit-form').addEventListener('submit', handleUpdateRecord);
@@ -1885,510 +1412,18 @@ async function loadStatistics() {
 }
 
 
-// 更新折线图（收支趋势）- ECharts SVG 渲染，移动端清晰
-// 获取某日的记录并按分类分组
-let dailyRecordsCache = {}; // 缓存每日记录数据
-let preloadPromise = null; // 预加载Promise，避免重复预加载
-
-// 预加载所有日期的分类数据
-async function preloadDailyCategoryData(dailyStats) {
-    if (!dailyStats || dailyStats.length === 0) return;
-
-    // 如果正在预加载，等待完成
-    if (preloadPromise) {
-        await preloadPromise;
-        return;
-    }
-
-    // 开始预加载
-    preloadPromise = (async () => {
-        const dates = dailyStats.map(d => d.date);
-        const uncachedDates = dates.filter(date => !dailyRecordsCache[date]);
-
-        if (uncachedDates.length === 0) {
-            preloadPromise = null;
-            return; // 所有数据都已缓存
-        }
-
-        // 批量查询（每次查询一个日期，但并发执行）
-        const promises = uncachedDates.map(date => getDailyRecordsByCategory(date, false));
-
-        try {
-            await Promise.all(promises);
-        } catch (error) {
-            console.error('预加载分类数据失败:', error);
-        }
-
-        preloadPromise = null;
-    })();
-
-    // 不等待预加载完成，让它在后台执行
-    preloadPromise.catch(() => {
-        preloadPromise = null;
-    });
-}
-
-async function getDailyRecordsByCategory(date, useCache = true) {
-    // 检查缓存
-    if (useCache && dailyRecordsCache[date]) {
-        return dailyRecordsCache[date];
-    }
-
-    try {
-        const response = await authFetch(`${API_BASE}/records?start_date=${date}&end_date=${date}&per_page=1000`);
-        const data = await response.json();
-        const records = data.records || [];
-
-        // 按分类分组
-        const categoryGroups = {};
-        records.forEach(record => {
-            const categoryName = record.category || '未分类';
-            if (!categoryGroups[categoryName]) {
-                categoryGroups[categoryName] = {
-                    name: categoryName,
-                    icon: '📦',
-                    color: '#C7CEEA',
-                    amount: 0,
-                    count: 0,
-                    type: record.type
-                };
-
-                // 查找分类信息
-                const allCategories = [...categories.expense, ...categories.income];
-                const categoryInfo = allCategories.find(c => c.name === categoryName || c.id === categoryName);
-                if (categoryInfo) {
-                    categoryGroups[categoryName].icon = categoryInfo.icon || '📦';
-                    categoryGroups[categoryName].color = categoryInfo.color || '#C7CEEA';
-                }
-            }
-            categoryGroups[categoryName].amount += Number(record.amount || 0);
-            categoryGroups[categoryName].count += 1;
-        });
-
-        // 转换为数组并排序
-        const result = Object.values(categoryGroups).sort((a, b) => b.amount - a.amount);
-
-        // 缓存结果（5分钟过期）
-        dailyRecordsCache[date] = result;
-        setTimeout(() => {
-            delete dailyRecordsCache[date];
-        }, 5 * 60 * 1000);
-
-        return result;
-    } catch (error) {
-        console.error('获取每日记录失败:', error);
-        return [];
-    }
-}
-
-// 显示日期详情 tooltip
-let currentTooltipData = null;
-let hideOnOutsideClickHandler = null;
-let tooltipAnimationFrame = null;
-let isTouchMoving = false; // 标记是否正在触摸移动
-function showDateDetailTooltip(date, categoryGroups, event) {
-    if (!categoryGroups || categoryGroups.length === 0) {
-        hideDateDetailTooltip();
-        return;
-    }
-
-    // 取消之前的动画
-    if (tooltipAnimationFrame) {
-        cancelAnimationFrame(tooltipAnimationFrame);
-    }
-
-    // 创建或获取 tooltip 元素
-    let tooltipEl = document.getElementById('date-detail-tooltip');
-    const isNewTooltip = !tooltipEl;
-    if (!tooltipEl) {
-        tooltipEl = document.createElement('div');
-        tooltipEl.id = 'date-detail-tooltip';
-        tooltipEl.className = 'date-detail-tooltip';
-        document.body.appendChild(tooltipEl);
-    }
-
-    // 保存数据
-    currentTooltipData = {
-        date: date,
-        categoryGroups: categoryGroups
-    };
-    // 计算总收入和总支出
-    let totalIncome = 0;
-    let totalExpense = 0;
-    categoryGroups.forEach(group => {
-        if (group.type === 'income') {
-            totalIncome += group.amount;
-        } else {
-            totalExpense += group.amount;
-        }
-    });
-
-    // 格式化日期显示
-    const dateObj = new Date(date);
-    const month = dateObj.getMonth() + 1;
-    const day = dateObj.getDate();
-    const dateStr = `${month}月${day}日`;
-
-    // 先移除旧的事件监听器（通过克隆节点）
-    const oldTooltipEl = tooltipEl;
-    const newTooltipEl = tooltipEl.cloneNode(false); // 只克隆节点本身，不克隆内容
-    oldTooltipEl.parentNode.replaceChild(newTooltipEl, oldTooltipEl);
-    tooltipEl = newTooltipEl;
-
-    // 渲染 tooltip 内容
-    renderTooltipContent(tooltipEl, dateStr, totalIncome, totalExpense, categoryGroups);
-
-    // 定位 tooltip（触摸移动时不使用平滑动画，直接跟随）
-    if (event) {
-        const x = event.clientX || (event.touches && event.touches[0]?.clientX) || 0;
-        const y = event.clientY || (event.touches && event.touches[0]?.clientY) || 0;
-        if (x > 0 && y > 0) {
-            // 如果是触摸移动，不使用平滑动画，直接定位
-            if (isTouchMoving) {
-                positionTooltipInstant(tooltipEl, x, y, isNewTooltip);
-            } else {
-                positionTooltipSmooth(tooltipEl, x, y, isNewTooltip);
-            }
-        } else {
-            // 如果坐标无效，使用默认位置
-            showTooltipSmooth(tooltipEl, '50%', '50%', 'translate(-50%, -50%)', isNewTooltip);
-        }
-    } else {
-        showTooltipSmooth(tooltipEl, '50%', '50%', 'translate(-50%, -50%)', isNewTooltip);
-    }
-
-    // 绑定点击事件
-    tooltipEl.addEventListener('click', handleTooltipClick);
-
-    // 点击外部区域隐藏 tooltip
-    if (hideOnOutsideClickHandler) {
-        document.removeEventListener('click', hideOnOutsideClickHandler);
-        document.removeEventListener('touchstart', hideOnOutsideClickHandler);
-    }
-
-    hideOnOutsideClickHandler = (e) => {
-        if (tooltipEl && !tooltipEl.contains(e.target)) {
-            // 检查是否点击的是图表区域
-            const chartDom = document.getElementById('line-chart');
-            if (chartDom && chartDom.contains(e.target)) {
-                return; // 点击图表区域不隐藏
-            }
-            hideDateDetailTooltip();
-        }
-    };
-
-    // 延迟绑定，避免立即触发
-    setTimeout(() => {
-        document.addEventListener('click', hideOnOutsideClickHandler);
-        document.addEventListener('touchstart', hideOnOutsideClickHandler);
-    }, 100);
-
-    // 清除之前的自动隐藏定时器
-    clearTimeout(window.dateDetailTooltipTimeout);
-    window.dateDetailTooltipTimeout = setTimeout(() => {
-        hideDateDetailTooltip();
-    }, 8000);
-}
-
-// 渲染 tooltip 内容 - 显示所有分类（带平滑动画）
-function renderTooltipContent(tooltipEl, dateStr, totalIncome, totalExpense, categoryGroups) {
-    // 检查是否是内容更新（tooltip已存在且有内容）
-    const isUpdate = tooltipEl.innerHTML.trim().length > 0;
-
-    // 生成所有分类的HTML
-    const categoriesHtml = categoryGroups.map((category, index) => {
-        const typeLabel = category.type === 'income' ? '收入' : '支出';
-        const delay = isUpdate ? 0 : index * 0.02; // 更新时不延迟，新显示时错开
-        return `
-            <div class="date-detail-tooltip-category-item" style="border-left-color: ${category.color}; animation-delay: ${delay}s;">
-                <span class="date-detail-tooltip-category-icon">${category.icon}</span>
-                <span class="date-detail-tooltip-category-name">${category.name}</span>
-                <span class="date-detail-tooltip-category-type">${typeLabel}</span>
-                <span class="date-detail-tooltip-category-amount">${formatMoney(category.amount)}</span>
-                <span class="date-detail-tooltip-category-count">(${category.count}条)</span>
-            </div>
-        `;
-    }).join('');
-
-    // 如果是在更新内容，先淡出再淡入
-    if (isUpdate) {
-        tooltipEl.style.transition = 'opacity 0.1s ease';
-        tooltipEl.style.opacity = '0.7';
-
-        requestAnimationFrame(() => {
-            tooltipEl.innerHTML = `
-                <div class="date-detail-tooltip-header">
-                    <span class="date-detail-tooltip-date">${dateStr}</span>
-                    <div class="date-detail-tooltip-totals">
-                        ${totalIncome > 0 ? `<span class="date-detail-tooltip-total income">收入: ${formatMoney(totalIncome)}</span>` : ''}
-                        ${totalExpense > 0 ? `<span class="date-detail-tooltip-total expense">支出: ${formatMoney(totalExpense)}</span>` : ''}
-                    </div>
-                </div>
-                <div class="date-detail-tooltip-categories">
-                    ${categoriesHtml}
-                </div>
-                <div class="date-detail-tooltip-footer">
-                    <span class="date-detail-tooltip-click-hint">点击查看详细记录</span>
-                </div>
-            `;
-
-            requestAnimationFrame(() => {
-                tooltipEl.style.opacity = '1';
-            });
-        });
-    } else {
-        // 新内容直接设置
-        tooltipEl.innerHTML = `
-            <div class="date-detail-tooltip-header">
-                <span class="date-detail-tooltip-date">${dateStr}</span>
-                <div class="date-detail-tooltip-totals">
-                    ${totalIncome > 0 ? `<span class="date-detail-tooltip-total income">收入: ${formatMoney(totalIncome)}</span>` : ''}
-                    ${totalExpense > 0 ? `<span class="date-detail-tooltip-total expense">支出: ${formatMoney(totalExpense)}</span>` : ''}
-                </div>
-            </div>
-            <div class="date-detail-tooltip-categories">
-                ${categoriesHtml}
-            </div>
-            <div class="date-detail-tooltip-footer">
-                <span class="date-detail-tooltip-click-hint">点击查看详细记录</span>
-            </div>
-        `;
-    }
-}
-
-// 平滑显示 tooltip
-function showTooltipSmooth(tooltipEl, left, top, transform, isNew) {
-    // 先设置位置但不显示
-    tooltipEl.style.left = left;
-    tooltipEl.style.top = top;
-    tooltipEl.style.transform = transform || 'none';
-    tooltipEl.style.display = 'block';
-    tooltipEl.style.opacity = '0';
-    tooltipEl.style.visibility = 'visible';
-
-    // 如果是新 tooltip，添加缩放效果
-    if (isNew) {
-        tooltipEl.style.transform = `${transform || 'none'} scale(0.9)`;
-    }
-
-    // 使用 requestAnimationFrame 确保样式已应用
-    tooltipAnimationFrame = requestAnimationFrame(() => {
-        // 触发重排
-        tooltipEl.offsetHeight;
-
-        // 平滑显示
-        tooltipEl.style.transition = 'opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)';
-        tooltipEl.style.opacity = '1';
-        if (isNew) {
-            tooltipEl.style.transform = transform || 'none';
-        }
-    });
-}
-
-// 立即定位 tooltip（无动画，用于触摸移动时跟随手指）
-function positionTooltipInstant(tooltipEl, x, y, isNew) {
-    // 先显示以便计算尺寸
-    tooltipEl.style.visibility = 'hidden';
-    tooltipEl.style.display = 'block';
-    tooltipEl.style.opacity = '1';
-    
-    // 使用平滑过渡，但时间很短，让跟随更流畅
-    tooltipEl.style.transition = 'left 0.08s cubic-bezier(0.25, 0.46, 0.45, 0.94), top 0.08s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
-
-    tooltipAnimationFrame = requestAnimationFrame(() => {
-        const tooltipWidth = tooltipEl.offsetWidth || 240;
-        const tooltipHeight = tooltipEl.offsetHeight || 200;
-        const windowWidth = window.innerWidth;
-        const windowHeight = window.innerHeight;
-
-        // 默认显示在触摸点上方（防止手挡住）
-        let left = x + 15;
-        let top = y - tooltipHeight - 20; // 默认在上方，留出20px间距
-
-        // 防止超出右边界
-        if (left + tooltipWidth > windowWidth - 10) {
-            left = x - tooltipWidth - 15;
-        }
-        // 如果上方空间不足，显示在下方
-        if (top < 10) {
-            top = y + 20; // 显示在下方，留出20px间距
-        }
-        // 防止超出下边界
-        if (top + tooltipHeight > windowHeight - 10) {
-            top = windowHeight - tooltipHeight - 10;
-        }
-        // 防止超出左边界
-        if (left < 10) {
-            left = 10;
-        }
-
-        // 设置新位置，使用平滑过渡
-        tooltipEl.style.left = `${left}px`;
-        tooltipEl.style.top = `${top}px`;
-        tooltipEl.style.transform = 'none';
-        tooltipEl.style.visibility = 'visible';
-        tooltipEl.style.opacity = '1';
-    });
-}
-
-// 平滑定位 tooltip
-function positionTooltipSmooth(tooltipEl, x, y, isNew) {
-    // 先显示以便计算尺寸
-    tooltipEl.style.visibility = 'hidden';
-    tooltipEl.style.display = 'block';
-    tooltipEl.style.opacity = '0';
-    
-    // 临时位置，用于计算
-    tooltipEl.style.left = `${x + 15}px`;
-    tooltipEl.style.top = `${y + 15}px`;
-
-    // 如果是新 tooltip，添加缩放效果
-    if (isNew) {
-        tooltipEl.style.transform = 'scale(0.9)';
-    }
-
-    tooltipAnimationFrame = requestAnimationFrame(() => {
-        const tooltipWidth = tooltipEl.offsetWidth || 240;
-        const tooltipHeight = tooltipEl.offsetHeight || 200;
-        const windowWidth = window.innerWidth;
-        const windowHeight = window.innerHeight;
-
-        // 默认显示在触摸点上方（防止手挡住）
-        let left = x + 15;
-        let top = y - tooltipHeight - 20; // 默认在上方，留出20px间距
-
-        // 防止超出右边界
-        if (left + tooltipWidth > windowWidth - 10) {
-            left = x - tooltipWidth - 15;
-        }
-        // 如果上方空间不足，显示在下方
-        if (top < 10) {
-            top = y + 20; // 显示在下方，留出20px间距
-        }
-        // 防止超出下边界
-        if (top + tooltipHeight > windowHeight - 10) {
-            top = windowHeight - tooltipHeight - 10;
-        }
-        // 防止超出左边界
-        if (left < 10) {
-            left = 10;
-        }
-
-        // 获取当前位置（如果已存在）
-        const currentLeft = tooltipEl.style.left ? parseFloat(tooltipEl.style.left) : left;
-        const currentTop = tooltipEl.style.top ? parseFloat(tooltipEl.style.top) : top;
-
-        // 计算位置变化
-        const deltaX = Math.abs(left - currentLeft);
-        const deltaY = Math.abs(top - currentTop);
-
-        // 设置新位置
-        tooltipEl.style.left = `${left}px`;
-        tooltipEl.style.top = `${top}px`;
-        tooltipEl.style.transform = 'none';
-        tooltipEl.style.visibility = 'visible';
-
-        // 根据移动距离调整过渡时间，使用更流畅的缓动函数
-        const maxDelta = Math.max(deltaX, deltaY);
-        let transitionDuration = '0.15s';
-        if (maxDelta > 50) {
-            transitionDuration = '0.2s';
-        } else if (maxDelta > 20) {
-            transitionDuration = '0.18s';
-        } else if (maxDelta > 5) {
-            transitionDuration = '0.15s';
-        } else {
-            transitionDuration = '0.12s';
-        }
-
-        // 使用更流畅的缓动函数，让动画更丝滑
-        tooltipEl.style.transition = `opacity ${transitionDuration} cubic-bezier(0.25, 0.46, 0.45, 0.94), transform ${transitionDuration} cubic-bezier(0.25, 0.46, 0.45, 0.94), left ${transitionDuration} cubic-bezier(0.25, 0.46, 0.45, 0.94), top ${transitionDuration} cubic-bezier(0.25, 0.46, 0.45, 0.94)`;
-
-        // 触发重排后显示
-        requestAnimationFrame(() => {
-            tooltipEl.style.opacity = '1';
-            if (isNew) {
-                tooltipEl.style.transform = 'scale(1)';
-            }
-        });
-    });
-}
-
-// 处理 tooltip 点击事件
-function handleTooltipClick(e) {
-    if (!currentTooltipData) return;
-
-    // 将该日期写入记录列表内部筛选
-    const date = currentTooltipData.date;
-    recordsFilterStartDate = date;
-    recordsFilterEndDate = date;
-
-    // 切换到记录列表标签页
-    switchMainTab('records');
-
-    // 加载该日期的记录
-    loadRecords(1);
-
-    // 格式化日期显示
-    const dateObj = new Date(date);
-    const month = dateObj.getMonth() + 1;
-    const day = dateObj.getDate();
-    showMessage(`已筛选 ${month}月${day}日 的记录`, 'info');
-
-
-    // 隐藏 tooltip
-    hideDateDetailTooltip();
-}
-
-// 隐藏日期详情 tooltip（平滑隐藏）
-function hideDateDetailTooltip() {
-    const tooltipEl = document.getElementById('date-detail-tooltip');
-    if (tooltipEl) {
-        // 取消之前的动画
-        if (tooltipAnimationFrame) {
-            cancelAnimationFrame(tooltipAnimationFrame);
-        }
-
-        // 平滑隐藏
-        tooltipEl.style.transition = 'opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), transform 0.15s cubic-bezier(0.4, 0, 0.2, 1)';
-        tooltipEl.style.opacity = '0';
-        tooltipEl.style.transform = 'scale(0.95)';
-
-        // 动画完成后隐藏
-        setTimeout(() => {
-            if (tooltipEl && tooltipEl.style.opacity === '0') {
-                tooltipEl.style.display = 'none';
-                tooltipEl.style.transition = '';
-            }
-        }, 150);
-    }
-    currentTooltipData = null;
-    clearTimeout(window.dateDetailTooltipTimeout);
-
-    // 移除外部点击监听器
-    if (hideOnOutsideClickHandler) {
-        document.removeEventListener('click', hideOnOutsideClickHandler);
-        document.removeEventListener('touchstart', hideOnOutsideClickHandler);
-        hideOnOutsideClickHandler = null;
-    }
-}
-
 async function updateLineChart(dailyStats) {
     if (typeof echarts === 'undefined') {
         setChartPlaceholder('line-chart', '图表加载失败，请刷新页面', true);
         return;
     }
     currentDailyStats = dailyStats || [];
-    dailyRecordsCache = {};
 
     if (!dailyStats || dailyStats.length === 0) {
         if (echartsLine) { echartsLine.dispose(); echartsLine = null; }
         setChartPlaceholder('line-chart', '暂无数据');
         return;
     }
-
-    // 提前预加载所有日期的分类数据
-    preloadDailyCategoryData(dailyStats);
 
     if (echartsLine) echartsLine.dispose();
 
@@ -2500,249 +1535,6 @@ function continueLineChartSetup(emphasisConfig) {
         setChartPlaceholder('line-chart', '图表加载失败，请刷新页面', true);
         return;
     }
-
-    // 添加鼠标移动事件（桌面端）- 精确计算每一天
-    let lastMouseIndex = -1;
-    let mouseMoveTimer = null;
-
-    // 根据鼠标X坐标精确计算日期索引
-    function getDataIndexFromMouseX(x, chartDom) {
-        if (!chartDom || !currentDailyStats || currentDailyStats.length === 0) return -1;
-
-        try {
-            // 使用 ECharts 的 convertFromPixel 方法
-            const point = echartsLine.convertFromPixel({ seriesIndex: 0 }, [x, 0]);
-            if (point && point[0] !== undefined) {
-                const idx = Math.round(point[0]);
-                if (idx >= 0 && idx < currentDailyStats.length) {
-                    return idx;
-                }
-            }
-        } catch (e) {
-            // 如果转换失败，根据图表宽度和X坐标计算
-            const rect = chartDom.getBoundingClientRect();
-            const relativeX = x - rect.left;
-            const chartWidth = rect.width;
-            const dataLength = currentDailyStats.length;
-
-            if (dataLength > 0 && chartWidth > 0) {
-                // 考虑图表的 padding，grid 配置是 left: '8%', right: '8%'
-                const effectiveWidth = chartWidth * 0.84; // 减去左右边距
-                const effectiveX = relativeX - chartWidth * 0.08; // 减去左边距
-                const ratio = Math.max(0, Math.min(1, effectiveX / effectiveWidth));
-                const idx = Math.round(ratio * (dataLength - 1));
-                if (idx >= 0 && idx < dataLength) {
-                    return idx;
-                }
-            }
-        }
-        return -1;
-    }
-
-    echartsLine.off('mousemove');
-    echartsLine.on('mousemove', async function (params) {
-        if (!params || !params.event) {
-            hideDateDetailTooltip();
-            return;
-        }
-
-        // 获取鼠标的实际X坐标
-        let mouseX = 0;
-        if (params.event.event) {
-            mouseX = params.event.event.clientX;
-        } else if (params.event.originalEvent) {
-            mouseX = params.event.originalEvent.clientX;
-        } else if (params.event.clientX !== undefined) {
-            mouseX = params.event.clientX;
-        }
-
-        // 如果无法获取X坐标，尝试使用 dataIndex
-        let idx = -1;
-        if (mouseX > 0) {
-            idx = getDataIndexFromMouseX(mouseX, dom);
-        }
-
-        // 如果还是无法获取，使用 params.dataIndex（可能为 undefined）
-        if (idx < 0 && params.dataIndex !== undefined) {
-            idx = params.dataIndex;
-        }
-
-        if (idx < 0 || idx >= currentDailyStats.length) {
-            hideDateDetailTooltip();
-            return;
-        }
-
-        // 如果索引没变化，不重复加载
-        if (lastMouseIndex === idx) return;
-        lastMouseIndex = idx;
-
-        // 防抖，避免频繁更新
-        if (mouseMoveTimer) {
-            clearTimeout(mouseMoveTimer);
-        }
-
-        mouseMoveTimer = setTimeout(() => {
-            const date = currentDailyStats[idx].date;
-            // 直接从缓存获取，不需要等待
-            const categoryGroups = dailyRecordsCache[date] || [];
-            // 获取鼠标事件对象
-            let ev = null;
-            if (params.event) {
-                if (params.event.event) {
-                    ev = params.event.event;
-                } else if (params.event.originalEvent) {
-                    ev = params.event.originalEvent;
-                } else {
-                    ev = params.event;
-                }
-            }
-            showDateDetailTooltip(date, categoryGroups, ev);
-        }, 16); // 减少防抖时间到16ms（约60fps），让响应更灵敏
-    });
-
-    // 鼠标离开图表时隐藏 tooltip
-    echartsLine.off('mouseout');
-    echartsLine.on('mouseout', function () {
-        hideDateDetailTooltip();
-        lastMouseIndex = -1;
-    });
-
-    // 添加触摸移动事件（移动端）
-    let touchMoveTimer = null;
-    let lastTouchIndex = -1;
-
-    // 获取触摸点对应的数据索引（精确计算每一天）
-    function getTouchDataIndex(touch) {
-        const rect = dom.getBoundingClientRect();
-        const x = touch.clientX - rect.left;
-        const y = touch.clientY - rect.top;
-
-        // 使用 ECharts 的 convertFromPixel 方法
-        try {
-            const point = echartsLine.convertFromPixel({ seriesIndex: 0 }, [x, y]);
-            if (point && point[0] !== undefined) {
-                const idx = Math.round(point[0]);
-                if (idx >= 0 && idx < currentDailyStats.length) {
-                    return idx;
-                }
-            }
-        } catch (e) {
-            // 如果转换失败，根据图表宽度和X坐标精确计算
-            const chartWidth = rect.width;
-            const dataLength = currentDailyStats.length;
-            if (dataLength > 0 && chartWidth > 0) {
-                // 考虑图表的 padding，grid 配置是 left: '8%', right: '8%'
-                const effectiveWidth = chartWidth * 0.84; // 减去左右边距
-                const effectiveX = x - chartWidth * 0.08; // 减去左边距
-                const ratio = Math.max(0, Math.min(1, effectiveX / effectiveWidth));
-                const idx = Math.round(ratio * (dataLength - 1));
-                if (idx >= 0 && idx < dataLength) {
-                    return idx;
-                }
-            }
-        }
-        return -1;
-    }
-
-    let touchStartX = 0;
-    let touchStartY = 0;
-    let isHorizontalSwipe = false;
-
-    dom.addEventListener('touchstart', function (e) {
-        const touch = e.touches[0];
-        touchStartX = touch.clientX;
-        touchStartY = touch.clientY;
-        isHorizontalSwipe = false;
-        isTouchMoving = false; // 触摸开始时重置标记
-
-        const idx = getTouchDataIndex(touch);
-        if (idx >= 0) {
-            lastTouchIndex = idx;
-            // 立即显示，因为数据已经在缓存中
-            const date = currentDailyStats[idx].date;
-            const categoryGroups = dailyRecordsCache[date] || [];
-            if (categoryGroups.length > 0) {
-                showDateDetailTooltip(date, categoryGroups, e);
-            }
-        }
-    }, { passive: true });
-
-    dom.addEventListener('touchmove', function (e) {
-        const touch = e.touches[0];
-        const deltaX = Math.abs(touch.clientX - touchStartX);
-        const deltaY = Math.abs(touch.clientY - touchStartY);
-
-        // 判断是否为水平滑动（水平距离大于垂直距离的1.5倍）
-        if (deltaX > deltaY * 1.5 && deltaX > 10) {
-            isHorizontalSwipe = true;
-            isTouchMoving = true; // 标记正在触摸移动
-            e.preventDefault(); // 只阻止水平滑动的默认行为
-
-            const idx = getTouchDataIndex(touch);
-            if (idx >= 0 && idx !== lastTouchIndex) {
-                lastTouchIndex = idx;
-
-                // 数据变化时，使用平滑定位更新内容
-                const date = currentDailyStats[idx].date;
-                const categoryGroups = dailyRecordsCache[date] || [];
-                if (categoryGroups.length > 0) {
-                    showDateDetailTooltip(date, categoryGroups, e);
-                }
-            } else if (idx >= 0) {
-                // 即使索引没变化，也要更新位置，让tooltip流畅跟随手指
-                const tooltipEl = document.getElementById('date-detail-tooltip');
-                if (tooltipEl && tooltipEl.style.display !== 'none') {
-                    const x = touch.clientX;
-                    const y = touch.clientY;
-                    // 使用即时定位，但保持平滑过渡效果
-                    positionTooltipInstant(tooltipEl, x, y, false);
-                }
-            }
-        }
-        // 如果是垂直滑动，不阻止默认行为，允许页面滚动
-    }, { passive: false });
-
-    dom.addEventListener('touchend', function () {
-        isTouchMoving = false; // 触摸结束，重置标记
-        if (touchMoveTimer) {
-            clearTimeout(touchMoveTimer);
-            touchMoveTimer = null;
-        }
-        lastTouchIndex = -1;
-        // 延迟隐藏，给用户时间查看
-        setTimeout(() => {
-            hideDateDetailTooltip();
-        }, 3000);
-    }, { passive: true });
-
-    // 添加点击事件（跳转到详细记录）
-    echartsLine.off('click');
-    echartsLine.on('click', async function (params) {
-        const idx = params.dataIndex;
-        if (!currentDailyStats || idx < 0 || idx >= currentDailyStats.length) return;
-        const date = currentDailyStats[idx].date;
-
-        // 将该日期写入记录列表内部筛选
-        recordsFilterStartDate = date;
-        recordsFilterEndDate = date;
-
-
-        // 切换到记录列表标签页
-        switchMainTab('records');
-
-        // 加载该日期的记录
-        loadRecords(1);
-
-        // 格式化日期显示
-        const dateObj = new Date(date);
-        const month = dateObj.getMonth() + 1;
-        const day = dateObj.getDate();
-        showMessage(`已筛选 ${month}月${day}日 的记录`, 'info');
-
-
-        // 隐藏 tooltip
-        hideDateDetailTooltip();
-    });
 }
 
 // 更新饼图（支出分类）- ECharts SVG 渲染，移动端清晰
@@ -2788,22 +1580,7 @@ async function updatePieChart(categoryStats) {
                 itemStyle: { borderColor: '#fff', borderWidth: 2 },
                 emphasis: { scale: true, scaleSize: 6, itemStyle: { borderColor: '#fff', borderWidth: 2, shadowBlur: 10, shadowOffsetY: 3 } }
             }],
-            tooltip: {
-                trigger: 'item',
-                backgroundColor: 'rgba(0,0,0,0.85)',
-                borderColor: 'rgba(255,255,255,0.1)',
-                textStyle: { fontSize: 12 },
-                formatter: function (params) {
-                    const val = params.value;
-                    const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
-                    return `${params.name}<br/>金额: ¥${val.toFixed(2)} (${pct}%)<br/>总计: ¥${total.toFixed(2)}`;
-                }
-            }
-        });
-        echartsPie.off('click');
-        echartsPie.on('click', function (params) {
-            const item = params.data;
-            if (item && item._isOther && item._others && item._others.length > 0) openOthersDetailModal(item._others, total);
+            tooltip: { show: false }
         });
     } catch (error) {
         console.error('初始化饼图失败:', error);
@@ -2811,34 +1588,121 @@ async function updatePieChart(categoryStats) {
     }
 }
 
-// 加载记录列表
+// 加载记录列表（支持无限滚动：第1页替换，后续页追加）
 async function loadRecords(page = 1) {
+    const listEl = document.getElementById('records-list');
+    const paginationEl = document.getElementById('pagination');
+    if (!listEl) return;
+
+    const isFirstPage = page === 1;
+    if (isFirstPage) {
+        currentPage = 0;
+        totalPagesRecords = 0;
+        listEl.innerHTML = '<div class="records-loading-inline">加载中...</div>';
+        if (paginationEl) paginationEl.innerHTML = '';
+        destroyRecordsScrollObserver();
+    } else {
+        if (isLoadingRecords) return;
+        if (page > totalPagesRecords && totalPagesRecords > 0) return;
+        updateRecordsFooter(true, false);
+    }
+
+    isLoadingRecords = true;
     try {
-        let url = `${API_BASE}/records?page=${page}&per_page=100`;
-        // 内部日期筛选（从图表/tooltip 点击带入）
-        if (recordsFilterStartDate) {
-            url += `&start_date=${encodeURIComponent(recordsFilterStartDate)}`;
-        }
-        if (recordsFilterEndDate) {
-            url += `&end_date=${encodeURIComponent(recordsFilterEndDate)}`;
-        }
-        // 搜索关键字（名称 / 金额）
+        let url = `${API_BASE}/records?page=${page}&per_page=${RECORDS_PER_PAGE}`;
+        if (recordsFilterStartDate) url += `&start_date=${encodeURIComponent(recordsFilterStartDate)}`;
+        if (recordsFilterEndDate) url += `&end_date=${encodeURIComponent(recordsFilterEndDate)}`;
         const recordsSearchInput = document.getElementById('records-search-input');
         const keyword = recordsSearchInput ? recordsSearchInput.value.trim() : '';
-        if (keyword) {
-            const encoded = encodeURIComponent(keyword);
-            url += `&q=${encoded}`;
-        }
+        if (keyword) url += `&q=${encodeURIComponent(keyword)}`;
 
         const response = await authFetch(url);
         const data = await response.json();
 
-        currentPage = page;
-        renderRecords(data.records);
-        renderPagination(data.page, data.pages);
+        currentPage = data.page;
+        totalPagesRecords = data.pages || 0;
+        const hasMore = currentPage < totalPagesRecords;
+
+        if (isFirstPage) {
+            renderRecords(data.records);
+            const isEmpty = !data.records || data.records.length === 0;
+            appendRecordsFooterAndSentinel(hasMore, isEmpty);
+            setupRecordsScrollObserver(hasMore);
+        } else {
+            appendRecords(data.records);
+            updateRecordsFooter(false, hasMore);
+        }
     } catch (error) {
         console.error('加载记录失败:', error);
-        document.getElementById('records-list').innerHTML = '<div class="loading">加载失败，请刷新重试</div>';
+        if (isFirstPage) {
+            listEl.innerHTML = '<div class="loading">加载失败，请刷新重试</div>';
+        }
+        updateRecordsFooter(false, true);
+    } finally {
+        isLoadingRecords = false;
+    }
+}
+
+// 底部占位：加载中 / 没有更多 / 哨兵（用于提前触发下一页）
+function appendRecordsFooterAndSentinel(hasMore, isEmptyList) {
+    const listEl = document.getElementById('records-list');
+    if (!listEl) return;
+    let footer = listEl.querySelector('.records-list-footer');
+    if (!footer) {
+        footer = document.createElement('div');
+        footer.className = 'records-list-footer';
+        listEl.appendChild(footer);
+    }
+    if (isEmptyList) {
+        footer.innerHTML = '';
+    } else {
+        footer.innerHTML = hasMore ? '' : '<div class="records-list-end">— 没有更多了 —</div>';
+    }
+    let sentinel = listEl.querySelector('.records-list-sentinel');
+    if (!sentinel) {
+        sentinel = document.createElement('div');
+        sentinel.className = 'records-list-sentinel';
+        sentinel.setAttribute('aria-hidden', 'true');
+        listEl.appendChild(sentinel);
+    }
+}
+
+function updateRecordsFooter(loading, hasMore) {
+    const listEl = document.getElementById('records-list');
+    if (!listEl) return;
+    let footer = listEl.querySelector('.records-list-footer');
+    if (!footer) return;
+    if (loading) {
+        footer.innerHTML = '<div class="records-loading-inline">加载中...</div>';
+    } else {
+        footer.innerHTML = hasMore ? '' : '<div class="records-list-end">— 没有更多了 —</div>';
+        if (!hasMore) destroyRecordsScrollObserver();
+    }
+}
+
+function setupRecordsScrollObserver(hasMore) {
+    destroyRecordsScrollObserver();
+    if (!hasMore) return;
+    const listEl = document.getElementById('records-list');
+    const sentinel = listEl && listEl.querySelector('.records-list-sentinel');
+    if (!sentinel) return;
+    // 提前约 400px 触发加载，实现无感提前加载
+    recordsScrollObserver = new IntersectionObserver(
+        (entries) => {
+            const entry = entries[0];
+            if (!entry || !entry.isIntersecting || isLoadingRecords) return;
+            if (currentPage >= totalPagesRecords) return;
+            loadRecords(currentPage + 1);
+        },
+        { root: null, rootMargin: '400px 0px 0px 0px', threshold: 0 }
+    );
+    recordsScrollObserver.observe(sentinel);
+}
+
+function destroyRecordsScrollObserver() {
+    if (recordsScrollObserver) {
+        recordsScrollObserver.disconnect();
+        recordsScrollObserver = null;
     }
 }
 
@@ -2921,33 +1785,7 @@ function renderRecords(records) {
 
         // 添加该日期的所有记录
         dateRecords.forEach(record => {
-            // 查找分类（支持ID和名称匹配）
-            const category = [...categories.expense, ...categories.income].find(
-                c => (c.id && c.id.toString() === record.category) || c.name === record.category
-            );
-            const icon = category?.icon || '📦';
-            const name = category?.name || record.category;
-            const typeClass = record.type === 'income' ? 'income' : 'expense';
-
-            // 如果有备注，显示备注；否则显示类别
-            const displayName = record.note ? escapeHtml(record.note) : name;
-
-            html += `
-                <div class="record-item" data-id="${record.id}">
-                    <div class="record-icon">${icon}</div>
-                    <div class="record-info">
-                        <div class="record-header">
-                            <span class="record-category">${displayName}</span>
-                        </div>
-                    </div>
-                    <div class="record-amount ${typeClass}" data-record-id="${record.id}" data-record-type="${record.type}" data-record-category="${record.category}" data-record-date="${record.date}" data-record-note="${escapeHtml(record.note || '')}" style="cursor: pointer;">
-                        ${record.type === 'income' ? '+' : '-'}¥${parseFloat(record.amount).toFixed(2)}
-                    </div>
-                    <div class="record-actions">
-                        <button class="btn-danger" onclick="handleDeleteRecord(event, ${record.id})">删除</button>
-                    </div>
-                </div>
-            `;
+            html += buildRecordItemHtml(record);
         });
 
         html += `
@@ -2958,7 +1796,39 @@ function renderRecords(records) {
 
     container.innerHTML = html;
 
-    // 绑定金额点击事件，打开数字键盘进行编辑
+    bindRecordAmountClick(container);
+}
+
+// 单条记录 HTML（供 renderRecords / appendRecords 复用）
+function buildRecordItemHtml(record) {
+    const category = [...categories.expense, ...categories.income].find(
+        c => (c.id && c.id.toString() === record.category) || c.name === record.category
+    );
+    const icon = category?.icon || '📦';
+    const name = category?.name || record.category;
+    const typeClass = record.type === 'income' ? 'income' : 'expense';
+    const displayName = record.note ? escapeHtml(record.note) : name;
+    return `
+        <div class="record-item" data-id="${record.id}">
+            <div class="record-icon">${icon}</div>
+            <div class="record-info">
+                <div class="record-header">
+                    <span class="record-category">${displayName}</span>
+                </div>
+            </div>
+            <div class="record-amount ${typeClass}" data-record-id="${record.id}" data-record-type="${record.type}" data-record-category="${record.category}" data-record-date="${record.date}" data-record-note="${escapeHtml(record.note || '')}" style="cursor: pointer;">
+                ${record.type === 'income' ? '+' : '-'}¥${parseFloat(record.amount).toFixed(2)}
+            </div>
+            <div class="record-actions">
+                <button class="btn-danger" onclick="handleDeleteRecord(event, ${record.id})">删除</button>
+            </div>
+        </div>
+    `;
+}
+
+// 为容器内 .record-amount 绑定点击
+function bindRecordAmountClick(container) {
+    if (!container) return;
     container.querySelectorAll('.record-amount').forEach(amountEl => {
         amountEl.addEventListener('click', function (e) {
             e.preventDefault();
@@ -2968,7 +1838,7 @@ function renderRecords(records) {
             const recordCategory = this.dataset.recordCategory;
             const recordDate = this.dataset.recordDate;
             const recordNote = this.dataset.recordNote || '';
-            const recordAmount = this.textContent.replace(/[^0-9.]/g, ''); // 提取金额数字
+            const recordAmount = this.textContent.replace(/[^0-9.]/g, '');
 
             if (recordId) {
                 openRecordEditKeyboard({
@@ -2984,42 +1854,100 @@ function renderRecords(records) {
     });
 }
 
-// 渲染分页
-function renderPagination(currentPage, totalPages) {
+// 追加一页记录（按日期合并到已有分组或新建分组）
+function appendRecords(records) {
+    if (!records || records.length === 0) return;
+    const container = document.getElementById('records-list');
+    if (!container) return;
+
+    const groupedByDate = {};
+    records.forEach(record => {
+        const dateKey = record.date;
+        if (!groupedByDate[dateKey]) groupedByDate[dateKey] = [];
+        groupedByDate[dateKey].push(record);
+    });
+    const sortedDates = Object.keys(groupedByDate).sort((a, b) => new Date(b) - new Date(a));
+
+    const footer = container.querySelector('.records-list-footer');
+    const sentinel = container.querySelector('.records-list-sentinel');
+
+    sortedDates.forEach(dateKey => {
+        const dateRecords = groupedByDate[dateKey];
+        let section = container.querySelector(`.date-section[data-date="${dateKey}"]`);
+        if (section) {
+            const dateRecordsEl = section.querySelector('.date-records');
+            const dateHeader = section.querySelector('.date-header');
+            dateRecords.forEach(record => {
+                const div = document.createElement('div');
+                div.innerHTML = buildRecordItemHtml(record).trim();
+                dateRecordsEl.appendChild(div.firstElementChild);
+            });
+            bindRecordAmountClick(dateRecordsEl);
+            // 更新该日期标题的统计
+            const allInSection = section.querySelectorAll('.record-item');
+            const total = allInSection.length;
+            const dailyExpense = [...allInSection].reduce((sum, el) => {
+                const amountEl = el.querySelector('.record-amount.expense');
+                if (!amountEl) return sum;
+                const m = amountEl.textContent.replace(/[^0-9.]/g, '');
+                return sum + (parseFloat(m) || 0);
+            }, 0);
+            const totalSpan = dateHeader.querySelector('.date-total');
+            const expenseSpan = dateHeader.querySelector('.date-expense');
+            if (totalSpan) totalSpan.textContent = total + ' 条';
+            if (expenseSpan) {
+                expenseSpan.textContent = formatMoney(dailyExpense);
+                expenseSpan.style.display = dailyExpense > 0 ? '' : 'none';
+            }
+        } else {
+            const date = new Date(dateKey);
+            const month = date.getMonth() + 1;
+            const day = date.getDate();
+            const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+            const weekday = weekdays[date.getDay()];
+            const dateHeader = `${month}月${day}日 星期${weekday}`;
+            const today = new Date();
+            const isToday = date.toDateString() === today.toDateString();
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const isYesterday = date.toDateString() === yesterday.toDateString();
+            let dateLabel = dateHeader;
+            if (isToday) dateLabel = '今天 ' + dateHeader;
+            else if (isYesterday) dateLabel = '昨天 ' + dateHeader;
+            const dailyExpense = dateRecords.filter(r => r.type === 'expense').reduce((s, r) => s + parseFloat(r.amount || 0), 0);
+            let sectionHtml = `
+                <div class="date-section" data-date="${dateKey}">
+                    <div class="date-header">
+                        <span class="date-label">${dateLabel}</span>
+                        <div class="date-right-info">
+                            ${dailyExpense > 0 ? `<span class="date-expense">${formatMoney(dailyExpense)}</span>` : ''}
+                            <span class="date-total">${dateRecords.length} 条</span>
+                        </div>
+                    </div>
+                    <div class="date-records">
+            `;
+            dateRecords.forEach(record => {
+                sectionHtml += buildRecordItemHtml(record);
+            });
+            sectionHtml += '</div></div>';
+            const wrap = document.createElement('div');
+            wrap.innerHTML = sectionHtml.trim();
+            const newSection = wrap.firstElementChild;
+            const insertBefore = footer || sentinel;
+            if (insertBefore) {
+                container.insertBefore(newSection, insertBefore);
+            } else {
+                container.appendChild(newSection);
+            }
+            bindRecordAmountClick(newSection);
+        }
+    });
+}
+
+// 渲染分页（已改为无限滚动，此函数保留为空避免其它处调用报错）
+function renderPagination() {
     const container = document.getElementById('pagination');
-
-    if (totalPages <= 1) {
-        container.innerHTML = '';
-        return;
-    }
-
-    let html = '';
-
-    // 上一页
-    html += `<button onclick="loadRecords(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>上一页</button>`;
-
-    // 页码
-    const startPage = Math.max(1, currentPage - 2);
-    const endPage = Math.min(totalPages, currentPage + 2);
-
-    if (startPage > 1) {
-        html += `<button onclick="loadRecords(1)">1</button>`;
-        if (startPage > 2) html += `<button disabled>...</button>`;
-    }
-
-    for (let i = startPage; i <= endPage; i++) {
-        html += `<button onclick="loadRecords(${i})" class="${i === currentPage ? 'active' : ''}">${i}</button>`;
-    }
-
-    if (endPage < totalPages) {
-        if (endPage < totalPages - 1) html += `<button disabled>...</button>`;
-        html += `<button onclick="loadRecords(${totalPages})">${totalPages}</button>`;
-    }
-
-    // 下一页
-    html += `<button onclick="loadRecords(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>下一页</button>`;
-
-    container.innerHTML = html;
+    if (container) container.innerHTML = '';
 }
 
 // 打开编辑模态框
@@ -3075,10 +2003,6 @@ async function openEditModal(recordId) {
 function closeModal() {
     closeNumberKeyboard();
     document.getElementById('edit-modal').classList.remove('show');
-    const categoryDetailModal = document.getElementById('category-detail-modal');
-    if (categoryDetailModal) categoryDetailModal.classList.remove('show');
-    const othersDetailModal = document.getElementById('others-detail-modal');
-    if (othersDetailModal) othersDetailModal.classList.remove('show');
 }
 
 // 更新记录
@@ -3129,7 +2053,7 @@ async function handleUpdateRecord(e) {
         if (response.ok) {
             closeModal();
             loadStatistics();
-            loadRecords(currentPage);
+            loadRecords(1);
             showMessage('更新成功！', 'success');
         } else {
             customAlert(result.error || '更新失败', '更新失败', 'error');
@@ -3162,7 +2086,7 @@ async function handleDeleteRecord(event, recordId) {
 
         if (response.ok) {
             loadStatistics();
-            loadRecords(currentPage);
+            loadRecords(1);
             loadTodayRecords(); // 刷新今日记录
             showMessage('删除成功！', 'success');
         } else {
@@ -4035,7 +2959,7 @@ async function submitRecordFromKeyboard() {
                 showMessage('更新成功！', 'success');
                 // 刷新数据
                 loadStatistics();
-                loadRecords(currentPage);
+                loadRecords(1);
                 loadTodayRecords();
                 // 清除编辑状态
                 currentEditingRecord = null;

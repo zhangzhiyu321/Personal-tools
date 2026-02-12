@@ -12,8 +12,6 @@ from .service import (
     get_categories_for_user,
     resolve_category_name,
     get_statistics,
-    get_category_detail,
-    get_others_detail,
     build_export_csv,
     DEFAULT_EXPENSE_CATEGORIES,
     DEFAULT_INCOME_CATEGORIES,
@@ -198,9 +196,9 @@ def get_records():
     search_query = (request.args.get('q') or '').strip()
     try:
         page = max(1, int(request.args.get('page', 1)))
-        per_page = max(1, min(100, int(request.args.get('per_page', 20))))
+        per_page = max(1, min(100, int(request.args.get('per_page', 12))))
     except (ValueError, TypeError):
-        page, per_page = 1, 20
+        page, per_page = 1, 12
     
     query = Expense.query.filter_by(user_id=user_id)
     if type_filter:
@@ -388,43 +386,6 @@ def get_statistics_route():
         return jsonify({'error': '未登录'}), 401
     start, end = parse_date_range(request.args.get('start_date'), request.args.get('end_date'))
     data = get_statistics(user_id, start_date=start, end_date=end)
-    return jsonify(data)
-
-
-@api_blueprint.route('/statistics/category_detail', methods=['GET'])
-@require_auth
-def get_category_detail_route():
-    """获取指定分类在当前时间范围内的明细（趋势 + 记录列表）"""
-    category_key = request.args.get('category')
-    if not category_key:
-        return jsonify({'error': '缺少分类参数 category'}), 400
-    user_id = get_current_user_id()
-    if not user_id:
-        logger.log_error('get_category_detail_user_id_missing', {
-            'has_current_user': hasattr(g, 'current_user'),
-            'path': request.path,
-        })
-        return jsonify({'error': '需要认证', 'code': 'UNAUTHORIZED'}), 401
-    start, end = parse_date_range(request.args.get('start_date'), request.args.get('end_date'))
-    data = get_category_detail(user_id, category_key, start_date=start, end_date=end)
-    return jsonify(data)
-
-
-@api_blueprint.route('/statistics/others_detail', methods=['GET'], strict_slashes=False)
-@require_auth
-def get_others_detail_route():
-    """获取「其他」合并分类的明细：小分类汇总 + 具体记录列表"""
-    categories_param = request.args.get('categories')
-    if not categories_param or not categories_param.strip():
-        return jsonify({'error': '缺少参数 categories（多个分类名用英文逗号分隔）'}), 400
-    user_id = get_current_user_id()
-    if not user_id:
-        return jsonify({'error': '需要认证', 'code': 'UNAUTHORIZED'}), 401
-    category_names = [c.strip() for c in categories_param.split(',') if c.strip()]
-    if not category_names:
-        return jsonify({'error': '参数 categories 为空'}), 400
-    start, end = parse_date_range(request.args.get('start_date'), request.args.get('end_date'))
-    data = get_others_detail(user_id, category_names, start_date=start, end_date=end)
     return jsonify(data)
 
 
