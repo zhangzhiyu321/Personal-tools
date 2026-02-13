@@ -842,17 +842,8 @@ function renderTrendChart(dailyStats) {
         document.addEventListener('mousedown', captureTooltipDate, false);
         document.addEventListener('touchstart', captureTooltipDate, { capture: false, passive: false });
 
-        document.addEventListener('click', function (e) {
-            const box = e.target.closest && e.target.closest('.js-trend-tooltip-body');
-            if (!box) return;
-            e.preventDefault();
-            e.stopPropagation();
-            const date = _trendTooltipPendingDate != null ? _trendTooltipPendingDate : box.getAttribute('data-date');
-            _trendTooltipPendingDate = null;
-            if (!date) return;
-            const { startDate, endDate } = getCurrentAnalysisDateRange();
-            navigateToRecordsByDate(date, startDate, endDate);
-        }, true);
+        // 初始化全局悬浮框点击处理器
+        initGlobalTooltipClickHandler();
     }
 
     // 首次进入时容器可能刚从隐藏 tab 显示，布局未稳，多轮 resize 保证折线完整绘制
@@ -872,6 +863,9 @@ function renderTrendChart(dailyStats) {
 
 // ========== 分类占比环形图 ==========
 let _catClickBound = false;
+let _catChartData = null;
+/** mousedown 时记录的悬浮框分类名，避免 click 前被 ECharts 更新成背后数据 */
+let _catTooltipPendingCategory = null;
 function renderCategoryChart(categoryStats, type) {
     const dom = document.getElementById('category-chart');
     if (!dom) return;
@@ -881,6 +875,7 @@ function renderCategoryChart(categoryStats, type) {
     if (catList.length === 0) {
         if (categoryChart) { categoryChart.dispose(); categoryChart = null; _catClickBound = false; }
         dom.innerHTML = '<div class="chart-empty">暂无数据</div>';
+        _catChartData = null;
         return;
     }
 
@@ -918,6 +913,8 @@ function renderCategoryChart(categoryStats, type) {
         itemStyle: { color: c.color },
         _meta: c,
     }));
+
+    _catChartData = chartData; // 保存最新数据供 click handler 使用
 
     const isMobile = window.innerWidth <= 768;
 
@@ -957,29 +954,55 @@ function renderCategoryChart(categoryStats, type) {
             backgroundColor: 'rgba(255,255,255,0.96)',
             borderColor: '#eee', borderWidth: 1,
             textStyle: { color: '#333', fontSize: 12 },
-            extraCssText: 'border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);padding:10px 14px;',
+            extraCssText: 'border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);padding:10px 14px;cursor:pointer;z-index:99999;pointer-events:auto;',
             formatter: function (params) {
+                if (!params || !params.data || !params.data._meta) return '';
                 const m = params.data._meta;
                 let html = `<div style="font-weight:600;margin-bottom:4px;">${m.icon} ${m.name}</div>`;
                 html += `<div>金额: <b>${formatMoney(m.amount)}</b></div>`;
                 html += `<div>占比: ${m.percent}%　共${m.count}笔</div>`;
                 if (m.avg_per_day !== undefined) html += `<div>日均: ${formatMoney(m.avg_per_day)}</div>`;
                 html += `<div style="font-size:10px;color:#3b82f6;text-align:center;margin-top:4px;">点击查看明细</div>`;
-                return html;
+                return '<div class="js-category-tooltip-body" data-category="' + (m.name || '') + '" style="pointer-events:auto;">' + html + '</div>';
             }
         }
     }, !isUpdate);
 
-    // 事件只绑定一次
+    // 每次更新时都禁用图表的点击事件
+    if (categoryChart && !categoryChart.isDisposed()) {
+        categoryChart.off('click');
+    }
+
+    // 仅点击悬浮框可跳转
     if (!_catClickBound) {
         _catClickBound = true;
-        categoryChart.on('click', function (params) {
-            if (params.data && params.data._meta) {
-                const catName = params.data._meta.name;
-                const { startDate, endDate } = getCurrentAnalysisDateRange();
-                navigateToRecordsByCategory(catName, startDate, endDate);
+
+        // 禁用图表的点击事件，只允许悬浮框点击
+        categoryChart.off('click');
+
+        // 鼠标/指针在悬浮框上时，阻止 move 事件传到图表，否则 ECharts 会把 tooltip 更新成「背后」数据点，data-category 被改错
+        function blockMoveToChart(e) {
+            if (e.target && e.target.closest && e.target.closest('.js-category-tooltip-body')) {
+                e.stopPropagation();
             }
-        });
+        }
+        document.addEventListener('mousemove', blockMoveToChart, true);
+        document.addEventListener('pointermove', blockMoveToChart, true);
+
+        function captureTooltipCategory(e) {
+            const box = (e.target && e.target.closest && e.target.closest('.js-category-tooltip-body'));
+            if (!box) {
+                _catTooltipPendingCategory = null;
+                return;
+            }
+            e.stopPropagation(); // 阻止事件传播到图表
+            _catTooltipPendingCategory = box.getAttribute('data-category') || null;
+        }
+        document.addEventListener('mousedown', captureTooltipCategory, true);
+        document.addEventListener('touchstart', captureTooltipCategory, { capture: true, passive: false });
+
+        // 初始化全局悬浮框点击处理器（如果还没初始化）
+        initGlobalTooltipClickHandler();
     }
 
     // 仅初次创建时 resize
@@ -1002,6 +1025,56 @@ function initCategoryChartSwitch() {
             }
         });
     });
+}
+
+// ========== 隐藏所有图表悬浮框 ==========
+function hideAllChartTooltips() {
+    if (trendChart && !trendChart.isDisposed()) {
+        trendChart.dispatchAction({ type: 'hideTip' });
+    }
+    if (categoryChart && !categoryChart.isDisposed()) {
+        categoryChart.dispatchAction({ type: 'hideTip' });
+    }
+}
+
+// ========== 全局悬浮框点击处理（统一管理所有图表的悬浮框点击） ==========
+let _globalTooltipClickBound = false;
+function initGlobalTooltipClickHandler() {
+    if (_globalTooltipClickBound) return;
+    _globalTooltipClickBound = true;
+
+    document.addEventListener('click', function (e) {
+        const trendBox = e.target.closest && e.target.closest('.js-trend-tooltip-body');
+        const categoryBox = e.target.closest && e.target.closest('.js-category-tooltip-body');
+
+        if (trendBox) {
+            // 点击收支趋势悬浮框：隐藏其他图表的悬浮框，然后跳转
+            e.preventDefault();
+            e.stopPropagation();
+            hideAllChartTooltips();
+            const date = _trendTooltipPendingDate != null ? _trendTooltipPendingDate : trendBox.getAttribute('data-date');
+            _trendTooltipPendingDate = null;
+            if (date) {
+                const { startDate, endDate } = getCurrentAnalysisDateRange();
+                navigateToRecordsByDate(date, startDate, endDate);
+            }
+        } else if (categoryBox) {
+            // 点击支出分类悬浮框：隐藏其他图表的悬浮框，然后跳转
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation(); // 阻止其他监听器
+            hideAllChartTooltips();
+            const catName = _catTooltipPendingCategory != null ? _catTooltipPendingCategory : categoryBox.getAttribute('data-category');
+            _catTooltipPendingCategory = null;
+            if (catName) {
+                const { startDate, endDate } = getCurrentAnalysisDateRange();
+                navigateToRecordsByCategory(catName, startDate, endDate);
+            }
+        } else {
+            // 点击其他地方：隐藏所有悬浮框
+            hideAllChartTooltips();
+        }
+    }, true);
 }
 
 // ========== 图表跳转联动 ==========
