@@ -255,8 +255,11 @@ let currentTimeDimension = 'day'; // day, week, month
 let trendChart = null;
 let categoryChart = null;
 let analysisCache = null; // 缓存后端返回的全量统计数据
+let analysisCacheKey = ''; // 缓存键（日期范围）
 let currentCategoryChartType = 'expense'; // 环形图当前显示的类型
 let recordsCategoryFilter = null; // 从图表点击跳转用的分类过滤
+let _analysisDebounceTimer = null; // 日期切换防抖
+let _analysisAbortCtrl = null; // 取消进行中的请求
 
 // 日期选择器状态
 let datePickerState = {
@@ -324,10 +327,8 @@ async function switchMainTab(tabName) {
     // 根据标签页加载相应数据
     if (tabName === 'analysis') {
         updateDatePickerDisplay();
-        // 等待 DOM 布局完成（tab 从 hidden 变为 visible），确保图表容器有尺寸
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => { loadAnalysisData(); });
-        });
+        // 立即加载（renderChart 内部已有尺寸检测重试机制）
+        loadAnalysisData(true);
     } else if (tabName === 'records') {
         loadRecords();
     } else if (tabName === 'home') {
@@ -486,7 +487,7 @@ function navigateDatePicker(dimension, direction) {
     }
 
     updateDatePickerDisplay();
-    loadAnalysisData();
+    loadAnalysisData(); // 自带防抖，快速连点不会堆积请求
 }
 
 // 更新日期选择器显示
@@ -554,43 +555,66 @@ function getChartInitOpts() {
     return { renderer: 'svg', devicePixelRatio: dpr };
 }
 
-// 加载数据分析
-async function loadAnalysisData() {
+// 加载数据分析（带防抖、缓存、请求取消）
+function loadAnalysisData(immediate) {
+    if (_analysisDebounceTimer) clearTimeout(_analysisDebounceTimer);
+    const delay = immediate ? 0 : 120; // 快速滑动时 120ms 防抖
+    _analysisDebounceTimer = setTimeout(() => _doLoadAnalysisData(), delay);
+}
+
+async function _doLoadAnalysisData() {
     try {
         const { startDate, endDate } = getCurrentAnalysisDateRange();
+        const cacheKey = `${startDate}|${endDate}`;
+
+        // 命中缓存则直接用，不发请求
+        if (cacheKey === analysisCacheKey && analysisCache) {
+            _applyAnalysisData(analysisCache);
+            return;
+        }
+
+        // 取消上一个还在飞的请求
+        if (_analysisAbortCtrl) _analysisAbortCtrl.abort();
+        _analysisAbortCtrl = new AbortController();
 
         let url = `${API_BASE}/statistics?`;
         if (startDate) url += `start_date=${startDate}&`;
         if (endDate) url += `end_date=${endDate}&`;
 
-        const response = await authFetch(url);
+        const response = await authFetch(url, { signal: _analysisAbortCtrl.signal });
         const data = await response.json();
-        analysisCache = data; // 缓存全量数据
+        analysisCache = data;
+        analysisCacheKey = cacheKey;
+        _analysisAbortCtrl = null;
 
-        // 更新主统计卡片
-        const incomeEl = document.getElementById('analysis-total-income');
-        const expenseEl = document.getElementById('analysis-total-expense');
-        const balanceEl = document.getElementById('analysis-total-balance');
-        if (incomeEl) incomeEl.textContent = formatMoney(data.total_income);
-        if (expenseEl) expenseEl.textContent = formatMoney(data.total_expense);
-        if (balanceEl) balanceEl.textContent = formatMoney(data.balance);
-
-        // 更新洞察指标卡片
-        updateInsightCards(data.summary);
-
-        // 重置环形图标题
-        const titleEl = document.getElementById('category-chart-title');
-        if (titleEl) titleEl.textContent = currentCategoryChartType === 'income' ? '收入分类' : '支出分类';
-
-        // 渲染图表（等待 DOM 布局完成）
-        requestAnimationFrame(() => {
-            renderTrendChart(data.daily_stats);
-            renderCategoryChart(data.category_stats, currentCategoryChartType);
-        });
+        _applyAnalysisData(data);
 
     } catch (error) {
+        if (error.name === 'AbortError') return; // 被新请求取消，正常
         console.error('加载分析数据失败:', error);
     }
+}
+
+// 将数据应用到 UI（卡片 + 图表）
+function _applyAnalysisData(data) {
+    // 更新主统计卡片
+    const incomeEl = document.getElementById('analysis-total-income');
+    const expenseEl = document.getElementById('analysis-total-expense');
+    const balanceEl = document.getElementById('analysis-total-balance');
+    if (incomeEl) incomeEl.textContent = formatMoney(data.total_income);
+    if (expenseEl) expenseEl.textContent = formatMoney(data.total_expense);
+    if (balanceEl) balanceEl.textContent = formatMoney(data.balance);
+
+    // 更新洞察指标卡片
+    updateInsightCards(data.summary);
+
+    // 重置环形图标题
+    const titleEl = document.getElementById('category-chart-title');
+    if (titleEl) titleEl.textContent = currentCategoryChartType === 'income' ? '收入分类' : '支出分类';
+
+    // 渲染图表
+    renderTrendChart(data.daily_stats);
+    renderCategoryChart(data.category_stats, currentCategoryChartType);
 }
 
 // 更新洞察指标卡片
@@ -623,19 +647,34 @@ function updateInsightCards(summary) {
 }
 
 // ========== 收支趋势复合图 ==========
+let _trendClickBound = false;
+let _trendDailyStats = null; // 供 click handler 引用的最新数据
 function renderTrendChart(dailyStats) {
     const dom = document.getElementById('trend-chart');
     if (!dom) return;
     if (typeof echarts === 'undefined') { dom.innerHTML = '<div class="chart-empty">图表库加载失败</div>'; return; }
     if (!dailyStats || dailyStats.length === 0) {
-        if (trendChart) { trendChart.dispose(); trendChart = null; }
+        if (trendChart) { trendChart.dispose(); trendChart = null; _trendClickBound = false; }
         dom.innerHTML = '<div class="chart-empty">暂无数据</div>';
+        _trendDailyStats = null;
         return;
     }
 
-    if (trendChart) trendChart.dispose();
-    dom.innerHTML = '';
-    trendChart = echarts.init(dom, null, getChartInitOpts());
+    _trendDailyStats = dailyStats; // 保存最新数据供 click handler 使用
+
+    // 等待容器有实际尺寸后再初始化，避免移动端只画点不画线
+    const rect = dom.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+        setTimeout(() => renderTrendChart(dailyStats), 80);
+        return;
+    }
+
+    // 复用已有实例，避免 dispose + 重建开销
+    if (!trendChart || trendChart.isDisposed()) {
+        dom.innerHTML = '';
+        trendChart = echarts.init(dom, null, getChartInitOpts());
+        _trendClickBound = false;
+    }
 
     const dates = dailyStats.map(d => {
         const dt = new Date(d.date);
@@ -645,15 +684,18 @@ function renderTrendChart(dailyStats) {
     const expenseData = dailyStats.map(d => d.expense || 0);
     const balanceData = dailyStats.map(d => d.balance || 0);
 
-    // 计算日均支出参考线
     const totalExpense = expenseData.reduce((a, b) => a + b, 0);
     const avgExpense = expenseData.length > 0 ? totalExpense / expenseData.length : 0;
 
     const isMobile = window.innerWidth <= 768;
 
+    // 数据更新时使用更短的动画
+    const isUpdate = _trendClickBound;
+
     trendChart.setOption({
         animation: true,
-        animationDuration: 500,
+        animationDuration: isUpdate ? 250 : 500,
+        animationDurationUpdate: 250,
         animationEasing: 'cubicOut',
         legend: {
             top: 0, left: 'center',
@@ -685,6 +727,7 @@ function renderTrendChart(dailyStats) {
         series: [
             {
                 name: '收入', type: 'line', smooth: 0.4, symbol: 'circle', symbolSize: 6,
+                connectNulls: true,
                 data: incomeData,
                 lineStyle: { width: 2.5, color: '#16a34a' },
                 itemStyle: { color: '#16a34a', borderColor: '#fff', borderWidth: 1.5 },
@@ -696,6 +739,7 @@ function renderTrendChart(dailyStats) {
             },
             {
                 name: '支出', type: 'line', smooth: 0.4, symbol: 'circle', symbolSize: 6,
+                connectNulls: true,
                 data: expenseData,
                 lineStyle: { width: 2.5, color: '#dc2626' },
                 itemStyle: { color: '#dc2626', borderColor: '#fff', borderWidth: 1.5 },
@@ -728,16 +772,15 @@ function renderTrendChart(dailyStats) {
             textStyle: { color: '#333', fontSize: 12 },
             extraCssText: 'border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);padding:12px 14px;max-width:220px;',
             formatter: function (params) {
-                if (!params || params.length === 0) return '';
+                if (!params || params.length === 0 || !_trendDailyStats) return '';
                 const idx = params[0].dataIndex;
-                const day = dailyStats[idx];
+                const day = _trendDailyStats[idx];
                 if (!day) return '';
                 const dt = new Date(day.date);
                 const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
                 let html = `<div style="font-weight:600;margin-bottom:6px;font-size:13px;">📅 ${dt.getMonth() + 1}月${dt.getDate()}日 周${weekdays[dt.getDay()]}</div>`;
                 html += `<div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="color:#16a34a;">💰 收入</span><span style="font-weight:500;">¥${day.income.toFixed(2)}</span></div>`;
                 html += `<div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="color:#dc2626;">💸 支出</span><span style="font-weight:500;">¥${day.expense.toFixed(2)}</span></div>`;
-                // 分类明细（最多显示4项支出分类）
                 const expenseCats = (day.categories || []).filter(c => !c.type || c.type !== 'income');
                 if (expenseCats.length > 0) {
                     html += '<div style="border-top:1px solid #f0f0f0;margin:6px 0 4px;"></div>';
@@ -753,38 +796,41 @@ function renderTrendChart(dailyStats) {
                 return html;
             }
         }
-    });
+    }, !isUpdate); // 首次渲染 notMerge=true；数据更新则 merge
 
-    // 点击某天 -> 联动环形图 + 跳转记录列表
-    trendChart.on('click', function (params) {
-        if (params.componentType === 'series') {
-            const idx = params.dataIndex;
-            const day = dailyStats[idx];
-            if (day) {
-                // 构建当天的分类数据用于环形图
-                const expenseCats = (day.categories || []).filter(c => !c.type || c.type !== 'income');
-                const totalExp = day.expense || 0;
-                const dayCatStats = expenseCats.map(c => ({
-                    name: c.name, icon: c.icon, color: c.color,
-                    amount: c.amount, count: 1, avg_per_day: c.amount,
-                    percent: totalExp > 0 ? Math.round(c.amount / totalExp * 1000) / 10 : 0,
-                }));
-                // 更新环形图为当天的分类占比
-                const dt = new Date(day.date);
-                const titleEl = document.getElementById('category-chart-title');
-                if (titleEl) titleEl.textContent = `${dt.getMonth() + 1}月${dt.getDate()}日 支出分类`;
-                renderCategoryChart({ expense: dayCatStats, income: [] }, 'expense');
-                // 同时跳转到记录列表查看当天明细
-                navigateToRecordsByDate(day.date, day.date);
+    // 事件只绑定一次（通过 _trendDailyStats 引用最新数据）
+    if (!_trendClickBound) {
+        _trendClickBound = true;
+        trendChart.on('click', function (params) {
+            if (params.componentType === 'series' && _trendDailyStats) {
+                const idx = params.dataIndex;
+                const day = _trendDailyStats[idx];
+                if (day) {
+                    const expenseCats = (day.categories || []).filter(c => !c.type || c.type !== 'income');
+                    const totalExp = day.expense || 0;
+                    const dayCatStats = expenseCats.map(c => ({
+                        name: c.name, icon: c.icon, color: c.color,
+                        amount: c.amount, count: 1, avg_per_day: c.amount,
+                        percent: totalExp > 0 ? Math.round(c.amount / totalExp * 1000) / 10 : 0,
+                    }));
+                    const dt = new Date(day.date);
+                    const titleEl = document.getElementById('category-chart-title');
+                    if (titleEl) titleEl.textContent = `${dt.getMonth() + 1}月${dt.getDate()}日 支出分类`;
+                    renderCategoryChart({ expense: dayCatStats, income: [] }, 'expense');
+                    navigateToRecordsByDate(day.date, day.date);
+                }
             }
-        }
-    });
+        });
+    }
 
-    // 确保图表尺寸正确
-    setTimeout(() => { if (trendChart) trendChart.resize(); }, 150);
+    // 仅初次创建时 resize 一次
+    if (!isUpdate) {
+        requestAnimationFrame(() => { if (trendChart) trendChart.resize(); });
+    }
 }
 
 // ========== 分类占比环形图 ==========
+let _catClickBound = false;
 function renderCategoryChart(categoryStats, type) {
     const dom = document.getElementById('category-chart');
     if (!dom) return;
@@ -792,18 +838,29 @@ function renderCategoryChart(categoryStats, type) {
 
     const catList = categoryStats && categoryStats[type] ? categoryStats[type] : [];
     if (catList.length === 0) {
-        if (categoryChart) { categoryChart.dispose(); categoryChart = null; }
+        if (categoryChart) { categoryChart.dispose(); categoryChart = null; _catClickBound = false; }
         dom.innerHTML = '<div class="chart-empty">暂无数据</div>';
         return;
     }
 
-    if (categoryChart) categoryChart.dispose();
-    dom.innerHTML = '';
-    categoryChart = echarts.init(dom, null, getChartInitOpts());
+    // 等待容器有实际尺寸后再初始化
+    const rect = dom.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+        setTimeout(() => renderCategoryChart(categoryStats, type), 80);
+        return;
+    }
+
+    const isUpdate = _catClickBound;
+
+    // 复用已有实例
+    if (!categoryChart || categoryChart.isDisposed()) {
+        dom.innerHTML = '';
+        categoryChart = echarts.init(dom, null, getChartInitOpts());
+        _catClickBound = false;
+    }
 
     const total = catList.reduce((s, c) => s + c.amount, 0);
 
-    // 如果分类超过8个，合并为「其他」
     let chartData;
     if (catList.length > 8) {
         const main = catList.slice(0, 7);
@@ -825,7 +882,8 @@ function renderCategoryChart(categoryStats, type) {
 
     categoryChart.setOption({
         animation: true,
-        animationDuration: 500,
+        animationDuration: isUpdate ? 250 : 500,
+        animationDurationUpdate: 250,
         animationEasing: 'cubicOut',
         legend: {
             orient: 'vertical', right: isMobile ? '2%' : '6%', top: 'middle',
@@ -844,34 +902,13 @@ function renderCategoryChart(categoryStats, type) {
             radius: ['42%', '70%'],
             center: [isMobile ? '35%' : '38%', '50%'],
             data: pieData,
-            label: {
-                show: true, position: 'center',
-                formatter: function () {
-                    return `{total|${formatMoney(total)}}\n{label|${type === 'income' ? '总收入' : '总支出'}}`;
-                },
-                rich: {
-                    total: { fontSize: 18, fontWeight: 'bold', color: '#333', lineHeight: 28 },
-                    label: { fontSize: 11, color: '#999', lineHeight: 18 },
-                }
-            },
+            label: { show: false },
             labelLine: { show: false },
             itemStyle: { borderColor: '#fff', borderWidth: 2 },
             emphasis: {
                 scale: true, scaleSize: 8,
+                label: { show: false },
                 itemStyle: { borderColor: '#fff', borderWidth: 2, shadowBlur: 15, shadowColor: 'rgba(0,0,0,0.12)' },
-                label: {
-                    show: true, position: 'center',
-                    formatter: function (params) {
-                        const m = params.data._meta;
-                        return `{icon|${m.icon}}\n{name|${m.name}}\n{value|${formatMoney(m.amount)}}\n{pct|${m.percent}%  ${m.count}笔}`;
-                    },
-                    rich: {
-                        icon: { fontSize: 22, lineHeight: 30 },
-                        name: { fontSize: 13, fontWeight: 'bold', color: '#333', lineHeight: 22 },
-                        value: { fontSize: 16, fontWeight: 'bold', color: '#333', lineHeight: 24 },
-                        pct: { fontSize: 11, color: '#999', lineHeight: 18 },
-                    }
-                }
             }
         }],
         tooltip: {
@@ -890,18 +927,24 @@ function renderCategoryChart(categoryStats, type) {
                 return html;
             }
         }
-    });
+    }, !isUpdate);
 
-    // 点击分类扇区 -> 跳转到记录列表并筛选该分类
-    categoryChart.on('click', function (params) {
-        if (params.data && params.data._meta) {
-            const catName = params.data._meta.name;
-            const { startDate, endDate } = getCurrentAnalysisDateRange();
-            navigateToRecordsByCategory(catName, startDate, endDate);
-        }
-    });
+    // 事件只绑定一次
+    if (!_catClickBound) {
+        _catClickBound = true;
+        categoryChart.on('click', function (params) {
+            if (params.data && params.data._meta) {
+                const catName = params.data._meta.name;
+                const { startDate, endDate } = getCurrentAnalysisDateRange();
+                navigateToRecordsByCategory(catName, startDate, endDate);
+            }
+        });
+    }
 
-    setTimeout(() => { if (categoryChart) categoryChart.resize(); }, 150);
+    // 仅初次创建时 resize
+    if (!isUpdate) {
+        requestAnimationFrame(() => { if (categoryChart) categoryChart.resize(); });
+    }
 }
 
 // 初始化环形图类型切换按钮
@@ -943,9 +986,13 @@ function navigateToRecordsByCategory(category, startDate, endDate) {
 }
 
 // 窗口 resize 时重绘图表
+let _resizeTimer = null;
 window.addEventListener('resize', function () {
-    if (trendChart) trendChart.resize();
-    if (categoryChart) categoryChart.resize();
+    if (_resizeTimer) clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(() => {
+        if (trendChart && !trendChart.isDisposed()) trendChart.resize();
+        if (categoryChart && !categoryChart.isDisposed()) categoryChart.resize();
+    }, 100);
 });
 
 // 获取当前数据分析使用的时间范围（与上方“日/周/月/年/自定义”保持一致）

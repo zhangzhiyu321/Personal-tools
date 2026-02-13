@@ -418,7 +418,20 @@ input, textarea {
     color: #4a5568; /* 降低对比度 */
 }
 
-/* ========== 数据分析 - 洞察指标卡片 ========== */
+/* ========== 数据分析 - 2×3 统计格子 ========== */
+.analysis-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: auto auto;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+
+.analysis-stats-grid .insight-card {
+    min-width: 0;
+}
+
+/* ========== 数据分析 - 洞察指标卡片（它处复用） ========== */
 .insight-cards {
     display: flex;
     gap: 6px;
@@ -1689,6 +1702,11 @@ input, textarea {
     .stats-cards {
         grid-template-columns: 1fr;
         gap: 6px;
+    }
+
+    .analysis-stats-grid {
+        gap: 4px;
+        margin-bottom: 12px;
     }
 
     .insight-cards {

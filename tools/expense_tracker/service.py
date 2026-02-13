@@ -78,124 +78,118 @@ def resolve_category_name(user_id, record_type, category_value):
 def get_statistics(user_id, start_date=None, end_date=None):
     """
     汇总指定时间范围内的统计数据，一次返回全量聚合，前端零二次请求。
-    返回：总收入/支出/结余、今日支出、按日明细(含分类)、按分类汇总、洞察指标。
+    单次遍历完成所有聚合，避免多次循环。使用轻量 column 查询替代全 ORM 加载。
     """
-    query = Expense.query.filter_by(user_id=user_id)
+    from sqlalchemy import func as sa_func
+
+    # ---- SQL 聚合：总收入/总支出/记录数（不加载 ORM 对象） ----
+    base = db.session.query(
+        Expense.type,
+        sa_func.coalesce(sa_func.sum(Expense.amount), 0),
+        sa_func.count(Expense.id),
+    ).filter(Expense.user_id == user_id)
     if start_date:
-        query = query.filter(Expense.date >= start_date)
+        base = base.filter(Expense.date >= start_date)
     if end_date:
-        query = query.filter(Expense.date <= end_date)
-    records = query.all()
+        base = base.filter(Expense.date <= end_date)
+    type_agg = {row[0]: (float(row[1]), int(row[2])) for row in base.group_by(Expense.type).all()}
+    total_income, income_count = type_agg.get('income', (0.0, 0))
+    total_expense, expense_count = type_agg.get('expense', (0.0, 0))
+    record_count = income_count + expense_count
 
-    total_income = sum(float(r.amount) for r in records if r.type == 'income')
-    total_expense = sum(float(r.amount) for r in records if r.type == 'expense')
+    # 今日支出（独立小查询）
     today = datetime.now().date()
-    today_expense = sum(
-        float(r.amount) for r in Expense.query.filter_by(
-            user_id=user_id, date=today, type='expense'
-        ).all()
-    )
+    today_row = db.session.query(
+        sa_func.coalesce(sa_func.sum(Expense.amount), 0)
+    ).filter_by(user_id=user_id, date=today, type='expense').scalar()
+    today_expense = float(today_row) if today_row else 0.0
 
-    # ---- 构建分类信息映射 ----
-    all_categories = {c.name: c for c in Category.query.filter_by(user_id=user_id).all()}
+    # ---- 仅加载需要的列（比加载整个 ORM 对象轻得多） ----
+    cols_query = db.session.query(
+        Expense.date, Expense.type, Expense.category, Expense.amount
+    ).filter(Expense.user_id == user_id)
+    if start_date:
+        cols_query = cols_query.filter(Expense.date >= start_date)
+    if end_date:
+        cols_query = cols_query.filter(Expense.date <= end_date)
+    rows = cols_query.all()
 
-    def cat_info(name):
-        c = all_categories.get(name)
-        return {
-            'icon': c.icon if c else '📦',
-            'color': c.color if c else '#C7CEEA',
-        }
+    # ---- 分类信息映射（一次查询） ----
+    cat_map = {}
+    for c in Category.query.filter_by(user_id=user_id).all():
+        cat_map[c.name] = (c.icon, c.color)
+    def cat_icon(name):
+        return cat_map.get(name, ('📦', '#C7CEEA'))
 
-    # ---- 按日聚合（含每日分类明细） ----
-    daily = defaultdict(lambda: {
-        'income': 0.0, 'expense': 0.0,
-        'expense_cats': defaultdict(float),
-        'income_cats': defaultdict(float),
-    })
-    for r in records:
-        date_str = r.date.strftime('%Y-%m-%d')
-        amt = float(r.amount)
-        daily[date_str][r.type] += amt
-        daily[date_str][f'{r.type}_cats'][r.category] += amt
+    # ---- 单次遍历完成：按日聚合 + 按分类汇总 ----
+    daily = defaultdict(lambda: [0.0, 0.0, defaultdict(float), defaultdict(float)])
+    #                             income expense  exp_cats        inc_cats
+    exp_cat = defaultdict(lambda: [0.0, 0])  # [amount, count]
+    inc_cat = defaultdict(lambda: [0.0, 0])
 
+    for r_date, r_type, r_category, r_amount in rows:
+        amt = float(r_amount)
+        date_str = r_date.strftime('%Y-%m-%d')
+        d = daily[date_str]
+        if r_type == 'expense':
+            d[1] += amt
+            d[2][r_category] += amt
+            b = exp_cat[r_category]; b[0] += amt; b[1] += 1
+        else:
+            d[0] += amt
+            d[3][r_category] += amt
+            b = inc_cat[r_category]; b[0] += amt; b[1] += 1
+
+    # ---- 组装 daily_stats ----
     daily_stats = []
-    for d in sorted(daily.keys()):
-        s = daily[d]
+    max_exp_date, max_exp_amt = None, 0.0
+    for d in sorted(daily):
+        inc, exp, ec, ic = daily[d]
         cats = []
-        for cat_name, amt in sorted(s['expense_cats'].items(), key=lambda x: -x[1]):
-            info = cat_info(cat_name)
-            cats.append({'name': cat_name, 'icon': info['icon'], 'color': info['color'], 'amount': round(amt, 2)})
-        for cat_name, amt in sorted(s['income_cats'].items(), key=lambda x: -x[1]):
-            info = cat_info(cat_name)
-            cats.append({'name': cat_name, 'icon': info['icon'], 'color': info['color'], 'amount': round(amt, 2), 'type': 'income'})
+        for cn in sorted(ec, key=ec.get, reverse=True):
+            icon, color = cat_icon(cn)
+            cats.append({'name': cn, 'icon': icon, 'color': color, 'amount': round(ec[cn], 2)})
+        for cn in sorted(ic, key=ic.get, reverse=True):
+            icon, color = cat_icon(cn)
+            cats.append({'name': cn, 'icon': icon, 'color': color, 'amount': round(ic[cn], 2), 'type': 'income'})
         daily_stats.append({
-            'date': d,
-            'income': round(s['income'], 2),
-            'expense': round(s['expense'], 2),
-            'balance': round(s['income'] - s['expense'], 2),
-            'categories': cats,
+            'date': d, 'income': round(inc, 2), 'expense': round(exp, 2),
+            'balance': round(inc - exp, 2), 'categories': cats,
         })
+        if exp > max_exp_amt:
+            max_exp_amt = exp; max_exp_date = d
 
-    # ---- 按分类汇总 ----
-    expense_by_cat = defaultdict(lambda: {'amount': 0.0, 'count': 0})
-    income_by_cat = defaultdict(lambda: {'amount': 0.0, 'count': 0})
-    for r in records:
-        amt = float(r.amount)
-        bucket = expense_by_cat if r.type == 'expense' else income_by_cat
-        bucket[r.category]['amount'] += amt
-        bucket[r.category]['count'] += 1
-
-    def build_cat_list(bucket, total):
-        result = []
-        for cat_name in sorted(bucket, key=lambda k: -bucket[k]['amount']):
-            info = cat_info(cat_name)
-            amt = bucket[cat_name]['amount']
-            cnt = bucket[cat_name]['count']
-            num_days = len(daily) or 1
-            result.append({
-                'name': cat_name,
-                'icon': info['icon'],
-                'color': info['color'],
-                'amount': round(amt, 2),
-                'count': cnt,
-                'avg_per_day': round(amt / num_days, 2),
-                'percent': round(amt / total * 100, 1) if total > 0 else 0,
-            })
-        return result
+    # ---- 组装 category_stats ----
+    num_days = len(daily) or 1
+    def build_list(bucket, total):
+        items = sorted(bucket.items(), key=lambda x: -x[1][0])
+        return [{
+            'name': cn, 'icon': cat_icon(cn)[0], 'color': cat_icon(cn)[1],
+            'amount': round(a, 2), 'count': n,
+            'avg_per_day': round(a / num_days, 2),
+            'percent': round(a / total * 100, 1) if total > 0 else 0,
+        } for cn, (a, n) in items]
 
     category_stats = {
-        'expense': build_cat_list(expense_by_cat, total_expense),
-        'income': build_cat_list(income_by_cat, total_income),
+        'expense': build_list(exp_cat, total_expense),
+        'income': build_list(inc_cat, total_income),
     }
-
-    # ---- 洞察指标 ----
-    num_days = len(daily) or 1
-    daily_expenses = [(d, daily[d]['expense']) for d in daily if daily[d]['expense'] > 0]
-    max_day = max(daily_expenses, key=lambda x: x[1]) if daily_expenses else None
-    top_expense_cat = category_stats['expense'][0] if category_stats['expense'] else None
-
-    summary = {
-        'avg_daily_expense': round(total_expense / num_days, 2),
-        'avg_daily_income': round(total_income / num_days, 2),
-        'max_expense_day': {
-            'date': max_day[0], 'amount': round(max_day[1], 2)
-        } if max_day else None,
-        'top_expense_category': {
-            'name': top_expense_cat['name'],
-            'icon': top_expense_cat['icon'],
-            'amount': top_expense_cat['amount'],
-        } if top_expense_cat else None,
-    }
+    top_ec = category_stats['expense'][0] if category_stats['expense'] else None
 
     return {
         'total_income': total_income,
         'total_expense': total_expense,
         'balance': total_income - total_expense,
         'today_expense': today_expense,
-        'record_count': len(records),
+        'record_count': record_count,
         'daily_stats': daily_stats,
         'category_stats': category_stats,
-        'summary': summary,
+        'summary': {
+            'avg_daily_expense': round(total_expense / num_days, 2),
+            'avg_daily_income': round(total_income / num_days, 2),
+            'max_expense_day': {'date': max_exp_date, 'amount': round(max_exp_amt, 2)} if max_exp_date else None,
+            'top_expense_category': {'name': top_ec['name'], 'icon': top_ec['icon'], 'amount': top_ec['amount']} if top_ec else None,
+        },
     }
 
 
