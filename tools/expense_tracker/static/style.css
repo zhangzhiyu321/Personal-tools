@@ -146,6 +146,14 @@ input, textarea {
     display: block;
 }
 
+/* 数据分析加载中：弱化内容并禁止重复点击 */
+#tab-analysis.analysis-loading .analysis-stats-grid,
+#tab-analysis.analysis-loading .analysis-chart-section {
+    opacity: 0.65;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
 @keyframes tabFadeIn {
     from { opacity: 0; }
     to { opacity: 1; }

@@ -328,12 +328,16 @@ async function switchMainTab(tabName) {
     // 滚动到页面顶部
     window.scrollTo({ top: 0, behavior: 'instant' });
 
-    // 根据标签页加载相应数据
+    // 切到非分析 Tab 时取消未完成的统计请求，把带宽和主线程留给当前页
+    if (tabName !== 'analysis' && _analysisAbortCtrl) {
+        _analysisAbortCtrl.abort();
+        _analysisAbortCtrl = null;
+        _setAnalysisLoading(false);
+    }
     if (tabName === 'analysis') {
         updateDatePickerDisplay();
-        // 等一帧再加载，让 tab 显示后图表容器先完成布局，避免首屏只画点不画线
         requestAnimationFrame(() => {
-            requestAnimationFrame(() => { loadAnalysisData(true); });
+            requestAnimationFrame(() => { loadAnalysisData(); });
         });
     } else if (tabName === 'records') {
         loadRecords();
@@ -493,7 +497,7 @@ function navigateDatePicker(dimension, direction) {
     }
 
     updateDatePickerDisplay();
-    loadAnalysisData(); // 自带防抖，快速连点不会堆积请求
+    loadAnalysisData();
 }
 
 // 更新日期选择器显示
@@ -548,7 +552,7 @@ function switchTimeDimension(dimension) {
     // 更新日期选择器显示
     updateDatePickerDisplay();
 
-    // 加载数据
+    // 切换维度后立即拉取数据，不防抖
     loadAnalysisData();
 }
 
@@ -561,11 +565,17 @@ function getChartInitOpts() {
     return { renderer: 'svg', devicePixelRatio: dpr };
 }
 
-// 加载数据分析（带防抖、缓存、请求取消）
-function loadAnalysisData(immediate) {
+// 加载数据分析（请求取消 + 缓存，不防抖以最快响应）
+function loadAnalysisData() {
     if (_analysisDebounceTimer) clearTimeout(_analysisDebounceTimer);
-    const delay = immediate ? 0 : 120; // 快速滑动时 120ms 防抖
-    _analysisDebounceTimer = setTimeout(() => _doLoadAnalysisData(), delay);
+    _analysisDebounceTimer = setTimeout(() => _doLoadAnalysisData(), 0);
+}
+
+function _setAnalysisLoading(loading) {
+    const tab = document.getElementById('tab-analysis');
+    if (!tab) return;
+    if (loading) tab.classList.add('analysis-loading');
+    else tab.classList.remove('analysis-loading');
 }
 
 async function _doLoadAnalysisData() {
@@ -582,6 +592,7 @@ async function _doLoadAnalysisData() {
         // 取消上一个还在飞的请求
         if (_analysisAbortCtrl) _analysisAbortCtrl.abort();
         _analysisAbortCtrl = new AbortController();
+        _setAnalysisLoading(true);
 
         let url = `${API_BASE}/statistics?`;
         if (startDate) url += `start_date=${startDate}&`;
@@ -592,35 +603,38 @@ async function _doLoadAnalysisData() {
         analysisCache = data;
         analysisCacheKey = cacheKey;
         _analysisAbortCtrl = null;
+        _setAnalysisLoading(false);
 
         _applyAnalysisData(data);
 
     } catch (error) {
+        _setAnalysisLoading(false);
         if (error.name === 'AbortError') return; // 被新请求取消，正常
         console.error('加载分析数据失败:', error);
     }
 }
 
-// 将数据应用到 UI（卡片 + 图表）
+// 将数据应用到 UI（卡片同步更新；图表延后渲染且仅当前在分析 Tab 时执行，避免阻塞跳转详情）
 function _applyAnalysisData(data) {
-    // 更新主统计卡片
+    const tabAnalysis = document.getElementById('tab-analysis');
     const incomeEl = document.getElementById('analysis-total-income');
     const expenseEl = document.getElementById('analysis-total-expense');
     const balanceEl = document.getElementById('analysis-total-balance');
     if (incomeEl) incomeEl.textContent = formatMoney(data.total_income);
     if (expenseEl) expenseEl.textContent = formatMoney(data.total_expense);
     if (balanceEl) balanceEl.textContent = formatMoney(data.balance);
-
-    // 更新洞察指标卡片
     updateInsightCards(data.summary);
-
-    // 重置环形图标题
     const titleEl = document.getElementById('category-chart-title');
     if (titleEl) titleEl.textContent = currentCategoryChartType === 'income' ? '收入分类' : '支出分类';
 
-    // 渲染图表
-    renderTrendChart(data.daily_stats);
-    renderCategoryChart(data.category_stats, currentCategoryChartType);
+    if (!tabAnalysis || !tabAnalysis.classList.contains('active')) {
+        return;
+    }
+    requestAnimationFrame(() => {
+        if (!tabAnalysis.classList.contains('active')) return;
+        renderTrendChart(data.daily_stats);
+        renderCategoryChart(data.category_stats, currentCategoryChartType);
+    });
 }
 
 // 更新洞察指标卡片
