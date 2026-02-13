@@ -802,19 +802,12 @@ function renderTrendChart(dailyStats) {
         }
     }, !isUpdate); // 首次渲染 notMerge=true；数据更新则 merge
 
-    // 任意位置可点：用 zrender 监听整图点击，按像素换算为日期索引（Y 轴任意高度都能进当日）
+    // 仅点击折线/柱子/数据点时跳转详情；点图例「收入/支出/结余」只触发图例显隐，不跳转
     if (!_trendClickBound) {
         _trendClickBound = true;
-        trendChart.getZr().on('click', function (e) {
-            if (!_trendDailyStats || !_trendDailyStats.length) return;
-            const pointInPixel = [e.offsetX, e.offsetY];
-            let pointInGrid;
-            try {
-                pointInGrid = trendChart.convertFromPixel('grid', pointInPixel);
-            } catch (err) { return; }
-            if (pointInGrid == null || pointInGrid.length < 2) return;
-            const idx = Math.round(pointInGrid[0]);
-            if (idx < 0 || idx >= _trendDailyStats.length) return;
+        trendChart.on('click', function (params) {
+            if (params.componentType !== 'series' || !_trendDailyStats) return;
+            const idx = params.dataIndex;
             const day = _trendDailyStats[idx];
             if (!day) return;
             const expenseCats = (day.categories || []).filter(c => !c.type || c.type !== 'income');
