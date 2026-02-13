@@ -317,13 +317,6 @@ input, textarea {
 
 
 
-/* 统计卡片 */
-.stats-cards {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 12px;
-}
-
 /* 快速记账区域标题栏 - 包含当日金额 */
 .quick-add-header {
     display: flex;
@@ -357,68 +350,7 @@ input, textarea {
     margin-bottom: 20px;
 }
 
-.stats-cards .stat-card {
-    flex: 1;
-    min-width: 0;
-}
-
-.stat-card {
-    background: #fefefe; /* 非常柔和的白色 */
-    border-radius: 8px;
-    padding: 10px 12px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03); /* 更淡的阴影 */
-    border: 1px solid #f0f1f3; /* 更淡的边框 */
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    cursor: default;
-}
-
-.stat-card:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
-.stat-card.income {
-    border-left: none;
-}
-
-.stat-card.expense {
-    border-left: none;
-}
-
-.stat-card.balance {
-    border-left: none;
-}
-
-.stat-icon {
-    font-size: 22px;
-    line-height: 1;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.stat-card:hover .stat-icon {
-    transform: scale(1.05);
-}
-
-.stat-info {
-    flex: 1;
-}
-
-.stat-label {
-    font-size: 10px;
-    color: #8b95a7; /* 更柔和的灰色 */
-    margin-bottom: 2px;
-}
-
-.stat-value {
-    font-size: 15px;
-    font-weight: 600;
-    color: #4a5568; /* 降低对比度 */
-}
-
-/* ========== 数据分析 - 2×3 统计格子 ========== */
+/* ========== 数据分析 - 2×3 统计格子（首页与数据分析页共用） ========== */
 .analysis-stats-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -1710,11 +1642,6 @@ input, textarea {
     
     .main-tab-btn .tab-label {
         font-size: 11px; /* 移动端文字稍大 */
-    }
-    
-    .stats-cards {
-        grid-template-columns: 1fr;
-        gap: 6px;
     }
 
     .analysis-stats-grid {

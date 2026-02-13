@@ -252,6 +252,8 @@ let totalPagesRecords = 0;
 let isLoadingRecords = false;
 let recordsScrollObserver = null;
 let recordsTopScrollObserver = null; // 顶部哨兵：向上滑加载上一页
+/** 记录列表页码缓存：page -> { records, pages }，用于预加载相邻页后直接渲染，滑动无感 */
+let recordsPageCache = {};
 let currentTimeDimension = 'day'; // day, week, month
 // 图表相关
 let trendChart = null;
@@ -1705,10 +1707,34 @@ async function loadStatistics() {
         const response = await authFetch(url);
         const data = await response.json();
 
-        // 更新统计卡片
-        document.getElementById('total-income').textContent = formatMoney(data.total_income);
-        document.getElementById('total-expense').textContent = formatMoney(data.total_expense);
-        document.getElementById('total-balance').textContent = formatMoney(data.balance);
+        // 更新首页六项统计（与数据分析一致）
+        const homeIncome = document.getElementById('home-total-income');
+        const homeExpense = document.getElementById('home-total-expense');
+        const homeBalance = document.getElementById('home-total-balance');
+        if (homeIncome) homeIncome.textContent = formatMoney(data.total_income);
+        if (homeExpense) homeExpense.textContent = formatMoney(data.total_expense);
+        if (homeBalance) homeBalance.textContent = formatMoney(data.balance);
+
+        const summary = data.summary;
+        const homeAvg = document.getElementById('home-avg-expense');
+        const homeMax = document.getElementById('home-max-day');
+        const homeTop = document.getElementById('home-top-cat');
+        if (homeAvg) homeAvg.textContent = summary ? formatMoney(summary.avg_daily_expense) : '--';
+        if (homeMax) {
+            if (summary && summary.max_expense_day) {
+                const d = new Date(summary.max_expense_day.date);
+                homeMax.textContent = `${d.getMonth() + 1}/${d.getDate()} ${formatMoney(summary.max_expense_day.amount)}`;
+            } else {
+                homeMax.textContent = '--';
+            }
+        }
+        if (homeTop) {
+            if (summary && summary.top_expense_category) {
+                homeTop.textContent = `${summary.top_expense_category.icon} ${summary.top_expense_category.name}`;
+            } else {
+                homeTop.textContent = '--';
+            }
+        }
 
         // 更新当日支出（如果存在）
         const todayExpenseEl = document.getElementById('today-expense');
@@ -1722,6 +1748,39 @@ async function loadStatistics() {
 }
 
 
+// 构建记录列表请求 URL（与 loadRecords 一致，预加载时不带 scroll_to_date）
+function buildRecordsUrl(page, perPage) {
+    let url = `${API_BASE}/records?page=${page}&per_page=${perPage}`;
+    if (recordsFilterStartDate) url += `&start_date=${encodeURIComponent(recordsFilterStartDate)}`;
+    if (recordsFilterEndDate) url += `&end_date=${encodeURIComponent(recordsFilterEndDate)}`;
+    if (recordsCategoryFilter) url += `&category=${encodeURIComponent(recordsCategoryFilter)}`;
+    const recordsSearchInput = document.getElementById('records-search-input');
+    const keyword = recordsSearchInput ? recordsSearchInput.value.trim() : '';
+    if (keyword) url += `&q=${encodeURIComponent(keyword)}`;
+    return url;
+}
+
+// 后台拉取某一页并写入缓存，不更新 DOM、不占用 isLoadingRecords
+function fetchRecordsPageToCache(page) {
+    if (recordsPageCache[page]) return;
+    const perPage = recordsPerPageForCurrentFilter;
+    const url = buildRecordsUrl(page, perPage);
+    authFetch(url)
+        .then(res => res.json())
+        .then(data => {
+            recordsPageCache[page] = { records: data.records || [], pages: data.pages || 0 };
+        })
+        .catch(() => {});
+}
+
+// 预加载当前已加载范围的前一页、后一页，滑动时优先用缓存
+function prefetchAdjacentPages() {
+    const prev = firstLoadedPage - 1;
+    const next = currentPage + 1;
+    if (prev >= 1 && !recordsPageCache[prev]) fetchRecordsPageToCache(prev);
+    if (next <= totalPagesRecords && !recordsPageCache[next]) fetchRecordsPageToCache(next);
+}
+
 // 加载记录列表（第1页替换；后续页追加；向上滑时 prepend 上一页）
 async function loadRecords(page = 1, options = {}) {
     const { prepend = false } = options;
@@ -1734,6 +1793,7 @@ async function loadRecords(page = 1, options = {}) {
         currentPage = 0;
         firstLoadedPage = 1;
         totalPagesRecords = 0;
+        recordsPageCache = {};
         listEl.innerHTML = '<div class="records-loading-inline">加载中...</div>';
         if (paginationEl) paginationEl.innerHTML = '';
         destroyRecordsScrollObserver();
@@ -1747,10 +1807,27 @@ async function loadRecords(page = 1, options = {}) {
         updateRecordsFooter(true, false);
     }
 
-    isLoadingRecords = true;
     const useScrollToDate = isFirstPage && recordsScrollToDate;
     const perPage = useScrollToDate ? 100 : recordsPerPageForCurrentFilter;
 
+    const cached = !isFirstPage && !useScrollToDate ? recordsPageCache[page] : null;
+    if (cached) {
+        if (prepend) {
+            firstLoadedPage = page;
+            prependRecords(cached.records);
+            setupRecordsTopScrollObserver();
+        } else {
+            currentPage = page;
+            if (cached.pages) totalPagesRecords = cached.pages;
+            const hasMore = currentPage < totalPagesRecords;
+            appendRecords(cached.records);
+            updateRecordsFooter(false, hasMore);
+        }
+        prefetchAdjacentPages();
+        return;
+    }
+
+    isLoadingRecords = true;
     try {
         let url = `${API_BASE}/records?page=${page}&per_page=${perPage}`;
         if (recordsFilterStartDate) url += `&start_date=${encodeURIComponent(recordsFilterStartDate)}`;
@@ -1763,6 +1840,10 @@ async function loadRecords(page = 1, options = {}) {
 
         const response = await authFetch(url);
         const data = await response.json();
+
+        if (!useScrollToDate) {
+            recordsPageCache[page] = { records: data.records || [], pages: data.pages || 0 };
+        }
 
         if (prepend) {
             firstLoadedPage = data.page;
@@ -1788,6 +1869,7 @@ async function loadRecords(page = 1, options = {}) {
                 updateRecordsFooter(false, hasMore);
             }
         }
+        prefetchAdjacentPages();
     } catch (error) {
         console.error('加载记录失败:', error);
         if (isFirstPage) {

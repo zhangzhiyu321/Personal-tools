@@ -17,27 +17,48 @@
 
         <!-- 首页标签页 -->
         <div class="tab-content active" id="tab-home">
-            <!-- 统计卡片 -->
-            <div class="stats-cards">
-                <div class="stat-card income">
-                    <div class="stat-icon">💰</div>
-                    <div class="stat-info">
-                        <div class="stat-label">总收入</div>
-                        <div class="stat-value" id="total-income">¥0.00</div>
+            <!-- 统计卡片（与数据分析六项一致：2×3 格子） -->
+            <div class="analysis-stats-grid" id="home-stats-cards">
+                <div class="insight-card">
+                    <div class="insight-icon">💰</div>
+                    <div class="insight-info">
+                        <div class="insight-label">总收入</div>
+                        <div class="insight-value" id="home-total-income">¥0.00</div>
                     </div>
                 </div>
-                <div class="stat-card expense">
-                    <div class="stat-icon">💸</div>
-                    <div class="stat-info">
-                        <div class="stat-label">总支出</div>
-                        <div class="stat-value" id="total-expense">¥0.00</div>
+                <div class="insight-card">
+                    <div class="insight-icon">💸</div>
+                    <div class="insight-info">
+                        <div class="insight-label">总支出</div>
+                        <div class="insight-value" id="home-total-expense">¥0.00</div>
                     </div>
                 </div>
-                <div class="stat-card balance">
-                    <div class="stat-icon">📊</div>
-                    <div class="stat-info">
-                        <div class="stat-label">结余</div>
-                        <div class="stat-value" id="total-balance">¥0.00</div>
+                <div class="insight-card">
+                    <div class="insight-icon">📈</div>
+                    <div class="insight-info">
+                        <div class="insight-label">结余</div>
+                        <div class="insight-value" id="home-total-balance">¥0.00</div>
+                    </div>
+                </div>
+                <div class="insight-card">
+                    <div class="insight-icon">📉</div>
+                    <div class="insight-info">
+                        <div class="insight-label">日均支出</div>
+                        <div class="insight-value" id="home-avg-expense">--</div>
+                    </div>
+                </div>
+                <div class="insight-card">
+                    <div class="insight-icon">🔥</div>
+                    <div class="insight-info">
+                        <div class="insight-label">最高单日</div>
+                        <div class="insight-value" id="home-max-day">--</div>
+                    </div>
+                </div>
+                <div class="insight-card">
+                    <div class="insight-icon">🏆</div>
+                    <div class="insight-info">
+                        <div class="insight-label">最大分类</div>
+                        <div class="insight-value" id="home-top-cat">--</div>
                     </div>
                 </div>
             </div>
