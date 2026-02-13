@@ -523,6 +523,10 @@ input, textarea {
     min-height: 200px;
 }
 
+#trend-chart {
+    position: relative;
+}
+
 .chart-empty {
     display: flex;
     align-items: center;
@@ -532,6 +536,14 @@ input, textarea {
     min-height: 200px;
     color: #bbb;
     font-size: 13px;
+}
+
+/* 趋势图悬浮框：仅此区域可点击跳转，盖住图表避免点到背后数据 */
+.js-trend-tooltip-body {
+    cursor: pointer;
+    pointer-events: auto;
+    position: relative;
+    z-index: 1;
 }
 
 /* 图表类型切换按钮（收入/支出） */

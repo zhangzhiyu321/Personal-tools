@@ -652,7 +652,9 @@ function updateInsightCards(summary) {
 
 // ========== 收支趋势复合图 ==========
 let _trendClickBound = false;
-let _trendDailyStats = null; // 供 click handler 引用的最新数据
+let _trendDailyStats = null;
+/** mousedown 时记录的悬浮框日期，避免 click 前被 ECharts 更新成背后数据 */
+let _trendTooltipPendingDate = null;
 function renderTrendChart(dailyStats) {
     const dom = document.getElementById('trend-chart');
     if (!dom) return;
@@ -774,7 +776,7 @@ function renderTrendChart(dailyStats) {
             backgroundColor: 'rgba(255,255,255,0.96)',
             borderColor: '#eee', borderWidth: 1,
             textStyle: { color: '#333', fontSize: 12 },
-            extraCssText: 'border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);padding:12px 14px;max-width:220px;',
+            extraCssText: 'border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);padding:12px 14px;max-width:220px;cursor:pointer;z-index:99999;',
             formatter: function (params) {
                 if (!params || params.length === 0 || !_trendDailyStats) return '';
                 const idx = params[0].dataIndex;
@@ -783,26 +785,24 @@ function renderTrendChart(dailyStats) {
                 const dt = new Date(day.date);
                 const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
                 let html = `<div style="font-weight:600;margin-bottom:6px;font-size:13px;">📅 ${dt.getMonth() + 1}月${dt.getDate()}日 周${weekdays[dt.getDay()]}</div>`;
-                html += `<div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="color:#16a34a;">💰 收入</span><span style="font-weight:500;">¥${day.income.toFixed(2)}</span></div>`;
-                html += `<div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="color:#dc2626;">💸 支出</span><span style="font-weight:500;">¥${day.expense.toFixed(2)}</span></div>`;
+                html += `<div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="color:#16a34a;">💰 收入</span><span style="font-weight:500;">¥${(day.income || 0).toFixed(2)}</span></div>`;
+                html += `<div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="color:#dc2626;">💸 支出</span><span style="font-weight:500;">¥${(day.expense || 0).toFixed(2)}</span></div>`;
                 const expenseCats = (day.categories || []).filter(c => !c.type || c.type !== 'income');
                 if (expenseCats.length > 0) {
                     html += '<div style="border-top:1px solid #f0f0f0;margin:6px 0 4px;"></div>';
                     const showCats = expenseCats.slice(0, 4);
                     showCats.forEach(c => {
-                        html += `<div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:2px;"><span>${c.icon} ${c.name}</span><span>¥${c.amount.toFixed(2)}</span></div>`;
+                        html += `<div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:2px;"><span>${c.icon} ${c.name}</span><span>¥${(c.amount || 0).toFixed(2)}</span></div>`;
                     });
-                    if (expenseCats.length > 4) {
-                        html += `<div style="font-size:10px;color:#999;text-align:center;">还有${expenseCats.length - 4}个分类...</div>`;
-                    }
+                    if (expenseCats.length > 4) html += `<div style="font-size:10px;color:#999;text-align:center;">还有${expenseCats.length - 4}个分类...</div>`;
                 }
-                html += `<div style="font-size:10px;color:#3b82f6;text-align:center;margin-top:6px;cursor:pointer;">点击查看当日明细</div>`;
-                return html;
+                html += '<div style="font-size:11px;color:#3b82f6;text-align:center;margin-top:6px;">点击查看当日明细</div>';
+                return '<div class="js-trend-tooltip-body" data-date="' + (day.date || '') + '">' + html + '</div>';
             }
         }
     }, !isUpdate); // 首次渲染 notMerge=true；数据更新则 merge
 
-    // 仅点击折线/柱子/数据点时跳转详情；点图例「收入/支出/结余」只触发图例显隐，不跳转
+    // 仅点击悬浮框可跳转；点击折线/柱/点只更新分类图，不跳转
     if (!_trendClickBound) {
         _trendClickBound = true;
         trendChart.on('click', function (params) {
@@ -821,9 +821,39 @@ function renderTrendChart(dailyStats) {
             const titleEl = document.getElementById('category-chart-title');
             if (titleEl) titleEl.textContent = `${dt.getMonth() + 1}月${dt.getDate()}日 支出分类`;
             renderCategoryChart({ expense: dayCatStats, income: [] }, 'expense');
-            const { startDate, endDate } = getCurrentAnalysisDateRange();
-            navigateToRecordsByDate(day.date, startDate, endDate);
         });
+
+        // 鼠标/指针在悬浮框上时，阻止 move 事件传到图表，否则 ECharts 会把 tooltip 更新成「背后」数据点，data-date 被改错
+        function blockMoveToChart(e) {
+            if (e.target && e.target.closest && e.target.closest('.js-trend-tooltip-body')) {
+                e.stopPropagation();
+            }
+        }
+        document.addEventListener('mousemove', blockMoveToChart, true);
+        document.addEventListener('pointermove', blockMoveToChart, true);
+
+        function captureTooltipDate(e) {
+            const box = (e.target && e.target.closest && e.target.closest('.js-trend-tooltip-body'));
+            if (!box) {
+                _trendTooltipPendingDate = null;
+                return;
+            }
+            _trendTooltipPendingDate = box.getAttribute('data-date') || null;
+        }
+        document.addEventListener('mousedown', captureTooltipDate, false);
+        document.addEventListener('touchstart', captureTooltipDate, { capture: false, passive: false });
+
+        document.addEventListener('click', function (e) {
+            const box = e.target.closest && e.target.closest('.js-trend-tooltip-body');
+            if (!box) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const date = _trendTooltipPendingDate != null ? _trendTooltipPendingDate : box.getAttribute('data-date');
+            _trendTooltipPendingDate = null;
+            if (!date) return;
+            const { startDate, endDate } = getCurrentAnalysisDateRange();
+            navigateToRecordsByDate(date, startDate, endDate);
+        }, true);
     }
 
     // 首次进入时容器可能刚从隐藏 tab 显示，布局未稳，多轮 resize 保证折线完整绘制
