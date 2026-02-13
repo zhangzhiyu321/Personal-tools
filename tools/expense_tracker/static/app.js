@@ -351,6 +351,18 @@ async function switchMainTab(tabName) {
             requestAnimationFrame(() => { loadAnalysisData(); });
         });
     } else if (tabName === 'records') {
+        // 如果不是通过导航函数跳转的，才清空搜索条件和筛选条件
+        if (!_isNavigatingToRecords) {
+            const recordsSearchInput = document.getElementById('records-search-input');
+            if (recordsSearchInput) {
+                recordsSearchInput.value = '';
+            }
+            recordsFilterStartDate = null;
+            recordsFilterEndDate = null;
+            recordsCategoryFilter = null;
+            recordsPerPageForCurrentFilter = RECORDS_PER_PAGE;
+        }
+        _isNavigatingToRecords = false; // 重置标志
         loadRecords();
     } else if (tabName === 'home') {
         // 确保回到真正的首页：关闭记账流程浮层和数字键盘，避免“记账一半”时切走再回来还停在浮层
@@ -887,12 +899,11 @@ function isTouchOnCategoryPie(dom, clientX, clientY) {
     const y = clientY - rect.top;
     const w = rect.width;
     const h = rect.height;
-    const isMobile = w <= 768 || h <= 400;
-    const cx = w * (isMobile ? 0.35 : 0.38);
-    const cy = h * 0.5;
+    const cx = w * 0.5; // 饼图居中
+    const cy = h * 0.5; // 饼图居中
     const minSide = Math.min(w, h);
-    const innerR = minSide * 0.42;
-    const outerR = minSide * 0.70;
+    const innerR = minSide * 0.40; // 对应 radius 的 40%
+    const outerR = minSide * 0.75; // 对应 radius 的 75%
     const d = Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
     return d >= innerR && d <= outerR;
 }
@@ -977,29 +988,49 @@ function renderCategoryChart(categoryStats, type) {
         animationDuration: isUpdate ? 250 : 500,
         animationDurationUpdate: 250,
         animationEasing: 'cubicOut',
-        legend: {
-            orient: 'vertical', right: isMobile ? '2%' : '6%', top: 'middle',
-            textStyle: { fontSize: 11, color: '#666' },
-            itemWidth: 10, itemHeight: 10, itemGap: 8,
-            formatter: function (name) {
-                const item = chartData.find(c => c.name === name);
-                if (item) {
-                    return `${item.icon} ${name}  ${item.percent}%`;
-                }
-                return name;
-            }
-        },
         series: [{
             type: 'pie',
-            radius: ['42%', '70%'],
-            center: [isMobile ? '35%' : '38%', '50%'],
+            radius: ['40%', '75%'],
+            center: ['50%', '50%'],
             data: pieData,
-            label: { show: false },
-            labelLine: { show: false },
+            label: {
+                show: true,
+                position: 'outside',
+                formatter: function(params) {
+                    const item = chartData.find(c => c.name === params.name);
+                    if (item) {
+                        return `${item.icon} ${params.name}`;
+                    }
+                    return params.name;
+                },
+                fontSize: isMobile ? 11 : 12,
+                color: '#333',
+                fontWeight: 'normal',
+                distanceToLabelLine: 5
+            },
+            labelLine: {
+                show: true,
+                length: isMobile ? 15 : 20,
+                length2: isMobile ? 10 : 15,
+                lineStyle: {
+                    color: '#999',
+                    width: 1
+                }
+            },
             itemStyle: { borderColor: '#fff', borderWidth: 2 },
             emphasis: {
                 scale: true, scaleSize: 8,
-                label: { show: false },
+                label: {
+                    show: true,
+                    fontSize: isMobile ? 12 : 13,
+                    fontWeight: 'bold'
+                },
+                labelLine: {
+                    show: true,
+                    lineStyle: {
+                        width: 2
+                    }
+                },
                 itemStyle: { borderColor: '#fff', borderWidth: 2, shadowBlur: 15, shadowColor: 'rgba(0,0,0,0.12)' },
             }
         }],
@@ -1138,6 +1169,7 @@ function initGlobalTooltipClickHandler() {
 
 // 跳转到记录列表：用 rangeStart~rangeEnd 筛选，并滚动到 scrollToDate 所在日期
 function navigateToRecordsByDate(scrollToDate, rangeStart, rangeEnd) {
+    _isNavigatingToRecords = true; // 设置标志，保留筛选条件
     recordsFilterStartDate = rangeStart || null;
     recordsFilterEndDate = rangeEnd || null;
     recordsScrollToDate = scrollToDate || null;
@@ -1150,6 +1182,7 @@ function navigateToRecordsByDate(scrollToDate, rangeStart, rangeEnd) {
 
 // 跳转到记录列表并按分类+日期筛选
 function navigateToRecordsByCategory(category, startDate, endDate) {
+    _isNavigatingToRecords = true; // 设置标志，保留筛选条件
     recordsFilterStartDate = startDate || null;
     recordsFilterEndDate = endDate || null;
     recordsCategoryFilter = category;
@@ -1221,6 +1254,8 @@ let recordsFilterEndDate = null;
 let recordsScrollToDate = null;
 /** 从趋势跳转时首页用较大 per_page，翻页时保持一致 */
 let recordsPerPageForCurrentFilter = RECORDS_PER_PAGE;
+/** 标志：是否通过导航函数跳转到记录列表（用于保留筛选条件） */
+let _isNavigatingToRecords = false;
 
 // 绑定事件
 function bindEvents() {
