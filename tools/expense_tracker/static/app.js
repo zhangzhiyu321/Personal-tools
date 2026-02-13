@@ -1769,19 +1769,33 @@ async function loadRecords(page = 1, options = {}) {
     }
 }
 
-// 后端已按 scroll_to_date 返回对应页，只需滚动到该日区块并清除状态
+// 后端已按 scroll_to_date 返回对应页；布局稳定后手动滚动到该日区块顶部，保证同一日期每次定位一致
 function scrollToDateSectionAndClear() {
-    if (!recordsScrollToDate) return;
+    const scrollTo = recordsScrollToDate;
+    if (!scrollTo) return;
+    recordsScrollToDate = null;
+
     const listEl = document.getElementById('records-list');
     if (!listEl) return;
-    const scrollTo = recordsScrollToDate;
-    recordsScrollToDate = null;
-    requestAnimationFrame(() => {
+
+    function doScroll() {
         const section = listEl.querySelector(`.date-section[data-date="${scrollTo}"]`);
-        if (section) {
-            section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        if (!section) return;
+
+        const scrollParent = getRecordsScrollParent();
+        if (scrollParent) {
+            const parentRect = scrollParent.getBoundingClientRect();
+            const sectionRect = section.getBoundingClientRect();
+            const targetScrollTop = scrollParent.scrollTop + (sectionRect.top - parentRect.top);
+            scrollParent.scrollTop = Math.max(0, Math.round(targetScrollTop));
+        } else {
+            const sectionRect = section.getBoundingClientRect();
+            const targetScrollY = window.scrollY + sectionRect.top;
+            window.scrollTo(0, Math.max(0, Math.round(targetScrollY)));
         }
-    });
+    }
+
+    setTimeout(doScroll, 120);
 }
 
 // 获取记录列表所在的滚动容器（用于 prepend 后修正滚动位置）
