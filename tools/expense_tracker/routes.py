@@ -193,14 +193,22 @@ def get_records():
     category_filter = request.args.get('category')
     # 日期范围（用于今日记录、按日查看等）
     start, end = parse_date_range(request.args.get('start_date'), request.args.get('end_date'))
-  
+    # 前端「定位到某日」：直接返回包含该日期的页码，一次请求到位
+    scroll_to_date_raw = request.args.get('scroll_to_date')
+    scroll_to_date_parsed = None
+    if scroll_to_date_raw:
+        try:
+            scroll_to_date_parsed = datetime.strptime(scroll_to_date_raw, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            pass
+
     search_query = (request.args.get('q') or '').strip()
     try:
         page = max(1, int(request.args.get('page', 1)))
         per_page = max(1, min(100, int(request.args.get('per_page', 12))))
     except (ValueError, TypeError):
         page, per_page = 1, 12
-    
+
     query = Expense.query.filter_by(user_id=user_id)
     if type_filter:
         query = query.filter(Expense.type == type_filter)
@@ -210,7 +218,7 @@ def get_records():
         query = query.filter(Expense.date >= start)
     if end:
         query = query.filter(Expense.date <= end)
-    
+
     # 关键字搜索：分类 / 备注 / 账户 文本模糊匹配 + 金额精确匹配
     if search_query:
         like_pattern = f"%{search_query}%"
@@ -227,7 +235,12 @@ def get_records():
         if search_filters:
             from sqlalchemy import or_
             query = query.filter(or_(*search_filters))
-    
+
+    # 若带了 scroll_to_date：算出包含该日期的页码（按 date 倒序，先数 date 严格大于目标日的条数）
+    if scroll_to_date_parsed is not None:
+        count_after = query.filter(Expense.date > scroll_to_date_parsed).count()
+        page = max(1, (count_after // per_page) + 1)
+
     pagination = query.order_by(Expense.date.desc(), Expense.created_at.desc()).paginate(
         page=page, per_page=per_page, error_out=False
     )

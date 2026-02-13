@@ -798,28 +798,34 @@ function renderTrendChart(dailyStats) {
         }
     }, !isUpdate); // 首次渲染 notMerge=true；数据更新则 merge
 
-    // 事件只绑定一次（通过 _trendDailyStats 引用最新数据）
+    // 任意位置可点：用 zrender 监听整图点击，按像素换算为日期索引（Y 轴任意高度都能进当日）
     if (!_trendClickBound) {
         _trendClickBound = true;
-        trendChart.on('click', function (params) {
-            if (params.componentType === 'series' && _trendDailyStats) {
-                const idx = params.dataIndex;
-                const day = _trendDailyStats[idx];
-                if (day) {
-                    const expenseCats = (day.categories || []).filter(c => !c.type || c.type !== 'income');
-                    const totalExp = day.expense || 0;
-                    const dayCatStats = expenseCats.map(c => ({
-                        name: c.name, icon: c.icon, color: c.color,
-                        amount: c.amount, count: 1, avg_per_day: c.amount,
-                        percent: totalExp > 0 ? Math.round(c.amount / totalExp * 1000) / 10 : 0,
-                    }));
-                    const dt = new Date(day.date);
-                    const titleEl = document.getElementById('category-chart-title');
-                    if (titleEl) titleEl.textContent = `${dt.getMonth() + 1}月${dt.getDate()}日 支出分类`;
-                    renderCategoryChart({ expense: dayCatStats, income: [] }, 'expense');
-                    navigateToRecordsByDate(day.date, day.date);
-                }
-            }
+        trendChart.getZr().on('click', function (e) {
+            if (!_trendDailyStats || !_trendDailyStats.length) return;
+            const pointInPixel = [e.offsetX, e.offsetY];
+            let pointInGrid;
+            try {
+                pointInGrid = trendChart.convertFromPixel('grid', pointInPixel);
+            } catch (err) { return; }
+            if (pointInGrid == null || pointInGrid.length < 2) return;
+            const idx = Math.round(pointInGrid[0]);
+            if (idx < 0 || idx >= _trendDailyStats.length) return;
+            const day = _trendDailyStats[idx];
+            if (!day) return;
+            const expenseCats = (day.categories || []).filter(c => !c.type || c.type !== 'income');
+            const totalExp = day.expense || 0;
+            const dayCatStats = expenseCats.map(c => ({
+                name: c.name, icon: c.icon, color: c.color,
+                amount: c.amount, count: 1, avg_per_day: c.amount,
+                percent: totalExp > 0 ? Math.round(c.amount / totalExp * 1000) / 10 : 0,
+            }));
+            const dt = new Date(day.date);
+            const titleEl = document.getElementById('category-chart-title');
+            if (titleEl) titleEl.textContent = `${dt.getMonth() + 1}月${dt.getDate()}日 支出分类`;
+            renderCategoryChart({ expense: dayCatStats, income: [] }, 'expense');
+            const { startDate, endDate } = getCurrentAnalysisDateRange();
+            navigateToRecordsByDate(day.date, startDate, endDate);
         });
     }
 
@@ -965,10 +971,12 @@ function initCategoryChartSwitch() {
 
 // ========== 图表跳转联动 ==========
 
-// 跳转到记录列表并按日期筛选
-function navigateToRecordsByDate(startDate, endDate) {
-    recordsFilterStartDate = startDate;
-    recordsFilterEndDate = endDate;
+// 跳转到记录列表：用 rangeStart~rangeEnd 筛选，并滚动到 scrollToDate 所在日期
+function navigateToRecordsByDate(scrollToDate, rangeStart, rangeEnd) {
+    recordsFilterStartDate = rangeStart || null;
+    recordsFilterEndDate = rangeEnd || null;
+    recordsScrollToDate = scrollToDate || null;
+    recordsPerPageForCurrentFilter = scrollToDate ? 100 : RECORDS_PER_PAGE;
     recordsCategoryFilter = null;
     const searchInput = document.getElementById('records-search-input');
     if (searchInput) searchInput.value = '';
@@ -1052,6 +1060,10 @@ let currentEditingRecord = null; // 当前正在编辑的记录（用于记录�
 // 记录列表的内部日期筛选（不再使用可见的日期输入框）
 let recordsFilterStartDate = null;
 let recordsFilterEndDate = null;
+/** 从趋势图点击某日跳转时，列表用分析范围筛选，并滚动到此日期；加载后清除 */
+let recordsScrollToDate = null;
+/** 从趋势跳转时首页用较大 per_page，翻页时保持一致 */
+let recordsPerPageForCurrentFilter = RECORDS_PER_PAGE;
 
 // 绑定事件
 function bindEvents() {
@@ -1150,6 +1162,7 @@ function bindEvents() {
                 recordsFilterStartDate = null;
                 recordsFilterEndDate = null;
                 recordsCategoryFilter = null;
+                recordsPerPageForCurrentFilter = RECORDS_PER_PAGE;
                 loadRecords(1);
             }
         });
@@ -1160,6 +1173,7 @@ function bindEvents() {
                 recordsFilterStartDate = null;
                 recordsFilterEndDate = null;
                 recordsCategoryFilter = null;
+                recordsPerPageForCurrentFilter = RECORDS_PER_PAGE;
                 loadRecords(1);
             }
         });
@@ -1173,6 +1187,7 @@ function bindEvents() {
             recordsFilterStartDate = null;
             recordsFilterEndDate = null;
             recordsCategoryFilter = null;
+            recordsPerPageForCurrentFilter = RECORDS_PER_PAGE;
             loadRecords(1);
         });
     }
@@ -1691,11 +1706,15 @@ async function loadRecords(page = 1) {
     }
 
     isLoadingRecords = true;
+    const useScrollToDate = isFirstPage && recordsScrollToDate;
+    const perPage = useScrollToDate ? 100 : recordsPerPageForCurrentFilter;
+
     try {
-        let url = `${API_BASE}/records?page=${page}&per_page=${RECORDS_PER_PAGE}`;
+        let url = `${API_BASE}/records?page=${page}&per_page=${perPage}`;
         if (recordsFilterStartDate) url += `&start_date=${encodeURIComponent(recordsFilterStartDate)}`;
         if (recordsFilterEndDate) url += `&end_date=${encodeURIComponent(recordsFilterEndDate)}`;
         if (recordsCategoryFilter) url += `&category=${encodeURIComponent(recordsCategoryFilter)}`;
+        if (useScrollToDate && recordsScrollToDate) url += `&scroll_to_date=${encodeURIComponent(recordsScrollToDate)}`;
         const recordsSearchInput = document.getElementById('records-search-input');
         const keyword = recordsSearchInput ? recordsSearchInput.value.trim() : '';
         if (keyword) url += `&q=${encodeURIComponent(keyword)}`;
@@ -1712,6 +1731,9 @@ async function loadRecords(page = 1) {
             const isEmpty = !data.records || data.records.length === 0;
             appendRecordsFooterAndSentinel(hasMore, isEmpty);
             setupRecordsScrollObserver(hasMore);
+            if (useScrollToDate && recordsScrollToDate) {
+                scrollToDateSectionAndClear();
+            }
         } else {
             appendRecords(data.records);
             updateRecordsFooter(false, hasMore);
@@ -1725,6 +1747,21 @@ async function loadRecords(page = 1) {
     } finally {
         isLoadingRecords = false;
     }
+}
+
+// 后端已按 scroll_to_date 返回对应页，只需滚动到该日区块并清除状态
+function scrollToDateSectionAndClear() {
+    if (!recordsScrollToDate) return;
+    const listEl = document.getElementById('records-list');
+    if (!listEl) return;
+    const scrollTo = recordsScrollToDate;
+    recordsScrollToDate = null;
+    requestAnimationFrame(() => {
+        const section = listEl.querySelector(`.date-section[data-date="${scrollTo}"]`);
+        if (section) {
+            section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    });
 }
 
 // 底部占位：加载中 / 没有更多 / 哨兵（用于提前触发下一页）
