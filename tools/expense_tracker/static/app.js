@@ -519,9 +519,9 @@ function updateDatePickerDisplay() {
         document.getElementById('day-year-display').textContent = state.year;
         document.getElementById('day-month-display').textContent = `${state.month}月`;
     } else if (currentTimeDimension === 'week') {
-        document.getElementById('week-count-display').textContent = `${state.count}周`;
+        document.getElementById('week-count-display').textContent = `近${state.count}周`;
     } else if (currentTimeDimension === 'month') {
-        document.getElementById('month-count-display').textContent = `${state.count}月`;
+        document.getElementById('month-count-display').textContent = `近${state.count}月`;
     }
 }
 
@@ -1172,31 +1172,23 @@ function getCurrentAnalysisDateRange() {
         const lastDay = new Date(year, month, 0).getDate();
         endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     } else if (currentTimeDimension === 'week') {
-        // 近N周：从N周前的周一开始到今天
-        const count = state.count || 1;
-        const endDateObj = new Date();
-        endDateObj.setHours(23, 59, 59, 999);
-        // 找到本周的周一
-        const dayOfWeek = endDateObj.getDay() || 7; // 0=周日，转换为7
-        const daysToMonday = dayOfWeek - 1;
-        const thisWeekMonday = new Date(endDateObj);
-        thisWeekMonday.setDate(endDateObj.getDate() - daysToMonday);
-        thisWeekMonday.setHours(0, 0, 0, 0);
-
-        // 计算N周前的周一
-        const startDateObj = new Date(thisWeekMonday);
-        startDateObj.setDate(thisWeekMonday.getDate() - (count - 1) * 7);
-
-        startDate = getLocalDateString(startDateObj);
-        endDate = getLocalDateString(endDateObj);
-    } else if (currentTimeDimension === 'month') {
-        // 近N月：从N个月前的第一天到今天
+        // 近N周：从N*7天前到今天
         const count = state.count || 1;
         const endDateObj = new Date();
         endDateObj.setHours(23, 59, 59, 999);
         const startDateObj = new Date(endDateObj);
-        startDateObj.setMonth(endDateObj.getMonth() - (count - 1));
-        startDateObj.setDate(1); // 设置为该月第一天
+        startDateObj.setDate(endDateObj.getDate() - (count * 7 - 1)); // N周 = N*7天，减去1是因为包含今天
+        startDateObj.setHours(0, 0, 0, 0);
+
+        startDate = getLocalDateString(startDateObj);
+        endDate = getLocalDateString(endDateObj);
+    } else if (currentTimeDimension === 'month') {
+        // 近N月：从N*30天前到今天
+        const count = state.count || 1;
+        const endDateObj = new Date();
+        endDateObj.setHours(23, 59, 59, 999);
+        const startDateObj = new Date(endDateObj);
+        startDateObj.setDate(endDateObj.getDate() - (count * 30 - 1)); // N月 = N*30天，减去1是因为包含今天
         startDateObj.setHours(0, 0, 0, 0);
 
         startDate = getLocalDateString(startDateObj);
