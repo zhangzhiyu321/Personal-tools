@@ -539,13 +539,13 @@ function switchTimeDimension(dimension) {
     // 更新当前维度
     currentTimeDimension = dimension;
 
-    // 如果切换到新维度，初始化日期为当前日期
+    // 每次切回该维度时都恢复为默认状态：日=本月，周=近1周，月=近1月
     const now = new Date();
-    if (dimension === 'day' && !datePickerState.day.year) {
+    if (dimension === 'day') {
         datePickerState.day = { year: now.getFullYear(), month: now.getMonth() + 1 };
-    } else if (dimension === 'week' && !datePickerState.week.count) {
+    } else if (dimension === 'week') {
         datePickerState.week = { count: 1 };
-    } else if (dimension === 'month' && !datePickerState.month.count) {
+    } else if (dimension === 'month') {
         datePickerState.month = { count: 1 };
     }
 
@@ -866,6 +866,49 @@ let _catClickBound = false;
 let _catChartData = null;
 /** mousedown 时记录的悬浮框分类名，避免 click 前被 ECharts 更新成背后数据 */
 let _catTooltipPendingCategory = null;
+/** 手指是否在饼图上滑动（用于阻止此时触发浏览器滚动） */
+let _catTouchOnPie = false;
+/** 判断触摸点是否在饼图圆环内（仅饼上，空白不算）。与 setOption 中 center/radius 一致。 */
+function isTouchOnCategoryPie(dom, clientX, clientY) {
+    if (!dom || !categoryChart || categoryChart.isDisposed()) return false;
+    const rect = dom.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    const w = rect.width;
+    const h = rect.height;
+    const isMobile = w <= 768 || h <= 400;
+    const cx = w * (isMobile ? 0.35 : 0.38);
+    const cy = h * 0.5;
+    const minSide = Math.min(w, h);
+    const innerR = minSide * 0.42;
+    const outerR = minSide * 0.70;
+    const d = Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
+    return d >= innerR && d <= outerR;
+}
+function bindCategoryChartTouchToPreventScroll(dom) {
+    if (!dom || dom._catTouchBound) return;
+    dom._catTouchBound = true;
+    dom.addEventListener('touchstart', function (e) {
+        if (e.touches.length !== 1) return;
+        if (isTouchOnCategoryPie(dom, e.touches[0].clientX, e.touches[0].clientY)) {
+            _catTouchOnPie = true;
+            e.preventDefault();
+        } else {
+            _catTouchOnPie = false;
+        }
+    }, { passive: false });
+    dom.addEventListener('touchmove', function (e) {
+        if (_catTouchOnPie && e.cancelable) {
+            e.preventDefault();
+        }
+    }, { passive: false });
+    dom.addEventListener('touchend', function () {
+        _catTouchOnPie = false;
+    }, { passive: true });
+    dom.addEventListener('touchcancel', function () {
+        _catTouchOnPie = false;
+    }, { passive: true });
+}
 function renderCategoryChart(categoryStats, type) {
     const dom = document.getElementById('category-chart');
     if (!dom) return;
@@ -1009,6 +1052,9 @@ function renderCategoryChart(categoryStats, type) {
     if (!isUpdate) {
         requestAnimationFrame(() => { if (categoryChart) categoryChart.resize(); });
     }
+
+    // 手指在饼图上滑动时不触发浏览器上下滑动
+    bindCategoryChartTouchToPreventScroll(dom);
 }
 
 // 初始化环形图类型切换按钮
