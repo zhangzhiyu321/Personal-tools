@@ -245,11 +245,13 @@ async function checkAuthStatus() {
 // 全局变量
 let categories = { expense: [], income: [] };
 let currentPage = 1;
+let firstLoadedPage = 1; // 当前列表里「最上面」对应的页码，用于向上滑加载上一页
 // 记录列表无限滚动
 const RECORDS_PER_PAGE = 12;
 let totalPagesRecords = 0;
 let isLoadingRecords = false;
 let recordsScrollObserver = null;
+let recordsTopScrollObserver = null; // 顶部哨兵：向上滑加载上一页
 let currentTimeDimension = 'day'; // day, week, month
 // 图表相关
 let trendChart = null;
@@ -327,8 +329,10 @@ async function switchMainTab(tabName) {
     // 根据标签页加载相应数据
     if (tabName === 'analysis') {
         updateDatePickerDisplay();
-        // 立即加载（renderChart 内部已有尺寸检测重试机制）
-        loadAnalysisData(true);
+        // 等一帧再加载，让 tab 显示后图表容器先完成布局，避免首屏只画点不画线
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => { loadAnalysisData(true); });
+        });
     } else if (tabName === 'records') {
         loadRecords();
     } else if (tabName === 'home') {
@@ -829,9 +833,18 @@ function renderTrendChart(dailyStats) {
         });
     }
 
-    // 仅初次创建时 resize 一次
-    if (!isUpdate) {
-        requestAnimationFrame(() => { if (trendChart) trendChart.resize(); });
+    // 首次进入时容器可能刚从隐藏 tab 显示，布局未稳，多轮 resize 保证折线完整绘制
+    if (!isUpdate && trendChart) {
+        const doResize = () => { if (trendChart && !trendChart.isDisposed()) trendChart.resize(); };
+        doResize();
+        requestAnimationFrame(() => {
+            doResize();
+            requestAnimationFrame(() => {
+                doResize();
+                setTimeout(doResize, 100);
+                setTimeout(doResize, 350);
+            });
+        });
     }
 }
 
@@ -1686,19 +1699,25 @@ async function loadStatistics() {
 }
 
 
-// 加载记录列表（支持无限滚动：第1页替换，后续页追加）
-async function loadRecords(page = 1) {
+// 加载记录列表（第1页替换；后续页追加；向上滑时 prepend 上一页）
+async function loadRecords(page = 1, options = {}) {
+    const { prepend = false } = options;
     const listEl = document.getElementById('records-list');
     const paginationEl = document.getElementById('pagination');
     if (!listEl) return;
 
-    const isFirstPage = page === 1;
+    const isFirstPage = page === 1 && !prepend;
     if (isFirstPage) {
         currentPage = 0;
+        firstLoadedPage = 1;
         totalPagesRecords = 0;
         listEl.innerHTML = '<div class="records-loading-inline">加载中...</div>';
         if (paginationEl) paginationEl.innerHTML = '';
         destroyRecordsScrollObserver();
+        destroyRecordsTopScrollObserver();
+    } else if (prepend) {
+        if (isLoadingRecords) return;
+        if (firstLoadedPage <= 1) return;
     } else {
         if (isLoadingRecords) return;
         if (page > totalPagesRecords && totalPagesRecords > 0) return;
@@ -1722,21 +1741,29 @@ async function loadRecords(page = 1) {
         const response = await authFetch(url);
         const data = await response.json();
 
-        currentPage = data.page;
-        totalPagesRecords = data.pages || 0;
-        const hasMore = currentPage < totalPagesRecords;
-
-        if (isFirstPage) {
-            renderRecords(data.records);
-            const isEmpty = !data.records || data.records.length === 0;
-            appendRecordsFooterAndSentinel(hasMore, isEmpty);
-            setupRecordsScrollObserver(hasMore);
-            if (useScrollToDate && recordsScrollToDate) {
-                scrollToDateSectionAndClear();
-            }
+        if (prepend) {
+            firstLoadedPage = data.page;
+            prependRecords(data.records);
+            setupRecordsTopScrollObserver();
         } else {
-            appendRecords(data.records);
-            updateRecordsFooter(false, hasMore);
+            currentPage = data.page;
+            totalPagesRecords = data.pages || 0;
+            const hasMore = currentPage < totalPagesRecords;
+
+            if (isFirstPage) {
+                firstLoadedPage = data.page;
+                renderRecords(data.records);
+                const isEmpty = !data.records || data.records.length === 0;
+                appendRecordsFooterAndSentinel(hasMore, isEmpty);
+                setupRecordsScrollObserver(hasMore);
+                setupRecordsTopScrollObserver();
+                if (useScrollToDate && recordsScrollToDate) {
+                    scrollToDateSectionAndClear();
+                }
+            } else {
+                appendRecords(data.records);
+                updateRecordsFooter(false, hasMore);
+            }
         }
     } catch (error) {
         console.error('加载记录失败:', error);
@@ -1764,10 +1791,31 @@ function scrollToDateSectionAndClear() {
     });
 }
 
-// 底部占位：加载中 / 没有更多 / 哨兵（用于提前触发下一页）
+// 获取记录列表所在的滚动容器（用于 prepend 后修正滚动位置）
+function getRecordsScrollParent() {
+    const listEl = document.getElementById('records-list');
+    if (!listEl) return null;
+    let p = listEl.parentElement;
+    while (p) {
+        const style = getComputedStyle(p);
+        const oy = style.overflowY || style.overflow;
+        if (oy === 'auto' || oy === 'scroll' || oy === 'overlay') return p;
+        p = p.parentElement;
+    }
+    return null;
+}
+
+// 底部占位 + 顶部哨兵（向上滑加载上一页）
 function appendRecordsFooterAndSentinel(hasMore, isEmptyList) {
     const listEl = document.getElementById('records-list');
     if (!listEl) return;
+    let topSentinel = listEl.querySelector('.records-list-top-sentinel');
+    if (!isEmptyList && !topSentinel) {
+        topSentinel = document.createElement('div');
+        topSentinel.className = 'records-list-top-sentinel';
+        topSentinel.setAttribute('aria-hidden', 'true');
+        listEl.insertBefore(topSentinel, listEl.firstChild);
+    }
     let footer = listEl.querySelector('.records-list-footer');
     if (!footer) {
         footer = document.createElement('div');
@@ -1807,7 +1855,6 @@ function setupRecordsScrollObserver(hasMore) {
     const listEl = document.getElementById('records-list');
     const sentinel = listEl && listEl.querySelector('.records-list-sentinel');
     if (!sentinel) return;
-    // 提前约 400px 触发加载，实现无感提前加载
     recordsScrollObserver = new IntersectionObserver(
         (entries) => {
             const entry = entries[0];
@@ -1824,6 +1871,31 @@ function destroyRecordsScrollObserver() {
     if (recordsScrollObserver) {
         recordsScrollObserver.disconnect();
         recordsScrollObserver = null;
+    }
+}
+
+function setupRecordsTopScrollObserver() {
+    destroyRecordsTopScrollObserver();
+    if (firstLoadedPage <= 1) return;
+    const listEl = document.getElementById('records-list');
+    const topSentinel = listEl && listEl.querySelector('.records-list-top-sentinel');
+    if (!topSentinel) return;
+    recordsTopScrollObserver = new IntersectionObserver(
+        (entries) => {
+            const entry = entries[0];
+            if (!entry || !entry.isIntersecting || isLoadingRecords) return;
+            if (firstLoadedPage <= 1) return;
+            loadRecords(firstLoadedPage - 1, { prepend: true });
+        },
+        { root: null, rootMargin: '400px 0px 0px 0px', threshold: 0 }
+    );
+    recordsTopScrollObserver.observe(topSentinel);
+}
+
+function destroyRecordsTopScrollObserver() {
+    if (recordsTopScrollObserver) {
+        recordsTopScrollObserver.disconnect();
+        recordsTopScrollObserver = null;
     }
 }
 
@@ -2061,6 +2133,86 @@ function appendRecords(records) {
                 container.appendChild(newSection);
             }
             bindRecordAmountClick(newSection);
+        }
+    });
+}
+
+// 在列表顶部插入上一页记录（向上滑加载），并修正滚动位置避免跳动
+function prependRecords(records) {
+    if (!records || records.length === 0) return;
+    const container = document.getElementById('records-list');
+    if (!container) return;
+    const topSentinel = container.querySelector('.records-list-top-sentinel');
+    if (!topSentinel) return;
+
+    const groupedByDate = {};
+    records.forEach(record => {
+        const dateKey = record.date;
+        if (!groupedByDate[dateKey]) groupedByDate[dateKey] = [];
+        groupedByDate[dateKey].push(record);
+    });
+    const sortedDates = Object.keys(groupedByDate).sort((a, b) => new Date(b) - new Date(a));
+
+    const scrollEl = getRecordsScrollParent();
+    const isWindow = !scrollEl;
+    const scrollTopBefore = isWindow ? (window.scrollY || document.documentElement.scrollTop) : scrollEl.scrollTop;
+    const firstOldSection = topSentinel.nextElementSibling;
+
+    const fragment = document.createDocumentFragment();
+    sortedDates.forEach(dateKey => {
+        const dateRecords = groupedByDate[dateKey];
+        const date = new Date(dateKey);
+        const month = date.getMonth() + 1;
+        const day = date.getDate();
+        const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+        const weekday = weekdays[date.getDay()];
+        const dateHeader = `${month}月${day}日 星期${weekday}`;
+        const today = new Date();
+        const isToday = date.toDateString() === today.toDateString();
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const isYesterday = date.toDateString() === yesterday.toDateString();
+        let dateLabel = dateHeader;
+        if (isToday) dateLabel = '今天 ' + dateHeader;
+        else if (isYesterday) dateLabel = '昨天 ' + dateHeader;
+        const dailyExpense = dateRecords.filter(r => r.type === 'expense').reduce((s, r) => s + parseFloat(r.amount || 0), 0);
+        let sectionHtml = `
+            <div class="date-section" data-date="${dateKey}">
+                <div class="date-header">
+                    <span class="date-label">${dateLabel}</span>
+                    <div class="date-right-info">
+                        ${dailyExpense > 0 ? `<span class="date-expense">${formatMoney(dailyExpense)}</span>` : ''}
+                        <span class="date-total">${dateRecords.length} 条</span>
+                    </div>
+                </div>
+                <div class="date-records">
+        `;
+        dateRecords.forEach(record => {
+            sectionHtml += buildRecordItemHtml(record);
+        });
+        sectionHtml += '</div></div>';
+        const wrap = document.createElement('div');
+        wrap.innerHTML = sectionHtml.trim();
+        fragment.appendChild(wrap.firstElementChild);
+    });
+
+    while (fragment.firstChild) {
+        const node = fragment.firstChild;
+        container.insertBefore(node, firstOldSection);
+        bindRecordAmountClick(node);
+    }
+
+    let prependedHeight = 0;
+    let n = topSentinel.nextElementSibling;
+    while (n && n !== firstOldSection) {
+        prependedHeight += n.offsetHeight || 0;
+        n = n.nextElementSibling;
+    }
+    requestAnimationFrame(() => {
+        if (isWindow) {
+            window.scrollTo(0, scrollTopBefore + prependedHeight);
+        } else if (scrollEl) {
+            scrollEl.scrollTop = scrollTopBefore + prependedHeight;
         }
     });
 }

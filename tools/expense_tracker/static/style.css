@@ -1537,7 +1537,8 @@ input, textarea {
     font-size: 11px;
     color: #94a3b8;
 }
-.records-list-sentinel {
+.records-list-sentinel,
+.records-list-top-sentinel {
     height: 1px;
     width: 100%;
     pointer-events: none;
