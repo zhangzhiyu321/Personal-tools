@@ -313,17 +313,28 @@ function initMainTabs() {
 
 // 切换主标签页
 async function switchMainTab(tabName) {
-    // 更新按钮状态
-    document.querySelectorAll('.main-tab-btn').forEach(btn => {
+    // 确保先移除所有按钮的 active 状态，避免状态不同步
+    const allTabBtns = document.querySelectorAll('.main-tab-btn');
+    allTabBtns.forEach(btn => {
         btn.classList.remove('active');
     });
-    document.querySelector(`.main-tab-btn[data-tab="${tabName}"]`).classList.add('active');
+    
+    // 确保目标按钮存在后再添加 active 类
+    const targetBtn = document.querySelector(`.main-tab-btn[data-tab="${tabName}"]`);
+    if (targetBtn) {
+        targetBtn.classList.add('active');
+    }
 
-    // 更新内容显示
-    document.querySelectorAll('.tab-content').forEach(content => {
+    // 更新内容显示 - 先移除所有，再添加目标
+    const allTabContents = document.querySelectorAll('.tab-content');
+    allTabContents.forEach(content => {
         content.classList.remove('active');
     });
-    document.getElementById(`tab-${tabName}`).classList.add('active');
+    
+    const targetContent = document.getElementById(`tab-${tabName}`);
+    if (targetContent) {
+        targetContent.classList.add('active');
+    }
 
     // 滚动到页面顶部
     window.scrollTo({ top: 0, behavior: 'instant' });

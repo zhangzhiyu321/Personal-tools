@@ -40,17 +40,25 @@ input, textarea {
     padding-bottom: 20px; /* 额外的底部间距 */
 }
 
-/* 主标签页导航 - 毛玻璃悬浮效果 */
+/* 主标签页导航 - iOS 16 风格毛玻璃悬浮效果 */
 .main-tabs {
     display: inline-flex; /* 改为 inline-flex，让宽度自适应内容 */
     gap: 4px;
-    background: rgba(255, 255, 255, 0.55); /* 半透明背景 */
-    backdrop-filter: blur(20px) saturate(180%); /* 毛玻璃效果 */
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    /* iOS 16 风格毛玻璃效果：更强的模糊和更柔和的背景 */
+    background: rgba(255, 255, 255, 0.7); /* 提高不透明度，更接近 iOS 16 */
+    backdrop-filter: blur(30px) saturate(200%); /* 更强的模糊效果 */
+    -webkit-backdrop-filter: blur(30px) saturate(200%);
     padding: 12px 20px; /* 增加内边距，让按钮有更多呼吸空间 */
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08); /* 增强阴影，增加悬浮感 */
-    border: 1px solid rgba(255, 255, 255, 0.6);
+    /* iOS 16 风格阴影：更自然的多层阴影 */
+    box-shadow: 
+        0 8px 32px rgba(0, 0, 0, 0.08),
+        0 2px 8px rgba(0, 0, 0, 0.04),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9); /* 内阴影增加玻璃质感 */
+    border: 1px solid rgba(255, 255, 255, 0.8); /* 更明显的边框 */
     border-radius: 28px; /* 更大的圆角，更柔和 */
+    /* 确保毛玻璃效果在 Safari 上也能正常显示 */
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
 }
 
 .main-tabs.fixed-bottom {
@@ -87,14 +95,24 @@ input, textarea {
 }
 
 .main-tab-btn:hover {
-    background: rgba(24, 144, 255, 0.1);
+    background: rgba(24, 144, 255, 0.08);
     color: #1890ff;
-    transform: translateY(-2px);
+    /* iOS 16 风格：轻微缩放而非位移 */
+    transform: scale(1.01);
+}
+
+.main-tab-btn.active:hover {
+    /* 激活状态下的 hover 效果 */
+    background: rgba(24, 144, 255, 0.15);
+    transform: scale(1.02);
 }
 
 .main-tab-btn.active {
-    background: rgba(24, 144, 255, 0.15);
+    /* iOS 16 风格激活状态：更柔和的背景色 */
+    background: rgba(24, 144, 255, 0.12);
     color: #1890ff;
+    /* 添加轻微的缩放效果，更符合 iOS 16 的交互感 */
+    transform: scale(1.02);
 }
 
 .main-tab-btn.active::before {
@@ -1635,6 +1653,10 @@ input, textarea {
         width: auto; /* 保持自适应 */
         max-width: calc(100% - 32px); /* 限制最大宽度，左右各留16px */
         padding: 10px 16px; /* 移动端也保持较大的内边距 */
+        /* 移动端保持 iOS 16 风格毛玻璃效果 */
+        background: rgba(255, 255, 255, 0.75); /* 移动端稍微提高不透明度 */
+        backdrop-filter: blur(25px) saturate(180%);
+        -webkit-backdrop-filter: blur(25px) saturate(180%);
     }
     
     .main-tab-btn {
