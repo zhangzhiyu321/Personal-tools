@@ -294,6 +294,7 @@ function init(authenticated) {
     initMainTabs();
     initTimeDimensionSelector();
     initCategoryChartSwitch();
+    initCalendarView();
 
     if (authenticated) {
         loadCategories().then(() => loadTodayRecords());
@@ -4117,3 +4118,390 @@ if (!document.getElementById('expense-tracker-animations')) {
     });
     document.head.appendChild(style);
 }
+
+// ========== 日历视图功能 ==========
+let calendarViewCurrentMonth = new Date();
+let calendarViewData = {}; // 存储日期数据 { 'YYYY-MM-DD': { income, expense, categories } }
+let calendarViewAbortCtrl = null;
+let calendarViewSelectedDate = null; // 当前选中的日期（日历视图专用）
+
+// 初始化日历视图
+function initCalendarView() {
+    const btn = document.getElementById('btn-calendar-view');
+    if (!btn) {
+        console.warn('日历按钮未找到');
+        return;
+    }
+
+    btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('日历按钮被点击');
+        openCalendarView();
+    });
+
+    // 月份导航
+    const prevBtn = document.getElementById('calendar-view-prev-month');
+    const nextBtn = document.getElementById('calendar-view-next-month');
+    if (prevBtn) {
+        prevBtn.addEventListener('click', () => {
+            calendarViewCurrentMonth.setMonth(calendarViewCurrentMonth.getMonth() - 1);
+            loadCalendarViewData().then(() => {
+                renderCalendarView();
+                // 如果之前有选中的日期，保持选中状态
+                if (calendarViewSelectedDate) {
+                    selectCalendarDate(calendarViewSelectedDate);
+                }
+            });
+        });
+    }
+    if (nextBtn) {
+        nextBtn.addEventListener('click', () => {
+            calendarViewCurrentMonth.setMonth(calendarViewCurrentMonth.getMonth() + 1);
+            loadCalendarViewData().then(() => {
+                renderCalendarView();
+                // 如果之前有选中的日期，保持选中状态
+                if (calendarViewSelectedDate) {
+                    selectCalendarDate(calendarViewSelectedDate);
+                }
+            });
+        });
+    }
+}
+
+// 打开日历视图（切换到日历页面）
+async function openCalendarView() {
+    try {
+        console.log('打开日历视图');
+        // 切换到日历标签页
+        switchMainTab('calendar');
+        
+        calendarViewCurrentMonth = new Date();
+        calendarViewSelectedDate = null;
+        
+        await loadCalendarViewData();
+        renderCalendarView();
+        
+        // 默认选中今天
+        const today = getLocalDateString();
+        selectCalendarDate(today);
+    } catch (error) {
+        console.error('打开日历视图失败:', error);
+    }
+}
+
+// 关闭日历视图（返回首页）
+function closeCalendarView() {
+    switchMainTab('home');
+    if (calendarViewAbortCtrl) {
+        calendarViewAbortCtrl.abort();
+        calendarViewAbortCtrl = null;
+    }
+}
+
+// 加载日历数据（获取当前月份前后各一个月的范围）
+async function loadCalendarViewData() {
+    const year = calendarViewCurrentMonth.getFullYear();
+    const month = calendarViewCurrentMonth.getMonth() + 1;
+    
+    // 计算范围：前一个月的第一天到后一个月的最后一天（确保日历网格完整）
+    const startDate = new Date(year, month - 2, 1); // 前一个月第一天
+    const endDate = new Date(year, month, 0); // 当前月最后一天
+    
+    const startDateStr = getLocalDateString(startDate);
+    const endDateStr = getLocalDateString(endDate);
+
+    // 取消上一个请求
+    if (calendarViewAbortCtrl) {
+        calendarViewAbortCtrl.abort();
+    }
+    calendarViewAbortCtrl = new AbortController();
+
+    const loadingEl = document.getElementById('calendar-view-loading');
+    if (loadingEl) loadingEl.style.display = 'flex';
+
+    try {
+        const url = `${API_BASE}/statistics?start_date=${startDateStr}&end_date=${endDateStr}`;
+        const response = await authFetch(url, { signal: calendarViewAbortCtrl.signal });
+        const data = await response.json();
+
+        // 将daily_stats转换为按日期索引的对象
+        calendarViewData = {};
+        if (data.daily_stats && Array.isArray(data.daily_stats)) {
+            data.daily_stats.forEach(day => {
+                calendarViewData[day.date] = {
+                    income: day.income || 0,
+                    expense: day.expense || 0,
+                    balance: day.balance || 0,
+                    categories: day.categories || []
+                };
+            });
+        }
+    } catch (error) {
+        if (error.name === 'AbortError') return;
+        console.error('加载日历数据失败:', error);
+        calendarViewData = {};
+    } finally {
+        if (loadingEl) loadingEl.style.display = 'none';
+        calendarViewAbortCtrl = null;
+    }
+}
+
+// 渲染日历视图
+function renderCalendarView() {
+    const year = calendarViewCurrentMonth.getFullYear();
+    const month = calendarViewCurrentMonth.getMonth() + 1;
+
+    // 更新月份显示
+    const monthYearEl = document.getElementById('calendar-view-month-year');
+    if (monthYearEl) {
+        monthYearEl.textContent = `${year}年${month}月`;
+    }
+
+    // 渲染日期网格
+    const daysContainer = document.getElementById('calendar-view-days');
+    if (!daysContainer) return;
+
+    // 计算该月第一天是星期几（0=周日）
+    const firstDay = new Date(year, month - 1, 1);
+    const firstDayWeek = firstDay.getDay();
+
+    // 计算该月有多少天
+    const lastDay = new Date(year, month, 0);
+    const daysInMonth = lastDay.getDate();
+
+    // 清空容器
+    daysContainer.innerHTML = '';
+
+    // 添加上个月的日期（灰色显示）
+    const prevMonth = month - 1 === 0 ? 12 : month - 1;
+    const prevYear = month - 1 === 0 ? year - 1 : year;
+    const prevMonthLastDay = new Date(prevYear, prevMonth, 0).getDate();
+    
+    for (let i = firstDayWeek - 1; i >= 0; i--) {
+        const day = prevMonthLastDay - i;
+        const dateStr = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayEl = createCalendarDayElement(dateStr, true);
+        daysContainer.appendChild(dayEl);
+    }
+
+    // 添加当前月的日期
+    const today = new Date();
+    const todayStr = getLocalDateString(today);
+    
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const isToday = dateStr === todayStr;
+        const dayEl = createCalendarDayElement(dateStr, false, isToday);
+        daysContainer.appendChild(dayEl);
+    }
+    
+    // 渲染完成后，如果有选中的日期，重新应用选中样式
+    if (calendarViewSelectedDate) {
+        const selectedDay = daysContainer.querySelector(`[data-date="${calendarViewSelectedDate}"]`);
+        if (selectedDay) {
+            selectedDay.classList.add('selected');
+        }
+    }
+
+    // 添加下个月的日期（填满网格）
+    const totalCells = daysContainer.children.length;
+    const remainingCells = 42 - totalCells; // 6行 × 7列 = 42
+    const nextMonth = month + 1 === 13 ? 1 : month + 1;
+    const nextYear = month + 1 === 13 ? year + 1 : year;
+
+    for (let day = 1; day <= remainingCells && day <= 14; day++) {
+        const dateStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayEl = createCalendarDayElement(dateStr, true);
+        daysContainer.appendChild(dayEl);
+    }
+}
+
+// 格式化金额为简短显示（用于日历格子）
+function formatMoneyShort(amount) {
+    const num = parseFloat(amount) || 0;
+    if (num === 0) return '0';
+    if (num >= 10000) {
+        return (num / 10000).toFixed(1) + 'W';
+    } else if (num >= 1000) {
+        return (num / 1000).toFixed(1) + 'K';
+    } else if (num >= 100) {
+        return num.toFixed(0);
+    } else {
+        return num.toFixed(1);
+    }
+}
+
+// 创建日历日期元素
+function createCalendarDayElement(dateStr, isOtherMonth, isToday = false) {
+    const dayEl = document.createElement('div');
+    dayEl.className = 'calendar-view-day';
+    dayEl.dataset.date = dateStr;
+    
+    if (isOtherMonth) {
+        dayEl.classList.add('other-month');
+    }
+    if (isToday) {
+        dayEl.classList.add('today');
+    }
+
+    const date = new Date(dateStr + 'T00:00:00');
+    const dayNumber = date.getDate();
+    
+    const dayData = calendarViewData[dateStr];
+    const hasExpense = dayData && dayData.expense > 0;
+    const hasIncome = dayData && dayData.income > 0;
+    
+    if (hasExpense) {
+        dayEl.classList.add('has-expense');
+    }
+
+    // 构建tooltip内容（完整信息）
+    let tooltipContent = `${date.getMonth() + 1}月${dayNumber}日\n`;
+    if (dayData) {
+        if (dayData.expense > 0) {
+            tooltipContent += `支出: ${formatMoney(dayData.expense)}\n`;
+        }
+        if (dayData.income > 0) {
+            tooltipContent += `收入: ${formatMoney(dayData.income)}\n`;
+        }
+        if (dayData.categories && dayData.categories.length > 0) {
+            const catNames = dayData.categories.slice(0, 3).map(c => c.name).join('、');
+            tooltipContent += `分类: ${catNames}`;
+        }
+    } else {
+        tooltipContent += '无记录';
+    }
+    dayEl.setAttribute('title', tooltipContent);
+
+    // 日期数字
+    const numberEl = document.createElement('div');
+    numberEl.className = 'calendar-view-day-number';
+    numberEl.textContent = dayNumber;
+    dayEl.appendChild(numberEl);
+
+    // 内容容器（限制高度和溢出）
+    const contentEl = document.createElement('div');
+    contentEl.className = 'calendar-view-day-content';
+
+    // 支出金额（简化显示）
+    if (hasExpense) {
+        const expenseEl = document.createElement('div');
+        expenseEl.className = 'calendar-view-day-expense';
+        expenseEl.textContent = formatMoneyShort(dayData.expense);
+        expenseEl.setAttribute('data-full', formatMoney(dayData.expense));
+        contentEl.appendChild(expenseEl);
+    }
+
+    // 收入金额（简化显示，只在有收入且支出不太大时显示）
+    if (hasIncome && dayData.income > 0 && (!hasExpense || dayData.income >= dayData.expense * 0.3)) {
+        const incomeEl = document.createElement('div');
+        incomeEl.className = 'calendar-view-day-income';
+        incomeEl.textContent = '+' + formatMoneyShort(dayData.income);
+        incomeEl.setAttribute('data-full', formatMoney(dayData.income));
+        contentEl.appendChild(incomeEl);
+    }
+
+    // 分类图标点（最多3个，更小更紧凑）
+    if (dayData && dayData.categories && dayData.categories.length > 0) {
+        const categoriesEl = document.createElement('div');
+        categoriesEl.className = 'calendar-view-day-categories';
+        dayData.categories.slice(0, 3).forEach(cat => {
+            const dot = document.createElement('span');
+            dot.className = 'calendar-view-day-category-dot';
+            dot.style.backgroundColor = cat.color || '#C7CEEA';
+            dot.setAttribute('title', cat.name);
+            categoriesEl.appendChild(dot);
+        });
+        contentEl.appendChild(categoriesEl);
+    }
+
+    dayEl.appendChild(contentEl);
+
+    // 点击事件
+    dayEl.addEventListener('click', () => {
+        selectCalendarDate(dateStr);
+    });
+
+    // 如果是选中的日期，添加选中样式
+    if (calendarViewSelectedDate === dateStr) {
+        dayEl.classList.add('selected');
+    }
+
+    return dayEl;
+}
+
+// 选中日期并显示记录
+async function selectCalendarDate(dateStr) {
+    calendarViewSelectedDate = dateStr;
+    
+    // 更新所有日期的选中状态
+    document.querySelectorAll('.calendar-view-day').forEach(day => {
+        day.classList.remove('selected');
+        if (day.dataset.date === dateStr) {
+            day.classList.add('selected');
+        }
+    });
+
+    // 显示加载状态
+    const recordsListEl = document.getElementById('calendar-day-records-list');
+    if (recordsListEl) {
+        recordsListEl.innerHTML = '<div class="calendar-view-loading"><div class="loading-spinner"></div><span>加载中...</span></div>';
+    }
+
+    // 加载该日期的详细记录
+    try {
+        const response = await authFetch(`${API_BASE}/records?start_date=${dateStr}&end_date=${dateStr}`);
+        const data = await response.json();
+        
+        if (recordsListEl) {
+            renderCalendarDayRecords(recordsListEl, dateStr, data.records || []);
+        }
+    } catch (error) {
+        console.error('加载日期详情失败:', error);
+        if (recordsListEl) {
+            recordsListEl.innerHTML = '<div class="calendar-day-empty"><div class="calendar-day-empty-icon">⚠️</div><div>加载失败</div></div>';
+        }
+    }
+}
+
+// 渲染日期记录列表
+function renderCalendarDayRecords(container, dateStr, records) {
+    if (records.length === 0) {
+        container.innerHTML = `
+            <div class="calendar-day-empty">
+                <div class="calendar-day-empty-icon">📅</div>
+                <div>这一天没有记录</div>
+            </div>
+        `;
+        return;
+    }
+
+    // 记录列表
+    const recordsHtml = records.map(record => {
+        const catList = categories[record.type] || [];
+        const category = catList.find(c => c.name === record.category);
+        const icon = category?.icon || '📦';
+        const color = category?.color || '#C7CEEA';
+        const amountClass = record.type === 'income' ? 'income' : 'expense';
+        const amountPrefix = record.type === 'income' ? '+' : '';
+        
+        return `
+            <div class="calendar-day-record">
+                <div class="calendar-day-record-icon" style="background-color: ${color}20; color: ${color};">
+                    ${icon}
+                </div>
+                <div class="calendar-day-record-info">
+                    <div class="calendar-day-record-category">${record.category}</div>
+                    ${record.note ? `<div class="calendar-day-record-note">${record.note}</div>` : ''}
+                </div>
+                <div class="calendar-day-record-amount ${amountClass}">
+                    ${amountPrefix}${formatMoney(record.amount)}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = `<div class="calendar-day-records">${recordsHtml}</div>`;
+}
+

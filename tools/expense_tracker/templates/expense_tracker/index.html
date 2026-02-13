@@ -66,7 +66,12 @@
             <!-- 快速记账表单 -->
             <div class="quick-add-section">
                 <div class="quick-add-header">
-                    <h2>快速记账</h2>
+                    <div class="quick-add-title-row">
+                        <h2>快速记账</h2>
+                        <button type="button" id="btn-calendar-view" class="calendar-view-btn" title="查看日历">
+                            <span class="calendar-view-icon">📅</span>
+                        </button>
+                    </div>
                     <div class="today-expense-display">
                         <span class="today-expense-label">今日支出</span>
                         <span class="today-expense-value" id="today-expense">¥0.00</span>
@@ -277,6 +282,48 @@
 
         </div>
 
+        <!-- 日历视图标签页 -->
+        <div class="tab-content" id="tab-calendar">
+            <div class="calendar-page-container">
+                <!-- 月份导航 -->
+                <div class="calendar-view-nav">
+                    <button type="button" class="calendar-view-nav-btn" id="calendar-view-prev-month" aria-label="上一个月">‹</button>
+                    <div class="calendar-view-month-year" id="calendar-view-month-year"></div>
+                    <button type="button" class="calendar-view-nav-btn" id="calendar-view-next-month" aria-label="下一个月">›</button>
+                </div>
+
+                <!-- 星期标题 -->
+                <div class="calendar-view-weekdays">
+                    <div class="calendar-view-weekday">日</div>
+                    <div class="calendar-view-weekday">一</div>
+                    <div class="calendar-view-weekday">二</div>
+                    <div class="calendar-view-weekday">三</div>
+                    <div class="calendar-view-weekday">四</div>
+                    <div class="calendar-view-weekday">五</div>
+                    <div class="calendar-view-weekday">六</div>
+                </div>
+
+                <!-- 日期网格 -->
+                <div class="calendar-view-days" id="calendar-view-days"></div>
+
+                <!-- 加载提示 -->
+                <div class="calendar-view-loading" id="calendar-view-loading" style="display: none;">
+                    <div class="loading-spinner"></div>
+                    <span>加载中...</span>
+                </div>
+
+                <!-- 选中日期的记录列表 -->
+                <div class="calendar-day-records-section">
+                    <div class="calendar-day-records-list" id="calendar-day-records-list">
+                        <div class="calendar-day-empty">
+                            <div class="calendar-day-empty-icon">📅</div>
+                            <div>点击上方日期查看该日的详细记录</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- 记录列表标签页 -->
         <div class="tab-content" id="tab-records">
             <!-- 记录列表区域 -->
@@ -471,6 +518,7 @@
             </div>
         </div>
     </div>
+
 
     <!-- 数字键盘背景遮罩 -->
     <div id="number-keyboard-backdrop" class="keyboard-backdrop"></div>
