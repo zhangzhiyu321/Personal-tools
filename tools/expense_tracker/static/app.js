@@ -963,15 +963,8 @@ function renderCategoryChart(categoryStats, type) {
 
     const total = catList.reduce((s, c) => s + c.amount, 0);
 
-    let chartData;
-    if (catList.length > 8) {
-        const main = catList.slice(0, 7);
-        const rest = catList.slice(7);
-        const otherAmt = rest.reduce((s, c) => s + c.amount, 0);
-        chartData = [...main, { name: '其他', icon: '📋', color: '#9E9E9E', amount: otherAmt, count: rest.reduce((s, c) => s + c.count, 0), percent: total > 0 ? Math.round(otherAmt / total * 1000) / 10 : 0, _others: rest }];
-    } else {
-        chartData = catList;
-    }
+    // 显示所有分类，不再合并为"其他"
+    const chartData = catList;
 
     const pieData = chartData.map(c => ({
         name: c.name,
@@ -2037,6 +2030,8 @@ async function loadRecords(page = 1, options = {}) {
 }
 
 // 后端已按 scroll_to_date 返回对应页；布局稳定后手动滚动到该日区块顶部，保证同一日期每次定位一致
+let highlightedDateSection = null; // 当前高亮的日期区块
+
 function scrollToDateSectionAndClear() {
     const scrollTo = recordsScrollToDate;
     if (!scrollTo) return;
@@ -2045,9 +2040,30 @@ function scrollToDateSectionAndClear() {
     const listEl = document.getElementById('records-list');
     if (!listEl) return;
 
-    function doScroll() {
-        const section = listEl.querySelector(`.date-section[data-date="${scrollTo}"]`);
-        if (!section) return;
+    function doScroll(retryCount = 0) {
+        // 尝试多种方式查找日期区块，确保能找到
+        let section = listEl.querySelector(`.date-section[data-date="${scrollTo}"]`);
+        
+        // 如果没找到，尝试匹配（处理可能的格式差异）
+        if (!section) {
+            const allSections = listEl.querySelectorAll('.date-section');
+            for (let s of allSections) {
+                const sectionDate = s.getAttribute('data-date');
+                // 处理日期格式差异（如包含时间部分）
+                if (sectionDate === scrollTo || sectionDate === scrollTo.split('T')[0] || sectionDate === scrollTo.split(' ')[0]) {
+                    section = s;
+                    break;
+                }
+            }
+        }
+        
+        if (!section) {
+            // 如果还是没找到且重试次数少于5次，再尝试一次
+            if (retryCount < 5) {
+                setTimeout(() => doScroll(retryCount + 1), 100);
+            }
+            return;
+        }
 
         const scrollParent = getRecordsScrollParent();
         if (scrollParent) {
@@ -2060,9 +2076,89 @@ function scrollToDateSectionAndClear() {
             const targetScrollY = window.scrollY + sectionRect.top;
             window.scrollTo(0, Math.max(0, Math.round(targetScrollY)));
         }
+
+        // 添加高亮效果 - 使用多重延迟确保DOM完全渲染
+        setTimeout(() => {
+            removeDateSectionHighlight();
+            section.classList.add('date-section-highlight');
+            highlightedDateSection = section;
+            
+            // 强制重绘，确保样式生效
+            void section.offsetHeight;
+            
+            // 监听用户操作，移除高亮
+            setupHighlightRemovalListeners();
+        }, 50);
     }
 
-    setTimeout(doScroll, 120);
+    // 增加延迟时间，确保DOM完全渲染
+    setTimeout(() => doScroll(0), 250);
+}
+
+// 移除日期区块高亮
+function removeDateSectionHighlight() {
+    if (highlightedDateSection) {
+        highlightedDateSection.classList.remove('date-section-highlight');
+        highlightedDateSection = null;
+    }
+}
+
+// 设置高亮移除监听器（仅在需要时添加，避免重复添加）
+let highlightRemovalListenersSetup = false;
+let highlightRemovalHandlers = null;
+
+function setupHighlightRemovalListeners() {
+    if (highlightRemovalListenersSetup) return;
+    highlightRemovalListenersSetup = true;
+
+    // 创建统一的移除函数
+    function removeAllListeners() {
+        if (!highlightRemovalHandlers) return;
+        removeDateSectionHighlight();
+        highlightRemovalListenersSetup = false;
+        document.removeEventListener('click', highlightRemovalHandlers.click);
+        document.removeEventListener('scroll', highlightRemovalHandlers.scroll, true);
+        document.removeEventListener('input', highlightRemovalHandlers.input, true);
+        document.removeEventListener('touchstart', highlightRemovalHandlers.touch, true);
+        highlightRemovalHandlers = null;
+    }
+
+    // 创建事件处理器
+    highlightRemovalHandlers = {
+        click: function(e) {
+            // 如果点击的不是高亮区块本身或其子元素，则移除高亮
+            if (highlightedDateSection && !highlightedDateSection.contains(e.target)) {
+                removeAllListeners();
+            }
+        },
+        scroll: function() {
+            if (highlightedDateSection) {
+                removeAllListeners();
+            }
+        },
+        input: function() {
+            if (highlightedDateSection) {
+                removeAllListeners();
+            }
+        },
+        touch: function() {
+            if (highlightedDateSection) {
+                removeAllListeners();
+            }
+        }
+    };
+
+    // 监听点击事件
+    document.addEventListener('click', highlightRemovalHandlers.click, { capture: true });
+
+    // 监听滚动事件
+    document.addEventListener('scroll', highlightRemovalHandlers.scroll, true);
+
+    // 监听输入事件（搜索框、编辑等）
+    document.addEventListener('input', highlightRemovalHandlers.input, true);
+
+    // 监听触摸事件（移动端）
+    document.addEventListener('touchstart', highlightRemovalHandlers.touch, true);
 }
 
 // 获取记录列表所在的滚动容器（用于 prepend 后修正滚动位置）

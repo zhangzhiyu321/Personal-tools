@@ -1353,6 +1353,39 @@ input, textarea {
 /* 日期分组 */
 .date-section {
     margin-bottom: 8px;
+    transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.date-section-highlight {
+    background-color: rgba(24, 144, 255, 0.15) !important;
+    box-shadow: 0 0 0 4px rgba(24, 144, 255, 0.4), 0 4px 12px rgba(24, 144, 255, 0.2) !important;
+    border-radius: 8px !important;
+    padding: 4px !important;
+    margin: -4px !important;
+    animation: highlightPulse 2s ease-in-out infinite !important;
+    position: relative !important;
+    z-index: 1 !important;
+}
+
+.date-section-highlight .date-header {
+    background-color: rgba(24, 144, 255, 0.12) !important;
+    border-left: 3px solid rgba(24, 144, 255, 0.6) !important;
+}
+
+.date-section-highlight .record-item {
+    background-color: rgba(255, 255, 255, 0.9) !important;
+}
+
+@keyframes highlightPulse {
+    0% {
+        box-shadow: 0 0 0 4px rgba(24, 144, 255, 0.5), 0 4px 12px rgba(24, 144, 255, 0.3);
+    }
+    50% {
+        box-shadow: 0 0 0 4px rgba(24, 144, 255, 0.3), 0 4px 12px rgba(24, 144, 255, 0.2);
+    }
+    100% {
+        box-shadow: 0 0 0 4px rgba(24, 144, 255, 0.5), 0 4px 12px rgba(24, 144, 255, 0.3);
+    }
 }
 
 .date-header {
