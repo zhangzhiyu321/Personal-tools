@@ -818,26 +818,9 @@ function renderTrendChart(dailyStats) {
         }
     }, !isUpdate); // 首次渲染 notMerge=true；数据更新则 merge
 
-    // 仅点击悬浮框可跳转；点击折线/柱/点只更新分类图，不跳转
+    // 仅点击悬浮框可跳转
     if (!_trendClickBound) {
         _trendClickBound = true;
-        trendChart.on('click', function (params) {
-            if (params.componentType !== 'series' || !_trendDailyStats) return;
-            const idx = params.dataIndex;
-            const day = _trendDailyStats[idx];
-            if (!day) return;
-            const expenseCats = (day.categories || []).filter(c => !c.type || c.type !== 'income');
-            const totalExp = day.expense || 0;
-            const dayCatStats = expenseCats.map(c => ({
-                name: c.name, icon: c.icon, color: c.color,
-                amount: c.amount, count: 1, avg_per_day: c.amount,
-                percent: totalExp > 0 ? Math.round(c.amount / totalExp * 1000) / 10 : 0,
-            }));
-            const dt = new Date(day.date);
-            const titleEl = document.getElementById('category-chart-title');
-            if (titleEl) titleEl.textContent = `${dt.getMonth() + 1}月${dt.getDate()}日 支出分类`;
-            renderCategoryChart({ expense: dayCatStats, income: [] }, 'expense');
-        });
 
         // 鼠标/指针在悬浮框上时，阻止 move 事件传到图表，否则 ECharts 会把 tooltip 更新成「背后」数据点，data-date 被改错
         function blockMoveToChart(e) {
