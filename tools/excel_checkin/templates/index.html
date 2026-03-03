@@ -403,6 +403,16 @@
                         </div>
                     </div>
                     <div class="time-desc">最后一次打卡时间在此时间之前将被标红</div>
+
+                    <div class="time-group">
+                        <span class="time-label">清洗阈值：</span>
+                        <div class="time-input">
+                            <input type="number" id="cleanHour" min="0" max="23" value="17">
+                            <span class="time-separator">:</span>
+                            <input type="number" id="cleanMinute" min="0" max="59" value="44">
+                        </div>
+                    </div>
+                    <div class="time-desc">用于清洗当日多次打卡：最早时间晚于该阈值则仅保留最后一次，否则仅保留最早与最晚两次</div>
                 </div>
             </div>
         </div>
@@ -641,6 +651,8 @@
             formData.append('late_minute', document.getElementById('lateMinute').value);
             formData.append('early_hour', document.getElementById('earlyHour').value);
             formData.append('early_minute', document.getElementById('earlyMinute').value);
+            formData.append('clean_hour', document.getElementById('cleanHour').value);
+            formData.append('clean_minute', document.getElementById('cleanMinute').value);
             formData.append('holidays', JSON.stringify(holidays));
 
             processBtn.disabled = true;
@@ -733,7 +745,7 @@
             successDiv.classList.remove('show');
         }
 
-        ['lateHour', 'lateMinute', 'earlyHour', 'earlyMinute'].forEach(id => {
+        ['lateHour', 'lateMinute', 'earlyHour', 'earlyMinute', 'cleanHour', 'cleanMinute'].forEach(id => {
             document.getElementById(id).addEventListener('input', (e) => {
                 const value = parseInt(e.target.value);
                 const max = id.includes('Hour') ? 23 : 59;

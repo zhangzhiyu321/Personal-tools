@@ -61,8 +61,74 @@ def extract_last_time(time_str) -> Optional[time]:
         return None
 
 
+def extract_time_points(time_value) -> List[time]:
+    """从单元格内容中提取所有时间点（HH:MM），返回去重后的升序列表。"""
+    if pd.isna(time_value) or time_value == "":
+        return []
+
+    try:
+        import re
+
+        s = str(time_value).strip()
+        if not s or "休息" in s:
+            return []
+
+        matches = re.findall(r"(\d{1,2}):(\d{1,2})", s)
+        points: List[time] = []
+        for h_str, m_str in matches:
+            try:
+                h = int(h_str)
+                m = int(m_str)
+                if 0 <= h <= 23 and 0 <= m <= 59:
+                    points.append(time(h, m))
+            except Exception:
+                continue
+
+        if not points:
+            return []
+
+        # 去重 + 升序（同一天只关心时间点集合）
+        uniq = sorted(set(points))
+        return uniq
+    except Exception:
+        return []
+
+
+def _format_hhmm(t: time) -> str:
+    return f"{t.hour:02d}:{t.minute:02d}"
+
+
+def clean_daily_punch_cell(time_value, cutoff_time: time) -> Optional[str]:
+    """按规则清洗每日打卡单元格内容。
+
+    - 时间点数量 < 2：不处理，返回原字符串
+    - 第 1 个时间点（最早）> cutoff_time：只保留最后一次打卡时间（最晚）
+    - 否则：删除第 1 个与第 2 个时间点之间的所有时间（保留最早与最晚两次）
+    """
+    if pd.isna(time_value) or time_value == "":
+        return None
+
+    s = str(time_value).strip()
+    if not s or "休息" in s:
+        return s
+
+    points = extract_time_points(time_value)
+    if len(points) < 2:
+        return s
+
+    first_time = points[0]
+    last_time = points[-1]
+
+    if first_time > cutoff_time:
+        return _format_hhmm(last_time)
+
+    if first_time == last_time:
+        return _format_hhmm(first_time)
+
+    return f"{_format_hhmm(first_time)} {_format_hhmm(last_time)}"
+
+
 def parse_date_from_header(header_value, base_date_str, column_index, first_date_col_index):
-    """从表头解析日期（可能是数字或中文），根据列位置计算"""
     if pd.isna(header_value):
         return None
 
@@ -115,6 +181,7 @@ def process_excel_for_web(
     late_time: time,
     early_time: time,
     custom_holidays: Optional[List[Dict]] = None,
+    clean_cutoff_time: time = time(17, 44),
 ) -> Tuple[Optional[str], List[Dict]]:
     """Web 场景下使用的处理函数，返回输出文件路径和凌晨打卡明细。"""
     from datetime import datetime as _dt
@@ -203,10 +270,22 @@ def process_excel_for_web(
         first_date_col_index = column_names.index(date_columns[0]) if date_columns else 0
 
         night_records: List[Dict] = []
+        rows_to_delete: List[int] = []
 
         for idx, row in df.iterrows():
             excel_row = idx + header_row_idx + 1
             try:
+                # 姓名包含“离职”的员工：整行删除并跳过后续处理
+                if "姓名" in column_names:
+                    try:
+                        name_val = row.get("姓名", "")
+                        name_str = "" if pd.isna(name_val) else str(name_val)
+                        if "离职" in name_str:
+                            rows_to_delete.append(excel_row)
+                            continue
+                    except Exception:
+                        pass
+
                 for date_col in date_columns:
                     header_value = date_col
                     col_idx = column_names.index(date_col)
@@ -241,7 +320,16 @@ def process_excel_for_web(
                                 cell.font = RED_FONT
                         continue
 
-                    last_time = extract_last_time(time_value)
+                    # 先做单元格内容清洗，再按原有逻辑标红与统计
+                    cleaned_value = clean_daily_punch_cell(time_value, cutoff_time=clean_cutoff_time)
+                    if cleaned_value is None or cleaned_value == "":
+                        continue
+                    if cleaned_value != time_str:
+                        col_idx_excel = column_names.index(date_col) + 1
+                        ws.cell(row=excel_row, column=col_idx_excel).value = cleaned_value
+                    time_value_for_logic = cleaned_value
+
+                    last_time = extract_last_time(time_value_for_logic)
                     if last_time is None:
                         continue
 
@@ -278,7 +366,7 @@ def process_excel_for_web(
                                     "date": date_str,
                                     "weekday": weekday_label,
                                     "last_time": last_time.strftime("%H:%M"),
-                                    "all_times": str(time_value),
+                                    "all_times": str(time_value_for_logic),
                                     "is_holiday": bool(is_holiday(date_str, custom_holidays)),
                                 }
                             )
@@ -302,6 +390,14 @@ def process_excel_for_web(
 
             except Exception:
                 continue
+
+        # 统一删除离职员工行（倒序删除避免行号偏移）
+        if rows_to_delete:
+            for r in sorted(set(rows_to_delete), reverse=True):
+                try:
+                    ws.delete_rows(r, 1)
+                except Exception:
+                    pass
 
         dir_name, base_name = os.path.split(file_path)
         name_root, _ext = os.path.splitext(base_name)

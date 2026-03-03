@@ -15,6 +15,7 @@ def process_file_for_web(
     late_time: time,
     early_time: time,
     custom_holidays: Optional[List[Dict]] = None,
+    clean_cutoff_time: time = time(17, 44),
 ) -> Tuple[Optional[str], List[Dict]]:
     """供 Web 调用的统一入口，内部调用 core 逻辑。"""
     return process_excel_for_web(
@@ -22,5 +23,6 @@ def process_file_for_web(
         late_time=late_time,
         early_time=early_time,
         custom_holidays=custom_holidays,
+        clean_cutoff_time=clean_cutoff_time,
     )
 

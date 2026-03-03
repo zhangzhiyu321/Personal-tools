@@ -47,11 +47,15 @@ def upload_file() -> "tuple[object, int] | object":
         late_minute = int(request.form.get("late_minute", 0))
         early_hour = int(request.form.get("early_hour", 5))
         early_minute = int(request.form.get("early_minute", 0))
+        clean_hour = int(request.form.get("clean_hour", 17))
+        clean_minute = int(request.form.get("clean_minute", 44))
 
         if not (0 <= late_hour <= 23 and 0 <= late_minute <= 59):
             return jsonify({"error": "晚打卡时间设置无效"}), 400
         if not (0 <= early_hour <= 23 and 0 <= early_minute <= 59):
             return jsonify({"error": "早打卡时间设置无效"}), 400
+        if not (0 <= clean_hour <= 23 and 0 <= clean_minute <= 59):
+            return jsonify({"error": "清洗阈值时间设置无效"}), 400
     except ValueError:
         return jsonify({"error": "时间参数格式错误"}), 400
 
@@ -86,6 +90,7 @@ def upload_file() -> "tuple[object, int] | object":
             late_time=time(late_hour, late_minute),
             early_time=time(early_hour, early_minute),
             custom_holidays=custom_holidays,
+            clean_cutoff_time=time(clean_hour, clean_minute),
         )
 
         if not output_path or not os.path.exists(output_path):
