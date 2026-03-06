@@ -61,8 +61,42 @@ class SecurityConfig:
     
     @staticmethod
     def get_db_uri() -> Optional[str]:
-        """获取数据库URI（从环境变量，加密存储）"""
+        """获取数据库URI（从环境变量，可能为加密存储）"""
         return os.getenv('EXPENSE_TRACKER_DB_URI')
+    
+    @staticmethod
+    def get_backup_db_uris() -> list:
+        """
+        获取需要备份的数据库 URI 列表（通用，不限于记账项目）。
+        支持多库：BACKUP_DB_URIS 逗号分隔；未设置时使用 EXPENSE_TRACKER_DB_URI。
+        每项可为明文或 encrypted:xxx 格式。
+        """
+        uris_str = os.getenv('BACKUP_DB_URIS', '').strip()
+        if uris_str:
+            return [u.strip() for u in uris_str.split(',') if u.strip()]
+        single = os.getenv('EXPENSE_TRACKER_DB_URI')
+        return [single] if single else []
+    
+    @staticmethod
+    def get_backup_paths() -> list:
+        """
+        获取需要备份的目录或文件路径列表（可选）。
+        环境变量 BACKUP_PATHS：逗号分隔的绝对路径或相对项目根的路径。
+        """
+        raw = os.getenv('BACKUP_PATHS', '').strip()
+        if not raw:
+            return []
+        root = Path(__file__).parent.parent
+        out = []
+        for p in raw.split(','):
+            p = p.strip()
+            if not p:
+                continue
+            path = Path(p)
+            if not path.is_absolute():
+                path = root / p
+            out.append(path)
+        return out
     
     @staticmethod
     def get_admin_username() -> str:

@@ -18,21 +18,23 @@ class SecurityLogger:
         self.log_dir = Path(__file__).parent.parent / 'logs'
         self.log_dir.mkdir(exist_ok=True)
         
-        # 配置日志
+        # 配置日志（同一 name 的 logger 在进程内是单例，避免重复添加 handler 导致重复打 6 条）
         self.logger = logging.getLogger('security')
         self.logger.setLevel(logging.INFO)
         
-        # 文件处理器
-        log_file = self.log_dir / 'security.log'
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
-        file_handler.setLevel(logging.INFO)
-        
-        # 格式
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        file_handler.setFormatter(formatter)
-        self.logger.addHandler(file_handler)
+        # 仅当还没有 handler 时添加，避免多模块各实例化一次 SecurityLogger 导致重复记录
+        if not self.logger.handlers:
+            # 文件处理器
+            log_file = self.log_dir / 'security.log'
+            file_handler = logging.FileHandler(log_file, encoding='utf-8')
+            file_handler.setLevel(logging.INFO)
+            
+            # 格式
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+            file_handler.setFormatter(formatter)
+            self.logger.addHandler(file_handler)
     
     def _log_event(self, level: str, event_type: str, data: Dict[str, Any]):
         """记录事件"""

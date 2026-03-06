@@ -12,9 +12,7 @@ from typing import Optional
 from flask import request, jsonify, current_app, g
 from werkzeug.security import generate_password_hash, check_password_hash
 from .config import SecurityConfig
-from .logging import SecurityLogger
-
-logger = SecurityLogger()
+from . import security_logger as logger
 
 
 class AuthManager:

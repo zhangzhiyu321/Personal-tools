@@ -6,9 +6,7 @@
 from flask import Blueprint, request, jsonify, g
 from .auth import AuthManager, authenticate_user, require_auth
 from .validation import InputValidator
-from .logging import SecurityLogger
-
-logger = SecurityLogger()
+from . import security_logger as logger
 
 # 创建认证Blueprint
 auth_blueprint = Blueprint('auth', __name__, url_prefix='/api/auth')

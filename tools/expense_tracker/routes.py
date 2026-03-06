@@ -18,10 +18,8 @@ from .service import (
 )
 from security.auth import require_auth
 from security.validation import InputValidator
-from security.logging import SecurityLogger
+from security import security_logger as logger
 from functools import wraps
-
-logger = SecurityLogger()
 
 
 def get_current_user_id():
@@ -495,7 +493,6 @@ def import_data():
             if not raw_amount:
                 errors.append(f'第{row_num}行: 金额不能为空')
                 continue
-            
             amount = Decimal(raw_amount)
             if amount <= 0:
                 errors.append(f'第{row_num}行: 金额必须大于0')

@@ -22,9 +22,7 @@ from security.middleware import (
     setup_error_handling
 )
 from security.backup import BackupManager
-from security.logging import SecurityLogger
-
-logger = SecurityLogger()
+from security import security_logger as logger
 
 
 def create_app() -> Flask:

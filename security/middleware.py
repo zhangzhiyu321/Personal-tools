@@ -7,9 +7,7 @@ from flask import request, jsonify, g, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 import time
 from .config import SecurityConfig
-from .logging import SecurityLogger
-
-logger = SecurityLogger()
+from . import security_logger as logger
 
 
 def setup_security_headers(app):
