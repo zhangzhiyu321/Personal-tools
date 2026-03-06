@@ -6,6 +6,7 @@ venv/
 tools/stl_to_step/stltostp/build/
 # 忽略所有 markdown 文件，但允许重要的文档
 *.md
+!SECURITY.md
 
 # 安全相关文件（不应提交）
 .env

@@ -13,6 +13,12 @@ from . import security_logger as logger
 def setup_security_headers(app):
     """设置安全HTTP头部"""
     
+    @app.before_request
+    def block_backups_path():
+        """禁止通过 Web 访问备份目录，防止敏感备份文件被下载"""
+        if request.path.rstrip('/').endswith('/backups') or '/backups/' in request.path:
+            return jsonify({'error': 'Not Found', 'code': 'NOT_FOUND'}), 404
+    
     @app.after_request
     def set_security_headers(response):
         """添加安全头部"""

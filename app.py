@@ -91,6 +91,9 @@ def create_app() -> Flask:
             logger.log_info('database_initialized', {})
     except Exception as e:
         error_msg = str(e)
+        # 避免在控制台/日志中泄露数据库连接串
+        if any(x in error_msg.lower() for x in ('uri', 'password', 'mysql', 'expense_tracker_db')):
+            error_msg = '数据库配置或连接错误（敏感信息已隐藏）'
         logger.log_error('database_init_failed', {'error': error_msg})
         print(f"❌ 数据库配置错误: {error_msg}")
         if SecurityConfig.is_production():

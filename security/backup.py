@@ -26,6 +26,23 @@ def _unlink_safe(path: Path) -> None:
         pass
 
 
+def _redact_sensitive(text: str) -> str:
+    """从日志中脱敏：隐藏 URI、password=、token 等，避免泄露到日志。"""
+    if not text:
+        return text
+    import re
+    # 脱敏 mysql://user:password@host 或 password=xxx
+    out = re.sub(r'://[^@]+@', '://***@', text)
+    out = re.sub(r'--password=\S+', '--password=***', out)
+    out = re.sub(r'password["\']?\s*[:=]\s*["\']?\S+', 'password=***', out, flags=re.I)
+    out = re.sub(r'encrypted:[a-fA-F0-9]+', 'encrypted:***', out)
+    return out[:500] if len(out) > 500 else out
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
 def _resolve_uri(uri: str) -> str:
     """若 URI 为 encrypted:xxx 则解密，否则原样返回。"""
     if not uri:
@@ -180,7 +197,8 @@ class BackupManager:
             with open(backup_file, 'w', encoding='utf-8') as f:
                 result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE, text=True, timeout=600)
             if result.returncode != 0:
-                logger.log_error('backup_failed', {'slug': slug, 'error': (result.stderr or '').strip()})
+                err_msg = _redact_sensitive((result.stderr or '').strip())
+                logger.log_error('backup_failed', {'slug': slug, 'error': err_msg})
                 if backup_file.exists():
                     _unlink_safe(backup_file)
                 return None
@@ -196,7 +214,7 @@ class BackupManager:
         except Exception as e:
             if backup_file.exists():
                 _unlink_safe(backup_file)
-            logger.log_error('backup_exception', {'slug': slug, 'error': str(e)})
+            logger.log_error('backup_exception', {'slug': slug, 'error': _redact_sensitive(str(e))})
             return None
 
     def _backup_sqlite(self, uri: str, slug: str = 'db') -> Optional[Path]:
@@ -217,7 +235,7 @@ class BackupManager:
         except Exception as e:
             if dest.exists():
                 _unlink_safe(dest)
-            logger.log_error('backup_exception', {'slug': slug, 'error': str(e)})
+            logger.log_error('backup_exception', {'slug': slug, 'error': _redact_sensitive(str(e))})
             return None
 
     def _backup_one_path(self, path: Path) -> Optional[Path]:
@@ -237,7 +255,7 @@ class BackupManager:
         except Exception as e:
             for f in self.backup_dir.glob(f"path_backup_{safe_name}_{timestamp}*"):
                 _unlink_safe(f)
-            logger.log_error('backup_exception', {'path': str(path), 'error': str(e)})
+            logger.log_error('backup_exception', {'path': str(path), 'error': _redact_sensitive(str(e))})
             return None
 
     def _compress_backup(self, backup_file: Path) -> Path:
@@ -313,12 +331,12 @@ class BackupManager:
             if result.returncode == 0:
                 logger.log_info('restore_success', {'file': str(backup_file)})
                 return True
-            logger.log_error('restore_failed', {'error': (result.stderr or '').strip()})
+            logger.log_error('restore_failed', {'error': _redact_sensitive((result.stderr or '').strip())})
             return False
         except Exception as e:
             if sql_file and sql_file != backup_file:
                 _unlink_safe(sql_file)
-            logger.log_error('restore_exception', {'error': str(e)})
+            logger.log_error('restore_exception', {'error': _redact_sensitive(str(e))})
             return False
 
     def _restore_sqlite(self, backup_file: Path, uri: str) -> bool:
@@ -337,5 +355,5 @@ class BackupManager:
             logger.log_info('restore_success', {'file': str(backup_file), 'path': str(path)})
             return True
         except Exception as e:
-            logger.log_error('restore_exception', {'error': str(e)})
+            logger.log_error('restore_exception', {'error': _redact_sensitive(str(e))})
             return False
