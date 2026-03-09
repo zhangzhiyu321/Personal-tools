@@ -5,6 +5,8 @@ Excel 打卡标红工具的核心逻辑（与具体 Web/CLI 入口解耦）。
 """
 
 import os
+import re
+import traceback
 from datetime import datetime, time, timedelta
 from typing import List, Dict, Tuple, Optional
 
@@ -12,7 +14,10 @@ import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Font
 
+from .log import get_logger
 
+
+logger = get_logger()
 RED_FONT = Font(color="FFFF0000")
 
 
@@ -185,7 +190,6 @@ def process_excel_for_web(
 ) -> Tuple[Optional[str], List[Dict]]:
     """Web 场景下使用的处理函数，返回输出文件路径和凌晨打卡明细。"""
     from datetime import datetime as _dt
-    import re
 
     if custom_holidays is None:
         custom_holidays = []
@@ -218,8 +222,10 @@ def process_excel_for_web(
         return is_weekend(date_str)
 
     try:
+        logger.info("excel_core_start | path=%s", file_path)
         wb = load_workbook(file_path)
         ws = wb.active
+        logger.debug("workbook_loaded | sheet=%s max_row=%s max_column=%s", ws.title, ws.max_row, ws.max_column)
 
         base_date_str = None
         header_row_idx = None
@@ -229,23 +235,43 @@ def process_excel_for_web(
             if base_date_str is None:
                 for cell_value in row_values:
                     if cell_value and isinstance(cell_value, str) and "统计日期" in cell_value:
-                        # 匹配形如 2024-01-01 的日期
                         date_match = re.search(r"(\d{4}-\d{2}-\d{2})", cell_value)
                         if date_match:
                             base_date_str = date_match.group(1)
+                            logger.debug("base_date_found | row=%s value=%s", row_idx, base_date_str)
                             break
             row_str = " ".join([str(v) if v else "" for v in row_values])
             has_name = "姓名" in row_str
             has_weekdays = any(day in row_str for day in ["一", "二", "三", "四", "五", "六", "日"])
             if has_name and has_weekdays:
                 header_row_idx = row_idx
+                logger.info("header_row_found | row_idx=%s base_date_str=%s", header_row_idx, base_date_str)
                 break
+            logger.debug(
+                "header_scan_row | row_idx=%s has_name=%s has_weekdays=%s row_preview=%s",
+                row_idx,
+                has_name,
+                has_weekdays,
+                (row_str[:120] + "..." if len(row_str) > 120 else row_str),
+            )
 
         if header_row_idx is None:
+            logger.error(
+                "excel_core_fail | reason=header_row_not_found scanned_rows=1..%s base_date_str=%s "
+                "（前10行内未找到同时包含「姓名」与星期（一至日）的表头行）",
+                min(10, ws.max_row),
+                base_date_str,
+            )
             return None, []
 
         df = pd.read_excel(file_path, header=header_row_idx - 1)
         column_names = list(df.columns)
+        logger.info(
+            "dataframe_loaded | header_row=%s columns_count=%s column_names=%s",
+            header_row_idx,
+            len(column_names),
+            column_names[:30] if len(column_names) > 30 else column_names,
+        )
 
         info_keywords = ["姓名", "考勤组", "部门", "工号", "职位", "考勤规则", "排班", "班次"]
         weekday_keywords = ["一", "二", "三", "四", "五", "六", "日", "天"]
@@ -265,12 +291,24 @@ def process_excel_for_web(
                 date_columns.append(col)
 
         if not date_columns:
+            logger.error(
+                "excel_core_fail | reason=no_date_columns column_names=%s "
+                "（未识别到日期列：需列名包含一/二/…/日/天或1-2位数字）",
+                column_names[:40] if len(column_names) > 40 else column_names,
+            )
             return None, []
 
         first_date_col_index = column_names.index(date_columns[0]) if date_columns else 0
+        logger.info(
+            "date_columns_resolved | count=%s first_index=%s date_columns=%s",
+            len(date_columns),
+            first_date_col_index,
+            date_columns,
+        )
 
         night_records: List[Dict] = []
         rows_to_delete: List[int] = []
+        total_rows = len(df)
 
         for idx, row in df.iterrows():
             excel_row = idx + header_row_idx + 1
@@ -388,16 +426,24 @@ def process_excel_for_web(
                         else:
                             cell.font = RED_FONT
 
-            except Exception:
+            except Exception as cell_err:
+                logger.warning(
+                    "row_process_exception | excel_row=%s df_idx=%s error=%s",
+                    excel_row,
+                    idx,
+                    cell_err,
+                    exc_info=True,
+                )
                 continue
 
         # 统一删除离职员工行（倒序删除避免行号偏移）
         if rows_to_delete:
+            logger.info("deleting_resigned_rows | count=%s rows=%s", len(rows_to_delete), sorted(set(rows_to_delete)))
             for r in sorted(set(rows_to_delete), reverse=True):
                 try:
                     ws.delete_rows(r, 1)
-                except Exception:
-                    pass
+                except Exception as del_err:
+                    logger.warning("delete_row_failed | row=%s error=%s", r, del_err)
 
         dir_name, base_name = os.path.split(file_path)
         name_root, _ext = os.path.splitext(base_name)
@@ -406,11 +452,19 @@ def process_excel_for_web(
         else:
             new_base = f"{name_root}_标红.xlsx"
         output_path = os.path.join(dir_name, new_base)
+        logger.info("saving_workbook | output_path=%s night_records=%s total_rows_processed=%s", output_path, len(night_records), total_rows)
         wb.save(output_path)
 
+        logger.info("excel_core_success | output_path=%s night_records=%s", output_path, len(night_records))
         return output_path, night_records
 
-    except Exception:
+    except Exception as e:
+        logger.exception(
+            "excel_core_exception | path=%s error=%s traceback=%s",
+            file_path,
+            e,
+            traceback.format_exc(),
+        )
         return None, []
 
 
