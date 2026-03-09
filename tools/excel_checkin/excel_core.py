@@ -252,7 +252,9 @@ def process_excel_for_web(
                     has_weekdays = True
             if has_name and name_row_idx is None:
                 name_row_idx = row_idx
-            if has_weekdays and date_header_row_idx is None:
+            # 排除标题行（含「统计日期」）和报表生成行，避免「日」字被误判为星期列
+            is_title_or_report_row = "统计日期" in row_str or "报表生成" in row_str
+            if has_weekdays and date_header_row_idx is None and not is_title_or_report_row:
                 date_header_row_idx = row_idx
             logger.debug(
                 "header_scan_row | row_idx=%s has_name=%s has_weekdays=%s row_preview=%s",
