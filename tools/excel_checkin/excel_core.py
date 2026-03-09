@@ -20,7 +20,7 @@ from .log import get_logger
 logger = get_logger()
 RED_FONT = Font(color="FFFF0000")
 
-# 清洗打卡时间时保留的关键词（如「外勤」），会按原顺序追加到单元格末尾并换行显示，可扩展
+# 清洗打卡时间时保留的关键词（如「外勤」），紧跟在该行打卡时间后面显示，可扩展
 PRESERVE_KEYWORDS = ("外勤",)
 
 
@@ -106,27 +106,41 @@ def _format_hhmm(t: time) -> str:
     return f"{t.hour:02d}:{t.minute:02d}"
 
 
-def _append_preserved_keywords(original_text: str, result: str) -> str:
-    """若原单元格包含 PRESERVE_KEYWORDS 中的词，按出现顺序追加到 result 后并换行，保证通用可扩展。"""
-    if not result or not original_text:
-        return result
+def _parse_times_with_suffixes(original_text: str) -> List[Tuple[time, str]]:
+    """按行解析单元格：每行提取所有时间点，以及该行上的 PRESERVE_KEYWORDS 作为后缀。
+    返回 [(time, suffix), ...]，顺序为原文出现顺序（便于后续按时间排序取首尾）。
+    """
     s = str(original_text).strip()
-    added = []
-    for kw in PRESERVE_KEYWORDS:
-        if kw and kw in s and kw not in added:
-            added.append(kw)
-    if not added:
-        return result
-    return result + "\n" + "\n".join(added)
+    if not s:
+        return []
+    result: List[Tuple[time, str]] = []
+    for line in s.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        matches = re.findall(r"(\d{1,2}):(\d{1,2})", line)
+        suffix = ""
+        for kw in PRESERVE_KEYWORDS:
+            if kw and kw in line:
+                suffix = kw
+                break
+        for h_str, m_str in matches:
+            try:
+                h, m = int(h_str), int(m_str)
+                if 0 <= h <= 23 and 0 <= m <= 59:
+                    result.append((time(h, m), suffix))
+            except Exception:
+                continue
+    return result
 
 
 def clean_daily_punch_cell(time_value, cutoff_time: time) -> Optional[str]:
     """按规则清洗每日打卡单元格内容。
 
     - 时间点数量 < 2：不处理，返回原字符串（保留换行、外勤等）
-    - 第 1 个时间点（最早）> cutoff_time：只保留最后一次打卡时间（最晚）
-    - 否则：删除第 1 个与第 2 个时间点之间的所有时间（保留最早与最晚两次）
-    - 多个时间之间用换行分隔；若原内容含 PRESERVE_KEYWORDS（如「外勤」），会追加到末尾并换行
+    - 第 1 个时间点（最早）> cutoff_time：只保留最后一次打卡时间（最晚），后缀紧跟该时间
+    - 否则：只保留最早与最晚两次，每行「时间+后缀」，行与行之间换行
+    - 后缀（如「外勤」）取自该时间所在行的 PRESERVE_KEYWORDS，紧跟在该时间后面
     """
     if pd.isna(time_value) or time_value == "":
         return None
@@ -135,24 +149,23 @@ def clean_daily_punch_cell(time_value, cutoff_time: time) -> Optional[str]:
     if not s or "休息" in s:
         return s
 
-    points = extract_time_points(time_value)
-    if len(points) < 2:
+    parsed = _parse_times_with_suffixes(s)
+    if len(parsed) < 2:
         return s
 
-    first_time = points[0]
-    last_time = points[-1]
+    # 按时间排序取最早与最晚，保留各自行上的后缀
+    sorted_parsed = sorted(parsed, key=lambda x: x[0])
+    first_time, first_suffix = sorted_parsed[0]
+    last_time, last_suffix = sorted_parsed[-1]
 
     if first_time > cutoff_time:
-        result = _format_hhmm(last_time)
-        return _append_preserved_keywords(s, result)
+        return _format_hhmm(last_time) + last_suffix
 
     if first_time == last_time:
-        result = _format_hhmm(first_time)
-        return _append_preserved_keywords(s, result)
+        return _format_hhmm(first_time) + first_suffix
 
-    # 两个时间用换行分隔，便于在 Excel 中一行一个
-    result = f"{_format_hhmm(first_time)}\n{_format_hhmm(last_time)}"
-    return _append_preserved_keywords(s, result)
+    # 两行：最早一行，最晚一行，行与行之间换行，后缀紧跟时间
+    return f"{_format_hhmm(first_time)}{first_suffix}\n{_format_hhmm(last_time)}{last_suffix}"
 
 
 def parse_date_from_header(header_value, base_date_str, column_index, first_date_col_index):
