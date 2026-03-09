@@ -228,7 +228,8 @@ def process_excel_for_web(
         logger.debug("workbook_loaded | sheet=%s max_row=%s max_column=%s", ws.title, ws.max_row, ws.max_column)
 
         base_date_str = None
-        header_row_idx = None
+        name_row_idx = None   # 有「姓名」的行（1-based）
+        date_header_row_idx = None  # 有星期/日期列名的行（1-based）
 
         for row_idx in range(1, min(11, ws.max_row + 1)):
             row_values = [cell.value for cell in ws[row_idx]]
@@ -243,10 +244,16 @@ def process_excel_for_web(
             row_str = " ".join([str(v) if v else "" for v in row_values])
             has_name = "姓名" in row_str
             has_weekdays = any(day in row_str for day in ["一", "二", "三", "四", "五", "六", "日"])
-            if has_name and has_weekdays:
-                header_row_idx = row_idx
-                logger.info("header_row_found | row_idx=%s base_date_str=%s", header_row_idx, base_date_str)
-                break
+            # 支持仅数字的日期列名行，如 "2 3 4 5 6 六 日" 中 2,3,4,5,6 与 六、日 一起出现
+            if not has_weekdays and row_str.strip():
+                tokens = [str(v).strip() for v in row_values if v is not None and str(v).strip()]
+                digit_tokens = [t for t in tokens if t.isdigit() and len(t) <= 2]
+                if len(digit_tokens) >= 3:
+                    has_weekdays = True
+            if has_name and name_row_idx is None:
+                name_row_idx = row_idx
+            if has_weekdays and date_header_row_idx is None:
+                date_header_row_idx = row_idx
             logger.debug(
                 "header_scan_row | row_idx=%s has_name=%s has_weekdays=%s row_preview=%s",
                 row_idx,
@@ -255,17 +262,54 @@ def process_excel_for_web(
                 (row_str[:120] + "..." if len(row_str) > 120 else row_str),
             )
 
-        if header_row_idx is None:
+        # 确定表头行：支持单行表头 或 两行表头（姓名等一行 + 日期列一行）
+        header_row_idx = None
+        use_two_row_header = False
+        if date_header_row_idx is None:
             logger.error(
-                "excel_core_fail | reason=header_row_not_found scanned_rows=1..%s base_date_str=%s "
-                "（前10行内未找到同时包含「姓名」与星期（一至日）的表头行）",
+                "excel_core_fail | reason=date_header_row_not_found scanned_rows=1..%s base_date_str=%s",
                 min(10, ws.max_row),
                 base_date_str,
             )
             return None, []
+        header_row_idx = date_header_row_idx
+        if name_row_idx is not None and date_header_row_idx == name_row_idx + 1:
+            use_two_row_header = True
+            logger.info(
+                "header_two_row | name_row=%s date_row=%s base_date_str=%s",
+                name_row_idx,
+                date_header_row_idx,
+                base_date_str,
+            )
+        elif name_row_idx is not None and date_header_row_idx == name_row_idx:
+            logger.info("header_row_found | row_idx=%s base_date_str=%s", header_row_idx, base_date_str)
+        else:
+            logger.info("header_row_found | row_idx=%s (date_row_only) base_date_str=%s", header_row_idx, base_date_str)
 
-        df = pd.read_excel(file_path, header=header_row_idx - 1)
-        column_names = list(df.columns)
+        if use_two_row_header:
+            df = pd.read_excel(file_path, header=[header_row_idx - 2, header_row_idx - 1])
+        else:
+            df = pd.read_excel(file_path, header=header_row_idx - 1)
+
+        # 展平 MultiIndex 列名：取第二层（日期 2,3,…,六,日），无则取第一层（姓名、考勤组等），统一为 str
+        raw_columns = df.columns
+        if hasattr(raw_columns, "levels"):
+            column_names = []
+            for c in raw_columns:
+                if isinstance(c, tuple):
+                    second = c[-1] if len(c) > 1 else c[0]
+                    first = c[0]
+                    if second is None or (isinstance(second, float) and pd.isna(second)):
+                        column_names.append(str(first) if first is not None else "")
+                    elif str(second).strip() in ("", "nan") or "Unnamed" in str(second):
+                        column_names.append(str(first) if first is not None else "")
+                    else:
+                        column_names.append(str(second))
+                else:
+                    column_names.append(str(c) if c is not None else "")
+            df.columns = column_names
+        else:
+            column_names = [str(c) if c is not None else "" for c in df.columns]
         logger.info(
             "dataframe_loaded | header_row=%s columns_count=%s column_names=%s",
             header_row_idx,
