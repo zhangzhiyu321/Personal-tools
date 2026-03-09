@@ -20,6 +20,9 @@ from .log import get_logger
 logger = get_logger()
 RED_FONT = Font(color="FFFF0000")
 
+# 清洗打卡时间时保留的关键词（如「外勤」），会按原顺序追加到单元格末尾并换行显示，可扩展
+PRESERVE_KEYWORDS = ("外勤",)
+
 
 def is_weekend(date_str: str) -> bool:
     """判断是否是周末（周六、周日）"""
@@ -103,12 +106,27 @@ def _format_hhmm(t: time) -> str:
     return f"{t.hour:02d}:{t.minute:02d}"
 
 
+def _append_preserved_keywords(original_text: str, result: str) -> str:
+    """若原单元格包含 PRESERVE_KEYWORDS 中的词，按出现顺序追加到 result 后并换行，保证通用可扩展。"""
+    if not result or not original_text:
+        return result
+    s = str(original_text).strip()
+    added = []
+    for kw in PRESERVE_KEYWORDS:
+        if kw and kw in s and kw not in added:
+            added.append(kw)
+    if not added:
+        return result
+    return result + "\n" + "\n".join(added)
+
+
 def clean_daily_punch_cell(time_value, cutoff_time: time) -> Optional[str]:
     """按规则清洗每日打卡单元格内容。
 
-    - 时间点数量 < 2：不处理，返回原字符串
+    - 时间点数量 < 2：不处理，返回原字符串（保留换行、外勤等）
     - 第 1 个时间点（最早）> cutoff_time：只保留最后一次打卡时间（最晚）
     - 否则：删除第 1 个与第 2 个时间点之间的所有时间（保留最早与最晚两次）
+    - 多个时间之间用换行分隔；若原内容含 PRESERVE_KEYWORDS（如「外勤」），会追加到末尾并换行
     """
     if pd.isna(time_value) or time_value == "":
         return None
@@ -125,12 +143,16 @@ def clean_daily_punch_cell(time_value, cutoff_time: time) -> Optional[str]:
     last_time = points[-1]
 
     if first_time > cutoff_time:
-        return _format_hhmm(last_time)
+        result = _format_hhmm(last_time)
+        return _append_preserved_keywords(s, result)
 
     if first_time == last_time:
-        return _format_hhmm(first_time)
+        result = _format_hhmm(first_time)
+        return _append_preserved_keywords(s, result)
 
-    return f"{_format_hhmm(first_time)} {_format_hhmm(last_time)}"
+    # 两个时间用换行分隔，便于在 Excel 中一行一个
+    result = f"{_format_hhmm(first_time)}\n{_format_hhmm(last_time)}"
+    return _append_preserved_keywords(s, result)
 
 
 def parse_date_from_header(header_value, base_date_str, column_index, first_date_col_index):
