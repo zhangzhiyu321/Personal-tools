@@ -34,8 +34,12 @@ def is_weekend(date_str: str) -> bool:
         return False
 
 
-def extract_last_time(time_str) -> Optional[time]:
-    """从打卡时间字符串中提取最后一次打卡时间"""
+def extract_last_time(time_str, cutoff_time: time) -> Optional[time]:
+    """从打卡时间字符串中提取最后一次打卡时间。
+
+    关键：如果所有时间都在 cutoff_time 之前（如 00:00 和 08:52），说明是跨午夜情况，
+    此时数值较小的时间（00:00）是下班打卡时间，应该返回它。
+    """
     if pd.isna(time_str) or time_str == "":
         return None
 
@@ -49,22 +53,36 @@ def extract_last_time(time_str) -> Optional[time]:
         if "休息" in time_str:
             return None
 
-        # 注意：这里是普通正则，匹配 1-2 位数字:1-2 位数字
-        # 之前写成 "(\\d{1,2}):(\\d{1,2})" 会导致正则变成匹配反斜杠+数字，无法识别时间
         time_pattern = r"(\d{1,2}):(\d{1,2})"
         matches = re.findall(time_pattern, time_str)
 
         if not matches:
             return None
 
-        hour_str, minute_str = matches[-1]
-        hour = int(hour_str)
-        minute = int(minute_str)
+        times = []
+        for h_str, m_str in matches:
+            try:
+                h = int(h_str)
+                m = int(m_str)
+                if 0 <= h <= 23 and 0 <= m <= 59:
+                    times.append(time(h, m))
+            except Exception:
+                continue
 
-        if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        if not times:
             return None
 
-        return time(hour, minute)
+        sorted_times = sorted(times)
+        earliest = sorted_times[0]
+        latest = sorted_times[-1]
+
+        # 跨午夜判断：如果所有时间都在 cutoff 之前，说明较小的（earliest）
+        # 其实是下班打卡时间（如 00:00），应该返回它
+        if earliest <= cutoff_time and latest <= cutoff_time:
+            return earliest
+
+        # 正常情况：返回数值最大的时间
+        return latest
     except Exception:
         return None
 
@@ -138,8 +156,11 @@ def clean_daily_punch_cell(time_value, cutoff_time: time) -> Optional[str]:
     """按规则清洗每日打卡单元格内容。
 
     - 时间点数量 < 2：不处理，返回原字符串（保留换行、外勤等）
-    - 第 1 个时间点（最早）> cutoff_time：只保留最后一次打卡时间（最晚），后缀紧跟该时间
-    - 否则：只保留最早与最晚两次，每行「时间+后缀」，行与行之间换行
+    - 所有时间点相同：只显示一个
+    - 跨午夜情况（如 00:00 下班 + 08:52 上班）：两个时间都在 cutoff 之前（都是「早上」时间段）
+      → 较小时间是下班打卡（00:00），较大时间是上班打卡（08:52）→ 上班在上，下班在下
+    - 第一笔 > cutoff（全天都 > cutoff）：纯夜班，只显示最晚的（下班时间）
+    - 正常班次：早上上班在上，晚上下班在下
     - 后缀（如「外勤」）取自该时间所在行的 PRESERVE_KEYWORDS，紧跟在该时间后面
     """
     if pd.isna(time_value) or time_value == "":
@@ -153,19 +174,28 @@ def clean_daily_punch_cell(time_value, cutoff_time: time) -> Optional[str]:
     if len(parsed) < 2:
         return s
 
-    # 按时间排序取最早与最晚，保留各自行上的后缀
+    # 排序以确定时间顺序
     sorted_parsed = sorted(parsed, key=lambda x: x[0])
-    first_time, first_suffix = sorted_parsed[0]
-    last_time, last_suffix = sorted_parsed[-1]
+    earliest = sorted_parsed[0][0]
+    latest = sorted_parsed[-1][0]
+    earliest_suffix = sorted_parsed[0][1]
+    latest_suffix = sorted_parsed[-1][1]
 
-    if first_time > cutoff_time:
-        return _format_hhmm(last_time) + last_suffix
+    if earliest == latest:
+        return _format_hhmm(earliest) + earliest_suffix
 
-    if first_time == last_time:
-        return _format_hhmm(first_time) + first_suffix
+    # 两个时间都在 cutoff 之前（都是「早上」时间段），说明是跨午夜：
+    # - earliest 虽数值小但是下班打卡（如 00:00）
+    # - latest 虽数值大但是上班打卡（如 08:52）
+    if earliest <= cutoff_time and latest <= cutoff_time:
+        return f"{_format_hhmm(latest)}{latest_suffix}\n{_format_hhmm(earliest)}{earliest_suffix}"
 
-    # 两行：最早一行，最晚一行，行与行之间换行，后缀紧跟时间
-    return f"{_format_hhmm(first_time)}{first_suffix}\n{_format_hhmm(last_time)}{last_suffix}"
+    # earliest > cutoff：全是晚上打卡（夜班），只显示最晚的
+    if earliest > cutoff_time:
+        return _format_hhmm(latest) + latest_suffix
+
+    # 正常班次：earliest 是早上上班，latest 是晚上下班
+    return f"{_format_hhmm(earliest)}{earliest_suffix}\n{_format_hhmm(latest)}{latest_suffix}"
 
 
 def parse_date_from_header(header_value, base_date_str, column_index, first_date_col_index):
@@ -448,7 +478,7 @@ def process_excel_for_web(
                         ws.cell(row=excel_row, column=col_idx_excel).value = cleaned_value
                     time_value_for_logic = cleaned_value
 
-                    last_time = extract_last_time(time_value_for_logic)
+                    last_time = extract_last_time(time_value_for_logic, cutoff_time=clean_cutoff_time)
                     if last_time is None:
                         continue
 
